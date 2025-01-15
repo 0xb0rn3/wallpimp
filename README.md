@@ -138,10 +138,6 @@ Please ensure your code follows the existing style and includes appropriate test
 
 WallPimp was developed by ソロックス (oxborn3) and is maintained by the community. Special thanks to all the wallpaper repository maintainers who make their collections available.
 
-## License
-
-This project is licensed under the MIT License - see the LICENSE file for details.
-
 ## Version History
 
 - v2.1: Added multi-threading, improved error handling, enhanced progress tracking
