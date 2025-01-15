@@ -1,16 +1,18 @@
 #!/usr/bin/env python3
 """
-WallPimp - Automated Wallpaper Collection Tool
+WallPimp - Cross-Platform Automated Wallpaper Collection Tool
 Developed by 0xb0rn3 (https://github.com/0xb0rn3)
 
 This tool automatically collects wallpapers from predefined GitHub repositories
 and organizes them into a specified directory. It supports multiple image formats
-and provides an easy-to-use interface for selecting the output location.
+and provides cross-platform compatibility for Windows and Linux systems.
 """
 
 import os
+import sys
 import shutil
 import subprocess
+import platform
 from pathlib import Path
 import glob
 
@@ -37,18 +39,70 @@ IMAGE_FORMATS = [
     '*.WEBP', '*.TIFF', '*.SVG', '*.HEIC', '*.ICO'
 ]
 
-def get_default_output_folder():
+def check_dependencies():
     """
-    Returns the default output folder path based on user's home directory.
+    Check if required dependencies (git) are installed and accessible.
+    Provides platform-specific guidance if dependencies are missing.
     
     Returns:
-        Path: Default pictures folder path
+        bool: True if all dependencies are met, False otherwise
     """
-    return Path(os.path.expanduser("~/Pictures"))
+    try:
+        # Check git installation
+        subprocess.run(['git', '--version'], 
+                      check=True, 
+                      capture_output=True, 
+                      text=True)
+        return True
+    except subprocess.CalledProcessError:
+        system = platform.system().lower()
+        if system == 'windows':
+            print("Git not found! Please install Git from https://git-scm.com/download/windows")
+        else:  # Linux
+            print("Git not found! Please install using your package manager:")
+            print("For Ubuntu/Debian: sudo apt install git")
+            print("For Fedora: sudo dnf install git")
+            print("For Arch: sudo pacman -S git")
+        return False
+    except Exception as e:
+        print(f"Error checking dependencies: {e}")
+        return False
+
+def get_default_output_folder():
+    """
+    Returns the platform-specific default output folder path.
+    
+    Returns:
+        Path: Default pictures folder path based on OS
+    """
+    system = platform.system().lower()
+    
+    if system == 'windows':
+        # Windows: Use USERPROFILE environment variable
+        return Path(os.environ.get('USERPROFILE')) / 'Pictures'
+    else:
+        # Linux: Use HOME environment variable
+        return Path(os.environ.get('HOME')) / 'Pictures'
+
+def ensure_folder_permissions(folder_path):
+    """
+    Ensures the folder has correct permissions for the current platform.
+    Handles platform-specific permission settings.
+    
+    Args:
+        folder_path (Path): Path to the folder to check/fix permissions
+    """
+    try:
+        if platform.system().lower() != 'windows':
+            # Set appropriate permissions on Linux (read/write for user)
+            os.chmod(folder_path, 0o755)
+    except Exception as e:
+        print(f"Warning: Could not set folder permissions: {e}")
 
 def get_output_folder():
     """
     Prompts the user to choose between default Pictures folder or custom location.
+    Handles platform-specific paths and permissions.
     
     Returns:
         str: Path to the selected output folder
@@ -67,6 +121,7 @@ def get_output_folder():
             break
         elif choice == "2":
             custom_path = input("\nEnter the custom path for wallpapers: ").strip()
+            # Handle both Windows and Unix-style paths
             folder_path = Path(os.path.expanduser(custom_path))
             break
         else:
@@ -75,16 +130,32 @@ def get_output_folder():
     try:
         # Create the folder if it doesn't exist
         folder_path.mkdir(parents=True, exist_ok=True)
+        ensure_folder_permissions(folder_path)
         return str(folder_path)
     except Exception as e:
         print(f"Error creating folder: {e}")
         print(f"Falling back to default location: {default_folder}")
         default_folder.mkdir(parents=True, exist_ok=True)
+        ensure_folder_permissions(default_folder)
         return str(default_folder)
+
+def get_git_command():
+    """
+    Returns the appropriate git command for the current platform.
+    
+    Returns:
+        list: Command list for subprocess
+    """
+    system = platform.system().lower()
+    if system == 'windows':
+        return ['git']  # Windows will use git from PATH
+    else:
+        return ['git']  # Linux will use git from PATH
 
 def clone_and_collect_wallpapers(output_folder):
     """
     Clone predefined GitHub repositories and collect wallpapers into a single folder.
+    Handles platform-specific path and command requirements.
     
     Args:
         output_folder (str): Path to the destination folder for wallpapers
@@ -98,6 +169,7 @@ def clone_and_collect_wallpapers(output_folder):
     temp_dir.mkdir(exist_ok=True)
     
     total_wallpapers = 0
+    git_cmd = get_git_command()
     
     try:
         # Process each repository
@@ -109,9 +181,9 @@ def clone_and_collect_wallpapers(output_folder):
             print(f"\nProcessing repository: {repo_name}")
             
             try:
-                # Clone the repository
+                # Clone the repository using platform-specific git command
                 print(f"Cloning {repo_url}...")
-                subprocess.run(['git', 'clone', '--depth', '1', repo_url, str(repo_path)], 
+                subprocess.run([*git_cmd, 'clone', '--depth', '1', repo_url, str(repo_path)], 
                              check=True, 
                              capture_output=True)
                 
@@ -130,7 +202,7 @@ def clone_and_collect_wallpapers(output_folder):
                     destination = output_path / new_name
                     
                     try:
-                        # Copy the file
+                        # Copy the file with platform-appropriate methods
                         shutil.copy2(image_file, destination)
                         repo_wallpapers += 1
                         print(f"Copied: {new_name}")
@@ -150,7 +222,10 @@ def clone_and_collect_wallpapers(output_folder):
     finally:
         # Clean up: remove temporary repository folders
         print("\nCleaning up temporary files...")
-        shutil.rmtree(temp_dir, ignore_errors=True)
+        try:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+        except Exception as e:
+            print(f"Warning: Error during cleanup: {e}")
         
     print(f"\nWallPimp collection complete! 🎨")
     print(f"Total wallpapers collected: {total_wallpapers}")
@@ -159,7 +234,7 @@ def clone_and_collect_wallpapers(output_folder):
 def main():
     """
     Main function to run the WallPimp wallpaper collection script.
-    Handles output folder selection and initiates the collection process.
+    Includes platform checks and appropriate setup for each OS.
     """
     print("""
 ╔═══════════════════════════════════════╗
@@ -168,6 +243,15 @@ def main():
 ║    https://github.com/0xb0rn3         ║
 ╚═══════════════════════════════════════╝
     """)
+    
+    # Check system and dependencies
+    system = platform.system()
+    print(f"Detected operating system: {system}")
+    
+    if not check_dependencies():
+        print("Required dependencies not met. Please install them and try again.")
+        sys.exit(1)
+    
     print(f"Ready to download wallpapers from {len(WALLPAPER_REPOS)} repositories.")
     
     # Get output folder path from user
