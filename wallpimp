@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 """
-WallPimp v2.1 - Cross-Platform Automated Wallpaper Collection Tool
-A sophisticated wallpaper collection tool that fetches high-quality wallpapers
-from curated GitHub repositories while handling errors gracefully and providing
-clear feedback to users.
+WallPimp v2.3 - Enhanced Cross-Platform Automated Wallpaper Collection Tool
+Optimized for large repositories with precise file handling and verification.
+Features improved duplicate detection, download resumption, and interactive file management.
 
 Developed by ソロックス (oxborn3)
 GitHub: https://github.com/0xb0rn3
@@ -13,12 +12,20 @@ import sys
 import shutil
 import subprocess
 import platform
+import requests
 from pathlib import Path
 import hashlib
 import time
+import logging
+import json
+from PIL import Image
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import List, Set, Dict, Tuple
+from typing import List, Set, Dict, Tuple, Optional
 from tqdm import tqdm
+import re
+from datetime import datetime
+import signal
+import threading
 
 # Configuration constants
 WALLPAPER_REPOS = [
@@ -34,201 +41,581 @@ WALLPAPER_REPOS = [
     "https://github.com/expandpi/wallpapers"
 ]
 
-# Supported image formats and size constraints
-IMAGE_FORMATS = {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.tiff', '.svg', '.heic'}
-MAX_IMAGE_SIZE = 500 * 1024 * 1024  # 500MB maximum file size
-MIN_IMAGE_SIZE = 1 * 1024         # 1KB minimum file size
-MAX_RETRIES = 3                    # Maximum number of retry attempts
-CLONE_TIMEOUT = 1800000                # Repository clone timeout in seconds
+# Enhanced settings for large repositories
+IMAGE_FORMATS = {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.tiff'}
+MAX_IMAGE_SIZE = 1024 * 1024 * 1024  # 1GB maximum file size
+MIN_IMAGE_SIZE = 1 * 1024            # 1KB minimum file size
+MIN_RESOLUTION = (1280, 720)         # Minimum resolution (HD)
+MAX_RETRIES = 5                      # Maximum number of retry attempts
+CLONE_TIMEOUT = 3600                 # Repository clone timeout (1 hour)
+DOWNLOAD_CHUNK_SIZE = 8192           # Download chunk size for large files
+PROGRESS_SAVE_INTERVAL = 60          # Save progress every 60 seconds
+
+class DownloadState:
+    """Track download progress and state for resume capability."""
+    def __init__(self, state_file: Path):
+        self.state_file = state_file
+        self.downloaded_files: Set[str] = set()
+        self.processed_repos: Set[str] = set()
+        self.load_state()
+
+    def load_state(self):
+        """Load previous download state if it exists."""
+        if self.state_file.exists():
+            try:
+                with open(self.state_file, 'r') as f:
+                    data = json.load(f)
+                    self.downloaded_files = set(data.get('downloaded_files', []))
+                    self.processed_repos = set(data.get('processed_repos', []))
+            except Exception as e:
+                logging.error(f"Error loading state: {e}")
+
+    def save_state(self):
+        """Save current download state."""
+        try:
+            with open(self.state_file, 'w') as f:
+                json.dump({
+                    'downloaded_files': list(self.downloaded_files),
+                    'processed_repos': list(self.processed_repos),
+                    'last_updated': datetime.now().isoformat()
+                }, f)
+        except Exception as e:
+            logging.error(f"Error saving state: {e}")
 
 class WallPimp:
     """
-    Main class for the WallPimp wallpaper collection tool.
-    Handles downloading, processing, and organizing wallpapers from various repositories.
+    Enhanced WallPimp wallpaper collection tool optimized for large repositories
+    with precise file handling and verification.
     """
     
     def __init__(self):
-        """Initialize the WallPimp instance with necessary paths and counters."""
         self.output_folder = self._get_default_output_folder()
         self.temp_dir = Path("temp_repos")
-        self.processed_hashes: Set[str] = set()
+        self.state_file = self.output_folder / '.wallpimp_state.json'
+        self.download_state = DownloadState(self.state_file)
+        self.processed_hashes: Dict[str, Path] = {}  # Hash to file path mapping
         self.total_wallpapers = 0
         self.successful_repos = 0
+        self.failed_downloads: List[Tuple[str, Path]] = []
+        self.stop_event = threading.Event()
+        
+        # Set up logging with rotation
+        self._setup_logging()
+        
+        # Register signal handlers for graceful shutdown
+        signal.signal(signal.SIGINT, self._signal_handler)
+        signal.signal(signal.SIGTERM, self._signal_handler)
+
+    def _signal_handler(self, signum, frame):
+        """Handle shutdown signals gracefully."""
+        print("\nReceived shutdown signal. Cleaning up...")
+        self.stop_event.set()
+        self.download_state.save_state()
+        sys.exit(0)
+
+    def _setup_logging(self):
+        """Configure rotating log handler."""
+        log_file = self.output_folder / 'wallpimp.log'
+        logging.basicConfig(
+            level=logging.INFO,
+            format='%(asctime)s - %(levelname)s - %(message)s',
+            handlers=[
+                logging.FileHandler(log_file),
+                logging.StreamHandler()
+            ]
+        )
+        self.logger = logging.getLogger('WallPimp')
+
+    def _auto_save_state(self):
+        """Periodically save download state."""
+        while not self.stop_event.is_set():
+            time.sleep(PROGRESS_SAVE_INTERVAL)
+            self.download_state.save_state()
 
     def _get_default_output_folder(self) -> Path:
-        """
-        Determine the appropriate output folder based on the operating system.
-        Returns a Path object pointing to the Pictures/WallPimp directory.
-        """
+        """Get the default output folder with extended platform support."""
         system = platform.system().lower()
-        env_var = 'USERPROFILE' if system == 'windows' else 'HOME'
-        return Path(os.environ.get(env_var, '')) / 'Pictures' / 'WallPimp'
+        if system == 'windows':
+            base_dir = os.environ.get('USERPROFILE')
+        elif system == 'darwin':
+            base_dir = os.path.expanduser('~/Pictures')
+        else:  # Linux and others
+            base_dir = os.environ.get('XDG_PICTURES_DIR', 
+                                    os.path.expanduser('~/Pictures'))
+        
+        return Path(base_dir) / 'WallPimp'
 
-    def _validate_image(self, filepath: Path) -> bool:
+    def _validate_image_file(self, filepath: Path, hash_only: bool = False) -> Tuple[bool, Optional[str]]:
         """
-        Validate an image file based on its extension and size.
-        Returns True if the image meets all criteria, False otherwise.
+        Validate image file with enhanced checks and hash calculation.
+        Returns (is_valid, file_hash).
         """
         try:
-            if filepath.suffix.lower() not in IMAGE_FORMATS:
-                return False
+            if not filepath.suffix.lower() in IMAGE_FORMATS:
+                return False, None
+
             file_size = filepath.stat().st_size
-            return MIN_IMAGE_SIZE <= file_size <= MAX_IMAGE_SIZE
-        except Exception:
+            if not (MIN_IMAGE_SIZE <= file_size <= MAX_IMAGE_SIZE):
+                return False, None
+
+            # Calculate hash first for efficiency
+            file_hash = self._get_file_hash(filepath)
+            
+            if hash_only:
+                return True, file_hash
+
+            # Verify image integrity and check resolution
+            with Image.open(filepath) as img:
+                width, height = img.size
+                if width < MIN_RESOLUTION[0] or height < MIN_RESOLUTION[1]:
+                    return False, None
+                
+                # Verify image isn't corrupted
+                img.verify()
+                
+            return True, file_hash
+        except Exception as e:
+            self.logger.debug(f"Image validation failed for {filepath}: {str(e)}")
+            return False, None
+
+    def _handle_duplicate_file(self, source: Path, destination: Path, 
+                             source_hash: str) -> bool:
+        """
+        Handle duplicate file detection with user interaction.
+        Returns True if file should be copied, False to skip.
+        """
+        if source_hash in self.processed_hashes:
+            existing_file = self.processed_hashes[source_hash]
+            if existing_file.exists():
+                print(f"\nDuplicate detected:")
+                print(f"New file: {source}")
+                print(f"Existing: {existing_file}")
+                
+                while True:
+                    choice = input("Replace existing file? (y/n): ").lower()
+                    if choice in ('y', 'n'):
+                        return choice == 'y'
+                    print("Please enter 'y' or 'n'")
+            return True
+        return True
+
+    def _verify_file_integrity(self, filepath: Path, original_hash: str) -> bool:
+        """
+        Verify file integrity after copy/download operations.
+        """
+        try:
+            _, new_hash = self._validate_image_file(filepath, hash_only=True)
+            return new_hash == original_hash
+        except Exception as e:
+            self.logger.error(f"Integrity check failed for {filepath}: {e}")
             return False
-
-    def _get_file_hash(self, filepath: Path) -> str:
-        """
-        Calculate the SHA-256 hash of a file to prevent duplicates.
-        Returns the hexadecimal string representation of the hash.
-        """
-        sha256_hash = hashlib.sha256()
-        with open(filepath, "rb") as f:
-            for byte_block in iter(lambda: f.read(4096), b""):
-                sha256_hash.update(byte_block)
-        return sha256_hash.hexdigest()
-
-    def _clone_repository(self, repo_url: str, repo_path: Path) -> bool:
-        """
-        Clone a repository with retry mechanism and timeout.
-        Returns True if cloning was successful, False otherwise.
-        """
-        for attempt in range(MAX_RETRIES):
-            try:
-                if attempt > 0:
-                    time.sleep(2 ** attempt)  # Exponential backoff
-                subprocess.run(
-                    ['git', 'clone', '--depth', '1', '--quiet', repo_url, str(repo_path)],
-                    check=True,
-                    capture_output=True,
-                    timeout=CLONE_TIMEOUT
-                )
-                return True
-            except subprocess.SubprocessError:
-                continue
-        return False
 
     def process_repository(self, repo_url: str) -> Tuple[int, str]:
         """
-        Process a single repository, collecting and organizing its wallpapers.
-        Returns a tuple of (number of wallpapers processed, status message).
+        Process repository with enhanced file handling and verification.
         """
+        if repo_url in self.download_state.processed_repos:
+            return 0, f"Skipping already processed repository: {repo_url}"
+
         repo_name = repo_url.split('/')[-1].replace('.git', '')
         repo_path = self.temp_dir / repo_name
         wallpapers_count = 0
         status_message = ""
-
+        
         try:
-            # Attempt to clone the repository
             if not self._clone_repository(repo_url, repo_path):
                 return 0, f"⚠️  Failed to clone {repo_name}"
 
-            # Collect all image files
+            # Find all potential image files
             image_files = []
             for ext in IMAGE_FORMATS:
                 image_files.extend(repo_path.glob(f"**/*{ext}"))
                 image_files.extend(repo_path.glob(f"**/*{ext.upper()}"))
 
-            # Process each image
-            for image_file in image_files:
-                try:
-                    if not self._validate_image(image_file):
-                        continue
+            # Process images with detailed progress
+            with tqdm(total=len(image_files), 
+                     desc=f"Processing {repo_name}", 
+                     leave=False) as pbar:
+                for image_file in image_files:
+                    if self.stop_event.is_set():
+                        break
 
-                    file_hash = self._get_file_hash(image_file)
-                    if file_hash in self.processed_hashes:
-                        continue
+                    try:
+                        # Validate and get hash
+                        is_valid, file_hash = self._validate_image_file(image_file)
+                        if not is_valid or not file_hash:
+                            pbar.update(1)
+                            continue
 
-                    new_name = f"{repo_name}_{image_file.name}"
-                    destination = self.output_folder / new_name
-                    shutil.copy2(image_file, destination)
-                    self.processed_hashes.add(file_hash)
-                    wallpapers_count += 1
+                        # Generate unique filename
+                        new_name = self._sanitize_filename(
+                            f"{repo_name}_{image_file.name}")
+                        destination = self.output_folder / new_name
 
-                except Exception:
-                    continue
+                        # Handle duplicates
+                        if not self._handle_duplicate_file(
+                            image_file, destination, file_hash):
+                            pbar.update(1)
+                            continue
+
+                        # Copy file with verification
+                        shutil.copy2(image_file, destination)
+                        
+                        # Verify copy integrity
+                        if not self._verify_file_integrity(destination, file_hash):
+                            self.logger.error(
+                                f"Integrity check failed for {destination}")
+                            self.failed_downloads.append((str(image_file), 
+                                                       destination))
+                            continue
+
+                        # Update tracking
+                        self.processed_hashes[file_hash] = destination
+                        self.download_state.downloaded_files.add(str(destination))
+                        wallpapers_count += 1
+                        
+                    except Exception as e:
+                        self.logger.error(f"Error processing {image_file}: {str(e)}")
+                        self.failed_downloads.append((str(image_file), destination))
+                    finally:
+                        pbar.update(1)
 
             self.successful_repos += 1
+            self.download_state.processed_repos.add(repo_url)
             status_message = f"✓ Downloaded {wallpapers_count} wallpapers from {repo_name}"
-            return wallpapers_count, status_message
-
+            
         except Exception as e:
+            self.logger.error(f"Error processing repository {repo_name}: {str(e)}")
             status_message = f"⚠️  Error processing {repo_name}: {str(e)}"
-            return wallpapers_count, status_message
+            
         finally:
-            shutil.rmtree(repo_path, ignore_errors=True)
+            # Clean up repository
+            if repo_path.exists():
+                shutil.rmtree(repo_path, ignore_errors=True)
+                
+        return wallpapers_count, status_message
 
-    def print_banner(self):
-        """Display the WallPimp banner with developer information."""
-        banner = """
-╔══════════════════════════════════════════════════╗
-║                 WallPimp v2.1                    ║
-║        Developed by ソロックス (oxborn3)          ║
-║        https://github.com/0xb0rn3               ║
-╚══════════════════════════════════════════════════╝
+    def _clone_repository(self, repo_url: str, repo_path: Path) -> bool:
         """
-        print(banner)
+        Enhanced repository cloning with progress indication and large repo handling.
+        """
+        for attempt in range(MAX_RETRIES):
+            try:
+                if attempt > 0:
+                    wait_time = min(2 ** attempt, 60)
+                    self.logger.info(
+                        f"Retry attempt {attempt + 1} for {repo_url}, "
+                        f"waiting {wait_time}s")
+                    time.sleep(wait_time)
+
+                print(f"\nCloning {repo_url}...")
+                
+                # Use partial clone for large repositories
+                cmd = [
+                    'git', 'clone',
+                    '--filter=blob:limit=1g',  # Filter large files
+                    '--single-branch',
+                    '--progress',
+                    repo_url,
+                    str(repo_path)
+                ]
+                
+                process = subprocess.Popen(
+                    cmd,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    universal_newlines=True
+                )
+                
+                # Monitor clone progress
+                while True:
+                    if process.stderr is None:
+                        break
+                        
+                    output = process.stderr.readline()
+                    if output == '' and process.poll() is not None:
+                        break
+                    if output:
+                        # Extract progress information if available
+                        if 'Receiving objects:' in output:
+                            print(f"\r{output.strip()}", end='')
+                
+                if process.wait() == 0:
+                    print("\nClone completed successfully")
+                    return True
+                    
+            except subprocess.TimeoutExpired:
+                self.logger.error(f"Timeout while cloning {repo_url}")
+            except subprocess.SubprocessError as e:
+                self.logger.error(f"Error cloning {repo_url}: {str(e)}")
+            
+        return False
 
     def run(self):
         """
-        Main execution method that orchestrates the wallpaper collection process.
-        Handles multiple repositories in parallel and provides progress feedback.
+        Main execution method with improved error handling and progress tracking.
         """
         self.print_banner()
-
+        
         # Create necessary directories
         self.output_folder.mkdir(parents=True, exist_ok=True)
         self.temp_dir.mkdir(exist_ok=True)
-
+        
+        # Start auto-save thread
+        save_thread = threading.Thread(target=self._auto_save_state)
+        save_thread.daemon = True
+        save_thread.start()
+        
+        start_time = time.time()
+        
         try:
-            # Process repositories in parallel
-            with ThreadPoolExecutor(max_workers=3) as executor:
+            # Process repositories with controlled parallelism
+            max_workers = min(len(WALLPAPER_REPOS), os.cpu_count() or 2)
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
                 futures = [
                     executor.submit(self.process_repository, repo_url)
                     for repo_url in WALLPAPER_REPOS
                 ]
                 
-                # Display progress bar and status updates
-                with tqdm(total=len(WALLPAPER_REPOS), 
-                         desc="Downloading 300+ unique-wallpapers please be patient", 
-                         bar_format='{desc}: {percentage:3.0f}%|{bar}| {n_fmt}/{total_fmt}',
-                         ncols=70) as pbar:
+                with tqdm(
+                    total=len(WALLPAPER_REPOS),
+                    desc="Processing repositories",
+                    bar_format='{desc}: {percentage:3.0f}%|{bar}| {n_fmt}/{total_fmt}',
+                    ncols=70
+                ) as pbar:
                     for future in as_completed(futures):
+                        if self.stop_event.is_set():
+                            break
                         count, status = future.result()
                         self.total_wallpapers += count
                         print(f"\n{status}")
                         pbar.update(1)
 
+            # Retry any failed downloads
+            if self.failed_downloads and not self.stop_event.is_set():
+                self._retry_failed_downloads()
+            
+        except Exception as e:
+            self.logger.error(f"Fatal error during execution: {e}")
+            raise
         finally:
-            # Clean up temporary files
-            shutil.rmtree(self.temp_dir, ignore_errors=True)
+            # Save final state and clean up
+            self.download_state.save_state()
+            if self.temp_dir.exists():
+                shutil.rmtree(self.temp_dir, ignore_errors=True)
 
-        # Display final summary
-        print(f"\n✨ Collection complete! Downloaded {self.total_wallpapers} wallpapers")
-        print(f"📁 Saved to: {self.output_folder}")
-        if self.successful_repos < len(WALLPAPER_REPOS):
-            print(f"ℹ️  Successfully processed {self.successful_repos} out of {len(WALLPAPER_REPOS)} repositories")
+        # Display final summary with enhanced statistics
+        self._display_final_summary(start_time)
 
-def check_git_installation():
+    def _retry_failed_downloads(self):
+        """
+        Attempt to retry failed downloads with user interaction.
+        """
+        if not self.failed_downloads:
+            return
+
+        print(f"\nRetrying {len(self.failed_downloads)} failed downloads...")
+        
+        retry_successful = 0
+        remaining_failures = []
+        
+        with tqdm(total=len(self.failed_downloads), 
+                 desc="Retrying failed downloads") as pbar:
+            for source, destination in self.failed_downloads:
+                try:
+                    if self.stop_event.is_set():
+                        break
+
+                    source_path = Path(source)
+                    if not source_path.exists():
+                        self.logger.error(f"Source file no longer exists: {source}")
+                        remaining_failures.append((source, destination))
+                        continue
+
+                    # Validate source file again
+                    is_valid, file_hash = self._validate_image_file(source_path)
+                    if not is_valid:
+                        self.logger.error(f"Source file invalid: {source}")
+                        remaining_failures.append((source, destination))
+                        continue
+
+                    # Attempt to copy with verification
+                    shutil.copy2(source_path, destination)
+                    if self._verify_file_integrity(destination, file_hash):
+                        retry_successful += 1
+                        self.processed_hashes[file_hash] = destination
+                        self.download_state.downloaded_files.add(str(destination))
+                    else:
+                        remaining_failures.append((source, destination))
+
+                except Exception as e:
+                    self.logger.error(f"Retry failed for {source}: {str(e)}")
+                    remaining_failures.append((source, destination))
+                finally:
+                    pbar.update(1)
+
+        self.failed_downloads = remaining_failures
+        
+        if retry_successful:
+            print(f"\nSuccessfully retried {retry_successful} downloads")
+        if remaining_failures:
+            print(f"\nWarning: {len(remaining_failures)} downloads still failed")
+
+    def _display_final_summary(self, start_time: float):
+        """
+        Display comprehensive summary of the download operation.
+        """
+        elapsed_time = time.time() - start_time
+        hours, remainder = divmod(int(elapsed_time), 3600)
+        minutes, seconds = divmod(remainder, 60)
+        
+        print("\n" + "="*50)
+        print("📊 WallPimp Download Summary")
+        print("="*50)
+        print(f"📁 Total wallpapers downloaded: {self.total_wallpapers}")
+        print(f"💾 Output directory: {self.output_folder}")
+        print(f"⏱️  Time elapsed: {hours}h {minutes}m {seconds}s")
+        print(f"✅ Successfully processed repositories: {self.successful_repos}/{len(WALLPAPER_REPOS)}")
+        
+        total_size = sum(f.stat().st_size for f in self.output_folder.glob('**/*') 
+                        if f.is_file())
+        gb_size = total_size / (1024**3)
+        print(f"💽 Total data downloaded: {gb_size:.2f} GB")
+        
+        if self.failed_downloads:
+            print(f"⚠️  Failed downloads: {len(self.failed_downloads)}")
+            print("\nFailed files have been logged to wallpimp.log")
+
+    def _sanitize_filename(self, filename: str) -> str:
+        """
+        Sanitize filename with enhanced character handling.
+        """
+        # Replace invalid characters
+        invalid_chars = r'[<>:"/\\|?*\x00-\x1f]'
+        sanitized = re.sub(invalid_chars, '_', filename)
+        
+        # Remove leading/trailing spaces and dots
+        sanitized = sanitized.strip('. ')
+        
+        # Ensure filename isn't too long (accounting for path length limits)
+        max_length = 255 - len(str(self.output_folder)) - 1
+        if len(sanitized) > max_length:
+            name, ext = os.path.splitext(sanitized)
+            sanitized = name[:max_length-len(ext)] + ext
+            
+        return sanitized
+
+    def _get_file_hash(self, filepath: Path) -> str:
+        """
+        Calculate file hash with progress for large files.
+        """
+        file_size = filepath.stat().st_size
+        sha256_hash = hashlib.sha256()
+        
+        # Show progress only for large files
+        if file_size > 100 * 1024 * 1024:  # 100MB
+            with open(filepath, "rb") as f, tqdm(
+                total=file_size,
+                unit='B',
+                unit_scale=True,
+                desc=f"Calculating hash for {filepath.name}",
+                leave=False
+            ) as pbar:
+                for byte_block in iter(lambda: f.read(DOWNLOAD_CHUNK_SIZE), b""):
+                    sha256_hash.update(byte_block)
+                    pbar.update(len(byte_block))
+        else:
+            with open(filepath, "rb") as f:
+                for byte_block in iter(lambda: f.read(DOWNLOAD_CHUNK_SIZE), b""):
+                    sha256_hash.update(byte_block)
+                    
+        return sha256_hash.hexdigest()
+
+    def print_banner(self):
+        """Display the WallPimp banner with enhanced information."""
+        banner = f"""
+╔══════════════════════════════════════════════════╗
+║                 WallPimp v2.3                    ║
+║        Developed by ソロックス (oxborn3)          ║
+║        https://github.com/0xb0rn3               ║
+╚══════════════════════════════════════════════════╝
+
+🔍 Features:
+• Optimized for large repositories (up to 1GB per file)
+• Precise file verification and duplicate detection
+• Download resume capability
+• Detailed progress tracking
+• Comprehensive error handling
+
+📂 Output Directory: {self.output_folder}
+"""
+        print(banner)
+
+def check_dependencies():
     """
-    Verify that Git is installed and accessible.
-    Exits with an error message if Git is not found.
+    Verify all required dependencies with detailed feedback.
     """
+    missing_deps = []
+    optional_deps = []
+    
+    # Check Git installation
     try:
-        subprocess.run(['git', '--version'], 
-                      check=True, 
-                      capture_output=True, 
-                      timeout=5)
-        return True
+        git_version = subprocess.run(
+            ['git', '--version'], 
+            check=True, 
+            capture_output=True, 
+            text=True
+        ).stdout.strip()
+        print(f"✓ Git detected: {git_version}")
     except Exception:
-        print("Error: Git is not installed. Please install Git and try again.")
+        missing_deps.append('git')
+
+    # Check Python dependencies
+    required_packages = {
+        'Pillow': 'pillow',
+        'requests': 'requests',
+        'tqdm': 'tqdm'
+    }
+    
+    for package_name, pip_name in required_packages.items():
+        try:
+            module = __import__(package_name.lower())
+            print(f"✓ {package_name} detected: {getattr(module, '__version__', 'unknown')}")
+        except ImportError:
+            missing_deps.append(pip_name)
+
+    if missing_deps:
+        print("\nError: Missing required dependencies:")
+        for dep in missing_deps:
+            print(f"  - {dep}")
+        print("\nPlease install missing dependencies:")
+        print(f"pip install {' '.join(missing_deps)}")
         sys.exit(1)
 
+    if optional_deps:
+        print("\nNote: Some optional dependencies are missing:")
+        for dep in optional_deps:
+            print(f"  - {dep}")
+
 def main():
-    """Entry point of the script."""
-    check_git_installation()
-    wallpimp = WallPimp()
-    wallpimp.run()
+    """
+    Entry point with enhanced error handling and setup.
+    """
+    try:
+        # Check dependencies first
+        check_dependencies()
+        
+        # Initialize and run WallPimp
+        wallpimp = WallPimp()
+        wallpimp.run()
+        
+    except KeyboardInterrupt:
+        print("\n\nOperation cancelled by user. Cleaning up...")
+        sys.exit(1)
+    except Exception as e:
+        print(f"\nFatal error: {str(e)}")
+        logging.error(f"Fatal error: {str(e)}", exc_info=True)
+        sys.exit(1)
 
 if __name__ == "__main__":
     main()
