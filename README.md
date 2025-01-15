@@ -43,7 +43,7 @@ A cross-platform automated wallpaper collection tool that fetches high-quality w
 
 1. Download the latest release from the releases page
 2. Extract the ZIP file
-3. Run `wallpimp.exe`
+3. Run `wallpimp.exe` in dist folder
 
 ## Building the Windows Executable
 
