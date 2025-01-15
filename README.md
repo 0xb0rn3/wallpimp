@@ -88,7 +88,7 @@ Run WallPimp using either:
 ```cmd
 python wallpimp
 ```
-or by double-clicking `wallpimp.py` in File Explorer
+or by double-clicking `wallpimp` in File Explorer
 
 ### Linux:
 Run WallPimp using:
