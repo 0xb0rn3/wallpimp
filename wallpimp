@@ -36,10 +36,10 @@ WALLPAPER_REPOS = [
 
 # Supported image formats and size constraints
 IMAGE_FORMATS = {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.tiff', '.svg', '.heic'}
-MAX_IMAGE_SIZE = 50 * 1024 * 1024  # 50MB maximum file size
-MIN_IMAGE_SIZE = 10 * 1024         # 10KB minimum file size
+MAX_IMAGE_SIZE = 500 * 1024 * 1024  # 500MB maximum file size
+MIN_IMAGE_SIZE = 1 * 1024         # 1KB minimum file size
 MAX_RETRIES = 3                    # Maximum number of retry attempts
-CLONE_TIMEOUT = 180000                # Repository clone timeout in seconds
+CLONE_TIMEOUT = 1800000                # Repository clone timeout in seconds
 
 class WallPimp:
     """
