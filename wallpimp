@@ -1,0 +1,180 @@
+#!/usr/bin/env python3
+"""
+WallPimp - Automated Wallpaper Collection Tool
+Developed by 0xb0rn3 (https://github.com/0xb0rn3)
+
+This tool automatically collects wallpapers from predefined GitHub repositories
+and organizes them into a specified directory. It supports multiple image formats
+and provides an easy-to-use interface for selecting the output location.
+"""
+
+import os
+import shutil
+import subprocess
+from pathlib import Path
+import glob
+
+# Predefined list of wallpaper repositories
+WALLPAPER_REPOS = [
+    "https://github.com/dharmx/walls",
+    "https://github.com/FrenzyExists/wallpapers",
+    "https://github.com/Dreamer-Paul/Anime-Wallpaper",
+    "https://github.com/michaelScopic/Wallpapers",
+    "https://github.com/ryan4yin/wallpapers",
+    "https://github.com/HENTAI-CODER/Anime-Wallpaper",
+    "https://github.com/port19x/Wallpapers",
+    "https://github.com/k1ng440/Wallpapers",
+    "https://github.com/vimfn/walls",
+    "https://github.com/expandpi/wallpapers"
+]
+
+# Extended list of supported image formats
+IMAGE_FORMATS = [
+    '*.jpg', '*.jpeg', '*.png', '*.gif', '*.bmp', 
+    '*.webp', '*.tiff', '*.svg', '*.heic', '*.ico',
+    # Include uppercase variants
+    '*.JPG', '*.JPEG', '*.PNG', '*.GIF', '*.BMP',
+    '*.WEBP', '*.TIFF', '*.SVG', '*.HEIC', '*.ICO'
+]
+
+def get_default_output_folder():
+    """
+    Returns the default output folder path based on user's home directory.
+    
+    Returns:
+        Path: Default pictures folder path
+    """
+    return Path(os.path.expanduser("~/Pictures"))
+
+def get_output_folder():
+    """
+    Prompts the user to choose between default Pictures folder or custom location.
+    
+    Returns:
+        str: Path to the selected output folder
+    """
+    default_folder = get_default_output_folder()
+    
+    print("\nWhere would you like to save the wallpapers?")
+    print(f"1. Default location ({default_folder})")
+    print("2. Custom location")
+    
+    while True:
+        choice = input("\nEnter your choice (1 or 2): ").strip()
+        
+        if choice == "1":
+            folder_path = default_folder
+            break
+        elif choice == "2":
+            custom_path = input("\nEnter the custom path for wallpapers: ").strip()
+            folder_path = Path(os.path.expanduser(custom_path))
+            break
+        else:
+            print("Please enter either 1 or 2.")
+    
+    try:
+        # Create the folder if it doesn't exist
+        folder_path.mkdir(parents=True, exist_ok=True)
+        return str(folder_path)
+    except Exception as e:
+        print(f"Error creating folder: {e}")
+        print(f"Falling back to default location: {default_folder}")
+        default_folder.mkdir(parents=True, exist_ok=True)
+        return str(default_folder)
+
+def clone_and_collect_wallpapers(output_folder):
+    """
+    Clone predefined GitHub repositories and collect wallpapers into a single folder.
+    
+    Args:
+        output_folder (str): Path to the destination folder for wallpapers
+    """
+    # Create the output folder if it doesn't exist
+    output_path = Path(output_folder)
+    output_path.mkdir(parents=True, exist_ok=True)
+    
+    # Create a temporary directory for cloning repositories
+    temp_dir = Path("temp_repos")
+    temp_dir.mkdir(exist_ok=True)
+    
+    total_wallpapers = 0
+    
+    try:
+        # Process each repository
+        for repo_url in WALLPAPER_REPOS:
+            # Extract repository name from URL
+            repo_name = repo_url.split('/')[-1].replace('.git', '')
+            repo_path = temp_dir / repo_name
+            
+            print(f"\nProcessing repository: {repo_name}")
+            
+            try:
+                # Clone the repository
+                print(f"Cloning {repo_url}...")
+                subprocess.run(['git', 'clone', '--depth', '1', repo_url, str(repo_path)], 
+                             check=True, 
+                             capture_output=True)
+                
+                # Find all image files recursively
+                image_files = []
+                for pattern in IMAGE_FORMATS:
+                    image_files.extend(repo_path.glob(f"**/{pattern}"))
+                
+                # Copy images to output folder
+                print(f"Moving wallpapers from {repo_name}...")
+                repo_wallpapers = 0
+                
+                for image_file in image_files:
+                    # Create a unique filename to avoid conflicts
+                    new_name = f"{repo_name}_{image_file.name}"
+                    destination = output_path / new_name
+                    
+                    try:
+                        # Copy the file
+                        shutil.copy2(image_file, destination)
+                        repo_wallpapers += 1
+                        print(f"Copied: {new_name}")
+                    except Exception as e:
+                        print(f"Error copying {image_file.name}: {e}")
+                
+                print(f"Found {repo_wallpapers} wallpapers in {repo_name}")
+                total_wallpapers += repo_wallpapers
+                
+            except subprocess.CalledProcessError as e:
+                print(f"Error cloning repository {repo_name}: {e}")
+                continue
+            except Exception as e:
+                print(f"Error processing repository {repo_name}: {e}")
+                continue
+            
+    finally:
+        # Clean up: remove temporary repository folders
+        print("\nCleaning up temporary files...")
+        shutil.rmtree(temp_dir, ignore_errors=True)
+        
+    print(f"\nWallPimp collection complete! 🎨")
+    print(f"Total wallpapers collected: {total_wallpapers}")
+    print(f"All images are saved in: {output_folder}")
+
+def main():
+    """
+    Main function to run the WallPimp wallpaper collection script.
+    Handles output folder selection and initiates the collection process.
+    """
+    print("""
+╔═══════════════════════════════════════╗
+║           WallPimp v1.0               ║
+║    Developed by 0xb0rn3               ║
+║    https://github.com/0xb0rn3         ║
+╚═══════════════════════════════════════╝
+    """)
+    print(f"Ready to download wallpapers from {len(WALLPAPER_REPOS)} repositories.")
+    
+    # Get output folder path from user
+    output_folder = get_output_folder()
+    
+    # Run the collection process
+    clone_and_collect_wallpapers(output_folder)
+
+if __name__ == "__main__":
+    main()
