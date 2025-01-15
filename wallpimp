@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-WallPimp v2.0 - Cross-Platform Automated Wallpaper Collection Tool
-Enhanced version with retry mechanism, improved error handling, and minimal UI
+WallPimp v2.1 - Cross-Platform Automated Wallpaper Collection Tool
+Enhanced version with direct cloning and improved feedback
 """
 import os
 import sys
@@ -12,10 +12,8 @@ from pathlib import Path
 import hashlib
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import List, Set, Dict
+from typing import List, Set, Dict, Tuple
 from tqdm import tqdm
-import requests
-from urllib.parse import urlparse
 
 # Configuration
 WALLPAPER_REPOS = [
@@ -35,7 +33,7 @@ IMAGE_FORMATS = {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.tiff', '.sv
 MAX_IMAGE_SIZE = 50 * 1024 * 1024  # 50MB
 MIN_IMAGE_SIZE = 10 * 1024  # 10KB
 MAX_RETRIES = 3
-TIMEOUT = 30
+CLONE_TIMEOUT = 180  # Increased timeout for cloning
 
 class WallPimp:
     def __init__(self):
@@ -44,6 +42,7 @@ class WallPimp:
         self.processed_hashes: Set[str] = set()
         self.total_wallpapers = 0
         self.successful_repos = 0
+        self.pbar = None
 
     def _get_default_output_folder(self) -> Path:
         """Returns the platform-specific default output folder path"""
@@ -69,45 +68,32 @@ class WallPimp:
                 sha256_hash.update(byte_block)
         return sha256_hash.hexdigest()
 
-    def _check_repo_availability(self, repo_url: str) -> bool:
-        """Check if repository is accessible"""
-        try:
-            parsed_url = urlparse(repo_url)
-            api_url = f"https://api.github.com/repos{parsed_url.path}"
-            response = requests.head(api_url, timeout=TIMEOUT)
-            return response.status_code == 200
-        except Exception:
-            return False
-
-    def _clone_with_retry(self, repo_url: str, repo_path: Path) -> bool:
+    def _clone_repository(self, repo_url: str, repo_path: Path) -> bool:
         """Clone repository with retry mechanism"""
         for attempt in range(MAX_RETRIES):
             try:
                 if attempt > 0:
-                    time.sleep(2 ** attempt)  # Exponential backoff
+                    time.sleep(2 ** attempt)
                 subprocess.run(
-                    ['git', 'clone', '--depth', '1', repo_url, str(repo_path)],
-                    check=True, capture_output=True, timeout=TIMEOUT
+                    ['git', 'clone', '--depth', '1', '--quiet', repo_url, str(repo_path)],
+                    check=True, capture_output=True, timeout=CLONE_TIMEOUT
                 )
                 return True
             except subprocess.SubprocessError:
-                if attempt == MAX_RETRIES - 1:
-                    return False
+                continue
         return False
 
-    def process_repository(self, repo_url: str) -> int:
+    def process_repository(self, repo_url: str) -> Tuple[int, str]:
         """Process a single repository and collect its wallpapers"""
         repo_name = repo_url.split('/')[-1].replace('.git', '')
         repo_path = self.temp_dir / repo_name
         wallpapers_count = 0
-
-        if not self._check_repo_availability(repo_url):
-            return 0
-
-        if not self._clone_with_retry(repo_url, repo_path):
-            return 0
+        status_message = ""
 
         try:
+            if not self._clone_repository(repo_url, repo_path):
+                return 0, f"⚠️  Failed to clone {repo_name}"
+
             image_files = []
             for ext in IMAGE_FORMATS:
                 image_files.extend(repo_path.glob(f"**/*{ext}"))
@@ -132,20 +118,21 @@ class WallPimp:
                     continue
 
             self.successful_repos += 1
-            return wallpapers_count
+            status_message = f"✓ Downloaded {wallpapers_count} wallpapers from {repo_name}"
+            return wallpapers_count, status_message
 
-        except Exception:
-            return wallpapers_count
+        except Exception as e:
+            status_message = f"⚠️  Error processing {repo_name}: {str(e)}"
+            return wallpapers_count, status_message
         finally:
             shutil.rmtree(repo_path, ignore_errors=True)
 
     def run(self):
         """Main execution method"""
         print("\n╔═══════════════════════════════════════╗")
-        print("║           WallPimp v2.0               ║")
+        print("║           WallPimp v2.1               ║")
         print("╚═══════════════════════════════════════╝\n")
 
-        # Create necessary directories
         self.output_folder.mkdir(parents=True, exist_ok=True)
         self.temp_dir.mkdir(exist_ok=True)
 
@@ -157,10 +144,13 @@ class WallPimp:
                 ]
                 
                 with tqdm(total=len(WALLPAPER_REPOS), 
-                         desc="Collecting wallpapers", 
-                         bar_format='{desc}: {percentage:3.0f}%|{bar}| {n_fmt}/{total_fmt}') as pbar:
+                         desc="Downloading wallpapers", 
+                         bar_format='{desc}: {percentage:3.0f}%|{bar}| {n_fmt}/{total_fmt}',
+                         ncols=70) as pbar:
                     for future in as_completed(futures):
-                        self.total_wallpapers += future.result()
+                        count, status = future.result()
+                        self.total_wallpapers += count
+                        print(f"\n{status}")
                         pbar.update(1)
 
         finally:
@@ -169,12 +159,11 @@ class WallPimp:
         print(f"\n✨ Collection complete! Downloaded {self.total_wallpapers} wallpapers")
         print(f"📁 Saved to: {self.output_folder}")
         if self.successful_repos < len(WALLPAPER_REPOS):
-            print(f"⚠️  Note: {len(WALLPAPER_REPOS) - self.successful_repos} repositories were skipped due to access issues")
+            print(f"ℹ️  Successfully processed {self.successful_repos} out of {len(WALLPAPER_REPOS)} repositories")
 
 def main():
     """Entry point of the script"""
     try:
-        # Check for git installation
         subprocess.run(['git', '--version'], 
                       check=True, 
                       capture_output=True, 
