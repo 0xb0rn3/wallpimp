@@ -2,12 +2,20 @@
 """
 Build script for creating the WallPimp Windows executable
 Handles creating the icon and building the executable with PyInstaller
+Supports both system-wide and virtual environment installations
 """
 import os
 import sys
 import shutil
 import subprocess
 from pathlib import Path
+
+def ensure_venv():
+    """
+    Ensure we're running in a virtual environment.
+    Returns True if in venv, False otherwise.
+    """
+    return sys.prefix != sys.base_prefix
 
 def create_icon():
     """
@@ -96,8 +104,16 @@ def build_executable():
     """
     Build the Windows executable using PyInstaller.
     """
+    if not ensure_venv():
+        print("Error: Please run this script within a virtual environment.")
+        print("\nTo set up a virtual environment:")
+        print("1. Create it:    python3 -m venv venv")
+        print("2. Activate it:   source venv/bin/activate")
+        print("3. Try again:     ./build.py")
+        sys.exit(1)
+        
     try:
-        # Install PyInstaller if not already installed
+        # Install PyInstaller in the virtual environment
         subprocess.run([sys.executable, '-m', 'pip', 'install', 'pyinstaller'], check=True)
         
         # Create spec file and icon
