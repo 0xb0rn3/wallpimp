@@ -58,7 +58,7 @@ sudo pacman -S python python-pip git
 2. Navigate to the directory:
    ```cmd
    cd wallpimp
-   pip install tqdm
+   pip install tqdm requests
    ```
 
 3. Make sure the script is executable:
@@ -75,7 +75,7 @@ sudo pacman -S python python-pip git
 2. Navigate to the directory:
    ```bash
    cd wallpimp
-   pip install tqdm
+   pip install tqdm requests
    ```
 
 3. Make the script executable:
@@ -183,7 +183,7 @@ All formats are supported in both lowercase and uppercase variants.
 ### Linux:
 1. If the script won't execute:
    ```bash
-   pip install tqdm
+   pip install tqdm requests
    chmod +x wallpimp
    ```
 
