@@ -190,7 +190,7 @@ class WallPimp:
                 
                 # Display progress bar and status updates
                 with tqdm(total=len(WALLPAPER_REPOS), 
-                         desc="Downloading wallpapers", 
+                         desc="Downloading 300+ unique-wallpapers please be patient", 
                          bar_format='{desc}: {percentage:3.0f}%|{bar}| {n_fmt}/{total_fmt}',
                          ncols=70) as pbar:
                     for future in as_completed(futures):
