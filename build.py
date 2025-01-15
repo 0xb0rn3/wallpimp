@@ -1,14 +1,19 @@
 #!/usr/bin/env python3
 """
-Build script for creating WallPimp Windows executable
+Build script for creating the WallPimp Windows executable
+Handles creating the icon and building the executable with PyInstaller
 """
 import os
 import sys
-from pathlib import Path
+import shutil
 import subprocess
+from pathlib import Path
 
 def create_icon():
-    """Create a simple icon for the executable"""
+    """
+    Create a custom icon for the executable.
+    Falls back to default icon if ImageMagick is not available.
+    """
     svg_content = '''<?xml version="1.0" encoding="UTF-8" standalone="no"?>
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
     <rect width="64" height="64" fill="#2d2d2d"/>
@@ -35,9 +40,10 @@ def create_icon():
         print("Note: ImageMagick not found. Using default icon.")
         return False
 
-def build_executable():
-    """Build the Windows executable"""
-    # Create spec file content
+def create_spec_file():
+    """
+    Create the PyInstaller spec file with optimal settings.
+    """
     spec_content = '''# -*- mode: python ; coding: utf-8 -*-
 
 block_cipher = None
@@ -83,32 +89,43 @@ exe = EXE(
     icon='icon.ico' if os.path.exists('icon.ico') else None,
 )
 '''
-
-    # Save spec file
     with open('wallpimp.spec', 'w') as f:
         f.write(spec_content)
 
-    # Install required packages
-    subprocess.run([sys.executable, '-m', 'pip', 'install', 'pyinstaller'], check=True)
-
-    # Build executable
-    subprocess.run(['pyinstaller', 'wallpimp.spec'], check=True)
-
-    # Clean up
-    cleanup_files = ['wallpimp.spec', 'icon.svg']
-    for file in cleanup_files:
-        if os.path.exists(file):
-            os.remove(file)
-
-    if os.path.exists('build'):
-        shutil.rmtree('build')
+def build_executable():
+    """
+    Build the Windows executable using PyInstaller.
+    """
+    try:
+        # Install PyInstaller if not already installed
+        subprocess.run([sys.executable, '-m', 'pip', 'install', 'pyinstaller'], check=True)
+        
+        # Create spec file and icon
+        create_spec_file()
+        create_icon()
+        
+        # Build the executable
+        subprocess.run(['pyinstaller', 'wallpimp.spec'], check=True)
+        
+        # Clean up temporary files
+        cleanup_files = ['wallpimp.spec', 'icon.svg']
+        for file in cleanup_files:
+            if os.path.exists(file):
+                os.remove(file)
+        
+        if os.path.exists('build'):
+            shutil.rmtree('build')
+            
+        print("\nBuild complete! The executable is in the 'dist' folder.")
+        
+    except Exception as e:
+        print(f"Error during build: {str(e)}")
+        sys.exit(1)
 
 def main():
-    """Main build process"""
+    """Main build process."""
     print("Building WallPimp executable...")
-    create_icon()
     build_executable()
-    print("\nBuild complete! Executable is in the 'dist' folder.")
 
 if __name__ == "__main__":
     main()
