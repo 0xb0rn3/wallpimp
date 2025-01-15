@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 """
-WallPimp - Cross-Platform Automated Wallpaper Collection Tool
-Developed by 0xb0rn3 (https://github.com/0xb0rn3)
-Enhanced version with improved error handling, progress tracking, and safety checks.
+WallPimp v2.0 - Cross-Platform Automated Wallpaper Collection Tool
+Enhanced version with retry mechanism, improved error handling, and minimal UI
 """
 import os
 import sys
@@ -10,24 +9,15 @@ import shutil
 import subprocess
 import platform
 from pathlib import Path
-import glob
 import hashlib
-from concurrent.futures import ThreadPoolExecutor
-from typing import List, Set
-import logging
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import List, Set, Dict
 from tqdm import tqdm
+import requests
+from urllib.parse import urlparse
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.StreamHandler(),
-        logging.FileHandler('wallpimp.log')
-    ]
-)
-
-# Predefined list of wallpaper repositories
+# Configuration
 WALLPAPER_REPOS = [
     "https://github.com/dharmx/walls",
     "https://github.com/FrenzyExists/wallpapers",
@@ -41,175 +31,160 @@ WALLPAPER_REPOS = [
     "https://github.com/expandpi/wallpapers"
 ]
 
-# Extended list of supported image formats with size limits
-IMAGE_FORMATS = [
-    '*.jpg', '*.jpeg', '*.png', '*.gif', '*.bmp', 
-    '*.webp', '*.tiff', '*.svg', '*.heic', '*.ico',
-    '*.JPG', '*.JPEG', '*.PNG', '*.GIF', '*.BMP',
-    '*.WEBP', '*.TIFF', '*.SVG', '*.HEIC', '*.ICO'
-]
+IMAGE_FORMATS = {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.tiff', '.svg', '.heic'}
+MAX_IMAGE_SIZE = 50 * 1024 * 1024  # 50MB
+MIN_IMAGE_SIZE = 10 * 1024  # 10KB
+MAX_RETRIES = 3
+TIMEOUT = 30
 
-MAX_IMAGE_SIZE = 50 * 1024 * 1024  # 50MB limit
-MIN_IMAGE_SIZE = 10 * 1024  # 10KB minimum
+class WallPimp:
+    def __init__(self):
+        self.output_folder = self._get_default_output_folder()
+        self.temp_dir = Path("temp_repos")
+        self.processed_hashes: Set[str] = set()
+        self.total_wallpapers = 0
+        self.successful_repos = 0
 
-def get_file_hash(filepath: Path) -> str:
-    """Calculate SHA-256 hash of a file to prevent duplicates."""
-    sha256_hash = hashlib.sha256()
-    with open(filepath, "rb") as f:
-        for byte_block in iter(lambda: f.read(4096), b""):
-            sha256_hash.update(byte_block)
-    return sha256_hash.hexdigest()
+    def _get_default_output_folder(self) -> Path:
+        """Returns the platform-specific default output folder path"""
+        system = platform.system().lower()
+        env_var = 'USERPROFILE' if system == 'windows' else 'HOME'
+        return Path(os.environ.get(env_var, '')) / 'Pictures' / 'WallPimp'
 
-def check_dependencies() -> bool:
-    """
-    Check if required dependencies are installed and accessible.
-    Returns:
-        bool: True if all dependencies are met, False otherwise
-    """
+    def _validate_image(self, filepath: Path) -> bool:
+        """Validate image file size and format"""
+        try:
+            if filepath.suffix.lower() not in IMAGE_FORMATS:
+                return False
+            file_size = filepath.stat().st_size
+            return MIN_IMAGE_SIZE <= file_size <= MAX_IMAGE_SIZE
+        except Exception:
+            return False
+
+    def _get_file_hash(self, filepath: Path) -> str:
+        """Calculate SHA-256 hash of a file"""
+        sha256_hash = hashlib.sha256()
+        with open(filepath, "rb") as f:
+            for byte_block in iter(lambda: f.read(4096), b""):
+                sha256_hash.update(byte_block)
+        return sha256_hash.hexdigest()
+
+    def _check_repo_availability(self, repo_url: str) -> bool:
+        """Check if repository is accessible"""
+        try:
+            parsed_url = urlparse(repo_url)
+            api_url = f"https://api.github.com/repos{parsed_url.path}"
+            response = requests.head(api_url, timeout=TIMEOUT)
+            return response.status_code == 200
+        except Exception:
+            return False
+
+    def _clone_with_retry(self, repo_url: str, repo_path: Path) -> bool:
+        """Clone repository with retry mechanism"""
+        for attempt in range(MAX_RETRIES):
+            try:
+                if attempt > 0:
+                    time.sleep(2 ** attempt)  # Exponential backoff
+                subprocess.run(
+                    ['git', 'clone', '--depth', '1', repo_url, str(repo_path)],
+                    check=True, capture_output=True, timeout=TIMEOUT
+                )
+                return True
+            except subprocess.SubprocessError:
+                if attempt == MAX_RETRIES - 1:
+                    return False
+        return False
+
+    def process_repository(self, repo_url: str) -> int:
+        """Process a single repository and collect its wallpapers"""
+        repo_name = repo_url.split('/')[-1].replace('.git', '')
+        repo_path = self.temp_dir / repo_name
+        wallpapers_count = 0
+
+        if not self._check_repo_availability(repo_url):
+            return 0
+
+        if not self._clone_with_retry(repo_url, repo_path):
+            return 0
+
+        try:
+            image_files = []
+            for ext in IMAGE_FORMATS:
+                image_files.extend(repo_path.glob(f"**/*{ext}"))
+                image_files.extend(repo_path.glob(f"**/*{ext.upper()}"))
+
+            for image_file in image_files:
+                try:
+                    if not self._validate_image(image_file):
+                        continue
+
+                    file_hash = self._get_file_hash(image_file)
+                    if file_hash in self.processed_hashes:
+                        continue
+
+                    new_name = f"{repo_name}_{image_file.name}"
+                    destination = self.output_folder / new_name
+                    shutil.copy2(image_file, destination)
+                    self.processed_hashes.add(file_hash)
+                    wallpapers_count += 1
+
+                except Exception:
+                    continue
+
+            self.successful_repos += 1
+            return wallpapers_count
+
+        except Exception:
+            return wallpapers_count
+        finally:
+            shutil.rmtree(repo_path, ignore_errors=True)
+
+    def run(self):
+        """Main execution method"""
+        print("\n╔═══════════════════════════════════════╗")
+        print("║           WallPimp v2.0               ║")
+        print("╚═══════════════════════════════════════╝\n")
+
+        # Create necessary directories
+        self.output_folder.mkdir(parents=True, exist_ok=True)
+        self.temp_dir.mkdir(exist_ok=True)
+
+        try:
+            with ThreadPoolExecutor(max_workers=3) as executor:
+                futures = [
+                    executor.submit(self.process_repository, repo_url)
+                    for repo_url in WALLPAPER_REPOS
+                ]
+                
+                with tqdm(total=len(WALLPAPER_REPOS), 
+                         desc="Collecting wallpapers", 
+                         bar_format='{desc}: {percentage:3.0f}%|{bar}| {n_fmt}/{total_fmt}') as pbar:
+                    for future in as_completed(futures):
+                        self.total_wallpapers += future.result()
+                        pbar.update(1)
+
+        finally:
+            shutil.rmtree(self.temp_dir, ignore_errors=True)
+
+        print(f"\n✨ Collection complete! Downloaded {self.total_wallpapers} wallpapers")
+        print(f"📁 Saved to: {self.output_folder}")
+        if self.successful_repos < len(WALLPAPER_REPOS):
+            print(f"⚠️  Note: {len(WALLPAPER_REPOS) - self.successful_repos} repositories were skipped due to access issues")
+
+def main():
+    """Entry point of the script"""
     try:
+        # Check for git installation
         subprocess.run(['git', '--version'], 
                       check=True, 
                       capture_output=True, 
-                      text=True)
-        return True
-    except subprocess.CalledProcessError:
-        system = platform.system().lower()
-        installation_instructions = {
-            'windows': "Git not found! Please install Git from https://git-scm.com/download/windows",
-            'linux': "\n".join([
-                "Git not found! Please install using your package manager:",
-                "For Ubuntu/Debian: sudo apt install git",
-                "For Fedora: sudo dnf install git",
-                "For Arch: sudo pacman -S git"
-            ])
-        }
-        logging.error(installation_instructions.get(system, "Please install git for your system"))
-        return False
-    except Exception as e:
-        logging.error(f"Error checking dependencies: {e}")
-        return False
-
-def get_default_output_folder() -> Path:
-    """Returns the platform-specific default output folder path."""
-    system = platform.system().lower()
-    env_var = 'USERPROFILE' if system == 'windows' else 'HOME'
-    return Path(os.environ.get(env_var, '')) / 'Pictures' / 'WallPimp'
-
-def ensure_folder_permissions(folder_path: Path) -> None:
-    """Set appropriate folder permissions for the current platform."""
-    try:
-        if platform.system().lower() != 'windows':
-            os.chmod(folder_path, 0o755)
-    except Exception as e:
-        logging.warning(f"Could not set folder permissions: {e}")
-
-def validate_image(filepath: Path) -> bool:
-    """
-    Validate image file size and format.
-    Returns:
-        bool: True if image is valid, False otherwise
-    """
-    try:
-        file_size = filepath.stat().st_size
-        return MIN_IMAGE_SIZE <= file_size <= MAX_IMAGE_SIZE
-    except Exception as e:
-        logging.warning(f"Error validating image {filepath}: {e}")
-        return False
-
-def process_repository(repo_url: str, temp_dir: Path, output_path: Path, 
-                      processed_hashes: Set[str]) -> int:
-    """
-    Process a single repository and collect its wallpapers.
-    Returns:
-        int: Number of wallpapers successfully collected
-    """
-    repo_name = repo_url.split('/')[-1].replace('.git', '')
-    repo_path = temp_dir / repo_name
-    wallpapers_count = 0
-    
-    try:
-        logging.info(f"Cloning {repo_url}...")
-        subprocess.run(['git', 'clone', '--depth', '1', repo_url, str(repo_path)],
-                      check=True, capture_output=True)
-        
-        image_files = []
-        for pattern in IMAGE_FORMATS:
-            image_files.extend(repo_path.glob(f"**/{pattern}"))
-        
-        for image_file in tqdm(image_files, desc=f"Processing {repo_name}"):
-            try:
-                if not validate_image(image_file):
-                    continue
-                    
-                file_hash = get_file_hash(image_file)
-                if file_hash in processed_hashes:
-                    continue
-                
-                new_name = f"{repo_name}_{image_file.name}"
-                destination = output_path / new_name
-                
-                shutil.copy2(image_file, destination)
-                processed_hashes.add(file_hash)
-                wallpapers_count += 1
-                
-            except Exception as e:
-                logging.warning(f"Error processing {image_file.name}: {e}")
-                
-        return wallpapers_count
-        
-    except subprocess.CalledProcessError as e:
-        logging.error(f"Error cloning repository {repo_name}: {e}")
-        return 0
-    except Exception as e:
-        logging.error(f"Error processing repository {repo_name}: {e}")
-        return 0
-
-def main():
-    """Main function to run the WallPimp wallpaper collection script."""
-    print("""
-╔═══════════════════════════════════════╗
-║           WallPimp v1.1               ║
-║    Developed by 0xb0rn3               ║
-║    https://github.com/0xb0rn3         ║
-╚═══════════════════════════════════════╝
-    """)
-    
-    if not check_dependencies():
+                      timeout=5)
+    except Exception:
+        print("Error: Git is not installed. Please install Git and try again.")
         sys.exit(1)
-    
-    output_folder = get_default_output_folder()
-    output_folder.mkdir(parents=True, exist_ok=True)
-    ensure_folder_permissions(output_folder)
-    
-    temp_dir = Path("temp_repos")
-    temp_dir.mkdir(exist_ok=True)
-    
-    try:
-        processed_hashes: Set[str] = set()
-        total_wallpapers = 0
-        
-        with ThreadPoolExecutor(max_workers=3) as executor:
-            futures = [
-                executor.submit(
-                    process_repository, 
-                    repo_url, 
-                    temp_dir, 
-                    output_folder, 
-                    processed_hashes
-                )
-                for repo_url in WALLPAPER_REPOS
-            ]
-            
-            for future in futures:
-                total_wallpapers += future.result()
-                
-    finally:
-        logging.info("Cleaning up temporary files...")
-        shutil.rmtree(temp_dir, ignore_errors=True)
-    
-    logging.info(f"\nWallPimp collection complete! 🎨")
-    logging.info(f"Total wallpapers collected: {total_wallpapers}")
-    logging.info(f"All images are saved in: {output_folder}")
+
+    wallpimp = WallPimp()
+    wallpimp.run()
 
 if __name__ == "__main__":
     main()
