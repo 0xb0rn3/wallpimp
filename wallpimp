@@ -536,8 +536,8 @@ class WallPimp:
         banner = f"""
 ╔══════════════════════════════════════════════════╗
 ║                 WallPimp v2.3                    ║
-║        Developed by ソロックス (oxborn3)          ║
-║        https://github.com/0xb0rn3               ║
+║        Developed by ソロックス (oxborn3)           ║
+║        https://github.com/0xb0rn3                ║
 ╚══════════════════════════════════════════════════╝
 
 🔍 Features:
@@ -572,10 +572,10 @@ def check_dependencies():
 
     # Check Python dependencies
     required_packages = {
-        'Pillow': 'pillow',
-        'requests': 'requests',
-        'tqdm': 'tqdm'
-    }
+    'PIL': 'pillow',  # Changed from 'Pillow': 'pillow'
+    'requests': 'requests',
+    'tqdm': 'tqdm'
+}
     
     for package_name, pip_name in required_packages.items():
         try:
