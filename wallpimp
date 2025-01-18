@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-WallPimp v2.3 - Enhanced Cross-Platform Automated Wallpaper Collection Tool
+WallPimp v2.4 - Enhanced Cross-Platform Automated Wallpaper Collection Tool
 Optimized for large repositories with precise file handling and verification.
 Features improved duplicate detection, download resumption, and interactive file management.
 
@@ -18,7 +18,6 @@ import hashlib
 import time
 import logging
 import json
-from PIL import Image
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import List, Set, Dict, Tuple, Optional
 from tqdm import tqdm
@@ -26,6 +25,25 @@ import re
 from datetime import datetime
 import signal
 import threading
+
+# Enhanced dependency handling for PIL/Pillow
+try:
+    from PIL import Image
+except ImportError:
+    # First attempt to import directly (legacy support)
+    try:
+        import Image
+    except ImportError:
+        # Automated installation attempt
+        print("Pillow not found. Attempting automatic installation...")
+        try:
+            subprocess.check_call([sys.executable, "-m", "pip", "install", "--user", "Pillow"])
+            from PIL import Image
+        except Exception as e:
+            print(f"Error installing Pillow: {e}")
+            print("\nPlease install Pillow manually:")
+            print("pip install Pillow")
+            sys.exit(1)
 
 # Configuration constants
 WALLPAPER_REPOS = [
@@ -50,6 +68,68 @@ MAX_RETRIES = 5                      # Maximum number of retry attempts
 CLONE_TIMEOUT = 3600                 # Repository clone timeout (1 hour)
 DOWNLOAD_CHUNK_SIZE = 8192           # Download chunk size for large files
 PROGRESS_SAVE_INTERVAL = 60          # Save progress every 60 seconds
+
+class DependencyManager:
+    """Handles dependency checking and installation."""
+    
+    @staticmethod
+    def check_environment():
+        """Verify Python version and platform compatibility."""
+        if sys.version_info < (3, 6):
+            print("Python 3.6 or higher is required")
+            sys.exit(1)
+            
+        # Check for necessary system libraries based on platform
+        if platform.system() == "Linux":
+            DependencyManager._check_linux_dependencies()
+        elif platform.system() == "Darwin":
+            DependencyManager._check_macos_dependencies()
+        elif platform.system() == "Windows":
+            DependencyManager._check_windows_dependencies()
+    
+    @staticmethod
+    def _check_linux_dependencies():
+        """Check for required system libraries on Linux."""
+        try:
+            # Check for common image processing libraries
+            libraries = ['libjpeg', 'zlib1g', 'libpng']
+            missing = []
+            
+            for lib in libraries:
+                if subprocess.call(['ldconfig', '-p'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL) != 0:
+                    missing.append(lib)
+            
+            if missing:
+                print(f"Missing system libraries: {', '.join(missing)}")
+                print("Please install them using your package manager:")
+                print("sudo apt-get install " + " ".join(missing))
+                sys.exit(1)
+        except Exception as e:
+            print(f"Warning: Could not check system libraries: {e}")
+    
+    @staticmethod
+    def _check_macos_dependencies():
+        """Check for required system libraries on macOS."""
+        try:
+            # Check if Homebrew is installed
+            if subprocess.call(['which', 'brew'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL) != 0:
+                print("Homebrew not found. Some dependencies may be missing.")
+                print("Visit https://brew.sh for installation instructions")
+        except Exception as e:
+            print(f"Warning: Could not check system dependencies: {e}")
+    
+    @staticmethod
+    def _check_windows_dependencies():
+        """Check for required components on Windows."""
+        # Windows typically includes necessary image libraries
+        # but we can check for Visual C++ Redistributable
+        try:
+            import winreg
+            key_path = r"SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes"
+            winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, key_path)
+        except Exception:
+            print("Warning: Visual C++ Redistributable might be missing")
+            print("Visit https://aka.ms/vs/16/release/vc_redist.x64.exe")
 
 class DownloadState:
     """Track download progress and state for resume capability."""
@@ -82,18 +162,76 @@ class DownloadState:
         except Exception as e:
             logging.error(f"Error saving state: {e}")
 
+class ImageProcessor:
+    """Handles image validation and processing with enhanced error handling."""
+    
+    @staticmethod
+    def validate_image(filepath: Path, hash_only: bool = False) -> Tuple[bool, Optional[str]]:
+        """Validate image with comprehensive error handling."""
+        try:
+            if not filepath.suffix.lower() in IMAGE_FORMATS:
+                return False, None
+
+            file_size = filepath.stat().st_size
+            if not (MIN_IMAGE_SIZE <= file_size <= MAX_IMAGE_SIZE):
+                return False, None
+
+            # Calculate hash first for efficiency
+            file_hash = ImageProcessor._calculate_hash(filepath)
+            
+            if hash_only:
+                return True, file_hash
+
+            # Enhanced image validation with multiple attempts
+            for attempt in range(3):
+                try:
+                    with Image.open(filepath) as img:
+                        # Force load the image data
+                        img.load()
+                        width, height = img.size
+                        if width < MIN_RESOLUTION[0] or height < MIN_RESOLUTION[1]:
+                            return False, None
+                        # Additional format-specific checks
+                        if img.format.upper() not in ['JPEG', 'PNG', 'GIF', 'BMP', 'WEBP', 'TIFF']:
+                            return False, None
+                        return True, file_hash
+                except OSError as e:
+                    if attempt == 2:  # Last attempt
+                        logging.error(f"Failed to validate image after 3 attempts: {e}")
+                        return False, None
+                    time.sleep(0.1)  # Brief pause before retry
+                    
+        except Exception as e:
+            logging.debug(f"Image validation failed for {filepath}: {str(e)}")
+            return False, None
+
+    @staticmethod
+    def _calculate_hash(filepath: Path) -> str:
+        """Calculate file hash with improved memory efficiency."""
+        sha256_hash = hashlib.sha256()
+        
+        try:
+            with open(filepath, "rb") as f:
+                # Use memory-efficient chunked reading
+                for byte_block in iter(lambda: f.read(DOWNLOAD_CHUNK_SIZE), b""):
+                    sha256_hash.update(byte_block)
+            return sha256_hash.hexdigest()
+        except Exception as e:
+            logging.error(f"Hash calculation failed for {filepath}: {e}")
+            raise
+
 class WallPimp:
-    """
-    Enhanced WallPimp wallpaper collection tool optimized for large repositories
-    with precise file handling and verification.
-    """
+    """Enhanced WallPimp wallpaper collection tool optimized for large repositories."""
     
     def __init__(self):
+        # Initialize DependencyManager first
+        DependencyManager.check_environment()
+        
         self.output_folder = self._get_default_output_folder()
         self.temp_dir = Path("temp_repos")
         self.state_file = self.output_folder / '.wallpimp_state.json'
         self.download_state = DownloadState(self.state_file)
-        self.processed_hashes: Dict[str, Path] = {}  # Hash to file path mapping
+        self.processed_hashes: Dict[str, Path] = {}
         self.total_wallpapers = 0
         self.successful_repos = 0
         self.failed_downloads: List[Tuple[str, Path]] = []
@@ -102,7 +240,7 @@ class WallPimp:
         # Set up logging with rotation
         self._setup_logging()
         
-        # Register signal handlers for graceful shutdown
+        # Register signal handlers
         signal.signal(signal.SIGINT, self._signal_handler)
         signal.signal(signal.SIGTERM, self._signal_handler)
 
@@ -598,13 +736,8 @@ def check_dependencies():
             print(f"  - {dep}")
 
 def main():
-    """
-    Entry point with enhanced error handling and setup.
-    """
+    """Enhanced entry point with comprehensive error handling."""
     try:
-        # Check dependencies first
-        check_dependencies()
-        
         # Initialize and run WallPimp
         wallpimp = WallPimp()
         wallpimp.run()
