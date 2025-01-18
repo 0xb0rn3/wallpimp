@@ -25,27 +25,23 @@ import re
 from datetime import datetime
 import signal
 import threading
+import tempfile
 
 # Enhanced dependency handling for PIL/Pillow
 try:
     from PIL import Image
 except ImportError:
-    # First attempt to import directly (legacy support)
+    print("Pillow not found. Attempting automatic installation...")
     try:
-        import Image
-    except ImportError:
-        # Automated installation attempt
-        print("Pillow not found. Attempting automatic installation...")
-        try:
-            subprocess.check_call([sys.executable, "-m", "pip", "install", "--user", "Pillow"])
-            from PIL import Image
-        except Exception as e:
-            print(f"Error installing Pillow: {e}")
-            print("\nPlease install Pillow manually:")
-            print("pip install Pillow")
-            sys.exit(1)
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "--user", "Pillow"])
+        from PIL import Image
+    except Exception as e:
+        print(f"Error installing Pillow: {e}")
+        print("\nPlease install Pillow manually:")
+        print("pip install Pillow")
+        sys.exit(1)
 
-# Configuration constants
+# Configuration constants with improved defaults
 WALLPAPER_REPOS = [
     "https://github.com/dharmx/walls",
     "https://github.com/FrenzyExists/wallpapers",
@@ -59,7 +55,6 @@ WALLPAPER_REPOS = [
     "https://github.com/expandpi/wallpapers"
 ]
 
-# Enhanced settings for large repositories
 IMAGE_FORMATS = {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.tiff'}
 MAX_IMAGE_SIZE = 1024 * 1024 * 1024  # 1GB maximum file size
 MIN_IMAGE_SIZE = 1 * 1024            # 1KB minimum file size
@@ -69,60 +64,68 @@ CLONE_TIMEOUT = 3600                 # Repository clone timeout (1 hour)
 DOWNLOAD_CHUNK_SIZE = 8192           # Download chunk size for large files
 PROGRESS_SAVE_INTERVAL = 60          # Save progress every 60 seconds
 
+class WallPimpError(Exception):
+    """Custom exception class for WallPimp-specific errors."""
+    pass
+
 class DependencyManager:
-    """Handles dependency checking and installation."""
+    """Handles dependency checking and installation with improved error handling."""
     
     @staticmethod
-    def check_environment():
+    def check_environment() -> None:
         """Verify Python version and platform compatibility."""
         if sys.version_info < (3, 6):
-            print("Python 3.6 or higher is required")
-            sys.exit(1)
+            raise WallPimpError("Python 3.6 or higher is required")
             
         # Check for necessary system libraries based on platform
-        if platform.system() == "Linux":
-            DependencyManager._check_linux_dependencies()
-        elif platform.system() == "Darwin":
-            DependencyManager._check_macos_dependencies()
-        elif platform.system() == "Windows":
-            DependencyManager._check_windows_dependencies()
+        system = platform.system().lower()
+        check_methods = {
+            'linux': DependencyManager._check_linux_dependencies,
+            'darwin': DependencyManager._check_macos_dependencies,
+            'windows': DependencyManager._check_windows_dependencies
+        }
+        
+        if system in check_methods:
+            check_methods[system]()
     
     @staticmethod
-    def _check_linux_dependencies():
+    def _check_linux_dependencies() -> None:
         """Check for required system libraries on Linux."""
         try:
-            # Check for common image processing libraries
             libraries = ['libjpeg', 'zlib1g', 'libpng']
             missing = []
             
             for lib in libraries:
-                if subprocess.call(['ldconfig', '-p'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL) != 0:
+                result = subprocess.run(['ldconfig', '-p'], 
+                                     stdout=subprocess.PIPE, 
+                                     stderr=subprocess.PIPE,
+                                     text=True)
+                if lib not in result.stdout:
                     missing.append(lib)
             
             if missing:
                 print(f"Missing system libraries: {', '.join(missing)}")
                 print("Please install them using your package manager:")
                 print("sudo apt-get install " + " ".join(missing))
-                sys.exit(1)
         except Exception as e:
-            print(f"Warning: Could not check system libraries: {e}")
+            logging.warning(f"Could not check system libraries: {e}")
     
     @staticmethod
-    def _check_macos_dependencies():
+    def _check_macos_dependencies() -> None:
         """Check for required system libraries on macOS."""
         try:
-            # Check if Homebrew is installed
-            if subprocess.call(['which', 'brew'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL) != 0:
+            result = subprocess.run(['which', 'brew'], 
+                                 stdout=subprocess.PIPE, 
+                                 stderr=subprocess.PIPE)
+            if result.returncode != 0:
                 print("Homebrew not found. Some dependencies may be missing.")
                 print("Visit https://brew.sh for installation instructions")
         except Exception as e:
-            print(f"Warning: Could not check system dependencies: {e}")
+            logging.warning(f"Could not check system dependencies: {e}")
     
     @staticmethod
-    def _check_windows_dependencies():
+    def _check_windows_dependencies() -> None:
         """Check for required components on Windows."""
-        # Windows typically includes necessary image libraries
-        # but we can check for Visual C++ Redistributable
         try:
             import winreg
             key_path = r"SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes"
@@ -132,42 +135,58 @@ class DependencyManager:
             print("Visit https://aka.ms/vs/16/release/vc_redist.x64.exe")
 
 class DownloadState:
-    """Track download progress and state for resume capability."""
+    """Track download progress and state for resume capability with improved state management."""
+    
     def __init__(self, state_file: Path):
         self.state_file = state_file
         self.downloaded_files: Set[str] = set()
         self.processed_repos: Set[str] = set()
-        self.load_state()
+        self.last_save = time.time()
+        self._load_state()
 
-    def load_state(self):
-        """Load previous download state if it exists."""
+    def _load_state(self) -> None:
+        """Load previous download state with error handling."""
         if self.state_file.exists():
             try:
                 with open(self.state_file, 'r') as f:
                     data = json.load(f)
                     self.downloaded_files = set(data.get('downloaded_files', []))
                     self.processed_repos = set(data.get('processed_repos', []))
+            except json.JSONDecodeError as e:
+                logging.error(f"Error decoding state file: {e}")
+                # Create backup of corrupted state file
+                backup_path = self.state_file.with_suffix('.json.bak')
+                shutil.copy2(self.state_file, backup_path)
             except Exception as e:
                 logging.error(f"Error loading state: {e}")
 
-    def save_state(self):
-        """Save current download state."""
-        try:
-            with open(self.state_file, 'w') as f:
-                json.dump({
-                    'downloaded_files': list(self.downloaded_files),
-                    'processed_repos': list(self.processed_repos),
-                    'last_updated': datetime.now().isoformat()
-                }, f)
-        except Exception as e:
-            logging.error(f"Error saving state: {e}")
+    def save_state(self, force: bool = False) -> None:
+        """Save current download state with rate limiting."""
+        current_time = time.time()
+        if force or (current_time - self.last_save) >= PROGRESS_SAVE_INTERVAL:
+            try:
+                # Write to temporary file first
+                with tempfile.NamedTemporaryFile(mode='w', delete=False) as tf:
+                    json.dump({
+                        'downloaded_files': list(self.downloaded_files),
+                        'processed_repos': list(self.processed_repos),
+                        'last_updated': datetime.now().isoformat()
+                    }, tf, indent=2)
+                
+                # Atomic replace
+                shutil.move(tf.name, self.state_file)
+                self.last_save = current_time
+            except Exception as e:
+                logging.error(f"Error saving state: {e}")
+                if os.path.exists(tf.name):
+                    os.unlink(tf.name)
 
 class ImageProcessor:
-    """Handles image validation and processing with enhanced error handling."""
+    """Handles image validation and processing with enhanced error detection."""
     
     @staticmethod
     def validate_image(filepath: Path, hash_only: bool = False) -> Tuple[bool, Optional[str]]:
-        """Validate image with comprehensive error handling."""
+        """Validate image with comprehensive checks."""
         try:
             if not filepath.suffix.lower() in IMAGE_FORMATS:
                 return False, None
@@ -182,24 +201,26 @@ class ImageProcessor:
             if hash_only:
                 return True, file_hash
 
-            # Enhanced image validation with multiple attempts
+            # Validate image integrity
             for attempt in range(3):
                 try:
                     with Image.open(filepath) as img:
-                        # Force load the image data
-                        img.load()
+                        img.verify()  # Verify image integrity
+                        img.load()    # Force load image data
+                        
                         width, height = img.size
                         if width < MIN_RESOLUTION[0] or height < MIN_RESOLUTION[1]:
                             return False, None
-                        # Additional format-specific checks
+                            
                         if img.format.upper() not in ['JPEG', 'PNG', 'GIF', 'BMP', 'WEBP', 'TIFF']:
                             return False, None
+                            
                         return True, file_hash
-                except OSError as e:
-                    if attempt == 2:  # Last attempt
+                except (OSError, Image.DecompressionBombError) as e:
+                    if attempt == 2:
                         logging.error(f"Failed to validate image after 3 attempts: {e}")
                         return False, None
-                    time.sleep(0.1)  # Brief pause before retry
+                    time.sleep(0.1)
                     
         except Exception as e:
             logging.debug(f"Image validation failed for {filepath}: {str(e)}")
@@ -207,12 +228,11 @@ class ImageProcessor:
 
     @staticmethod
     def _calculate_hash(filepath: Path) -> str:
-        """Calculate file hash with improved memory efficiency."""
+        """Calculate file hash with memory-efficient chunked reading."""
         sha256_hash = hashlib.sha256()
         
         try:
             with open(filepath, "rb") as f:
-                # Use memory-efficient chunked reading
                 for byte_block in iter(lambda: f.read(DOWNLOAD_CHUNK_SIZE), b""):
                     sha256_hash.update(byte_block)
             return sha256_hash.hexdigest()
@@ -221,14 +241,14 @@ class ImageProcessor:
             raise
 
 class WallPimp:
-    """Enhanced WallPimp wallpaper collection tool optimized for large repositories."""
+    """Enhanced WallPimp wallpaper collection tool with improved error handling and performance."""
     
     def __init__(self):
         # Initialize DependencyManager first
         DependencyManager.check_environment()
         
         self.output_folder = self._get_default_output_folder()
-        self.temp_dir = Path("temp_repos")
+        self.temp_dir = Path(tempfile.mkdtemp(prefix="wallpimp_"))
         self.state_file = self.output_folder / '.wallpimp_state.json'
         self.download_state = DownloadState(self.state_file)
         self.processed_hashes: Dict[str, Path] = {}
@@ -248,11 +268,12 @@ class WallPimp:
         """Handle shutdown signals gracefully."""
         print("\nReceived shutdown signal. Cleaning up...")
         self.stop_event.set()
-        self.download_state.save_state()
+        self.download_state.save_state(force=True)
+        self._cleanup()
         sys.exit(0)
 
     def _setup_logging(self):
-        """Configure rotating log handler."""
+        """Configure rotating log handler with improved formatting."""
         log_file = self.output_folder / 'wallpimp.log'
         logging.basicConfig(
             level=logging.INFO,
@@ -264,11 +285,13 @@ class WallPimp:
         )
         self.logger = logging.getLogger('WallPimp')
 
-    def _auto_save_state(self):
-        """Periodically save download state."""
-        while not self.stop_event.is_set():
-            time.sleep(PROGRESS_SAVE_INTERVAL)
-            self.download_state.save_state()
+    def _cleanup(self):
+        """Clean up temporary files and directories."""
+        try:
+            if self.temp_dir.exists():
+                shutil.rmtree(self.temp_dir, ignore_errors=True)
+        except Exception as e:
+            logging.error(f"Error during cleanup: {e}")
 
     def _get_default_output_folder(self) -> Path:
         """Get the default output folder with extended platform support."""
@@ -283,75 +306,8 @@ class WallPimp:
         
         return Path(base_dir) / 'WallPimp'
 
-    def _validate_image_file(self, filepath: Path, hash_only: bool = False) -> Tuple[bool, Optional[str]]:
-        """
-        Validate image file with enhanced checks and hash calculation.
-        Returns (is_valid, file_hash).
-        """
-        try:
-            if not filepath.suffix.lower() in IMAGE_FORMATS:
-                return False, None
-
-            file_size = filepath.stat().st_size
-            if not (MIN_IMAGE_SIZE <= file_size <= MAX_IMAGE_SIZE):
-                return False, None
-
-            # Calculate hash first for efficiency
-            file_hash = self._get_file_hash(filepath)
-            
-            if hash_only:
-                return True, file_hash
-
-            # Verify image integrity and check resolution
-            with Image.open(filepath) as img:
-                width, height = img.size
-                if width < MIN_RESOLUTION[0] or height < MIN_RESOLUTION[1]:
-                    return False, None
-                
-                # Verify image isn't corrupted
-                img.verify()
-                
-            return True, file_hash
-        except Exception as e:
-            self.logger.debug(f"Image validation failed for {filepath}: {str(e)}")
-            return False, None
-
-    def _handle_duplicate_file(self, source: Path, destination: Path, 
-                             source_hash: str) -> bool:
-        """
-        Handle duplicate file detection with user interaction.
-        Returns True if file should be copied, False to skip.
-        """
-        if source_hash in self.processed_hashes:
-            existing_file = self.processed_hashes[source_hash]
-            if existing_file.exists():
-                print(f"\nDuplicate detected:")
-                print(f"New file: {source}")
-                print(f"Existing: {existing_file}")
-                
-                while True:
-                    choice = input("Replace existing file? (y/n): ").lower()
-                    if choice in ('y', 'n'):
-                        return choice == 'y'
-                    print("Please enter 'y' or 'n'")
-            return True
-        return True
-
-    def _verify_file_integrity(self, filepath: Path, original_hash: str) -> bool:
-        """
-        Verify file integrity after copy/download operations.
-        """
-        try:
-            _, new_hash = self._validate_image_file(filepath, hash_only=True)
-            return new_hash == original_hash
-        except Exception as e:
-            self.logger.error(f"Integrity check failed for {filepath}: {e}")
-            return False
-
     def process_repository(self, repo_url: str) -> Tuple[int, str]:
-        """
-        Process repository with enhanced file handling and verification.
-        """
+        """Process repository with enhanced error handling and verification."""
         if repo_url in self.download_state.processed_repos:
             return 0, f"Skipping already processed repository: {repo_url}"
 
@@ -380,7 +336,7 @@ class WallPimp:
 
                     try:
                         # Validate and get hash
-                        is_valid, file_hash = self._validate_image_file(image_file)
+                        is_valid, file_hash = ImageProcessor.validate_image(image_file)
                         if not is_valid or not file_hash:
                             pbar.update(1)
                             continue
@@ -391,8 +347,7 @@ class WallPimp:
                         destination = self.output_folder / new_name
 
                         # Handle duplicates
-                        if not self._handle_duplicate_file(
-                            image_file, destination, file_hash):
+                        if file_hash in self.processed_hashes:
                             pbar.update(1)
                             continue
 
@@ -405,6 +360,8 @@ class WallPimp:
                                 f"Integrity check failed for {destination}")
                             self.failed_downloads.append((str(image_file), 
                                                        destination))
+                            if destination.exists():
+                                destination.unlink()
                             continue
 
                         # Update tracking
@@ -425,18 +382,15 @@ class WallPimp:
         except Exception as e:
             self.logger.error(f"Error processing repository {repo_name}: {str(e)}")
             status_message = f"⚠️  Error processing {repo_name}: {str(e)}"
-            
         finally:
-            # Clean up repository
+            # Clean up repository directory
             if repo_path.exists():
                 shutil.rmtree(repo_path, ignore_errors=True)
                 
         return wallpapers_count, status_message
 
     def _clone_repository(self, repo_url: str, repo_path: Path) -> bool:
-        """
-        Enhanced repository cloning with progress indication and large repo handling.
-        """
+        """Clone repository with improved error handling and progress tracking."""
         for attempt in range(MAX_RETRIES):
             try:
                 if attempt > 0:
@@ -448,10 +402,11 @@ class WallPimp:
 
                 print(f"\nCloning {repo_url}...")
                 
-                # Use partial clone for large repositories
+                # Use partial clone for large repositories with depth limit
                 cmd = [
                     'git', 'clone',
                     '--filter=blob:limit=1g',  # Filter large files
+                    '--depth=1',  # Shallow clone for faster download
                     '--single-branch',
                     '--progress',
                     repo_url,
@@ -465,16 +420,20 @@ class WallPimp:
                     universal_newlines=True
                 )
                 
-                # Monitor clone progress
+                # Monitor clone progress with timeout
+                start_time = time.time()
                 while True:
                     if process.stderr is None:
                         break
+                        
+                    if time.time() - start_time > CLONE_TIMEOUT:
+                        process.terminate()
+                        raise subprocess.TimeoutExpired(cmd, CLONE_TIMEOUT)
                         
                     output = process.stderr.readline()
                     if output == '' and process.poll() is not None:
                         break
                     if output:
-                        # Extract progress information if available
                         if 'Receiving objects:' in output:
                             print(f"\r{output.strip()}", end='')
                 
@@ -484,20 +443,21 @@ class WallPimp:
                     
             except subprocess.TimeoutExpired:
                 self.logger.error(f"Timeout while cloning {repo_url}")
+                if repo_path.exists():
+                    shutil.rmtree(repo_path, ignore_errors=True)
             except subprocess.SubprocessError as e:
                 self.logger.error(f"Error cloning {repo_url}: {str(e)}")
+                if repo_path.exists():
+                    shutil.rmtree(repo_path, ignore_errors=True)
             
         return False
 
     def run(self):
-        """
-        Main execution method with improved error handling and progress tracking.
-        """
+        """Main execution method with improved error handling and resource management."""
         self.print_banner()
         
         # Create necessary directories
         self.output_folder.mkdir(parents=True, exist_ok=True)
-        self.temp_dir.mkdir(exist_ok=True)
         
         # Start auto-save thread
         save_thread = threading.Thread(target=self._auto_save_state)
@@ -538,17 +498,23 @@ class WallPimp:
             raise
         finally:
             # Save final state and clean up
-            self.download_state.save_state()
-            if self.temp_dir.exists():
-                shutil.rmtree(self.temp_dir, ignore_errors=True)
+            self.download_state.save_state(force=True)
+            self._cleanup()
 
-        # Display final summary with enhanced statistics
+        # Display final summary
         self._display_final_summary(start_time)
 
+    def _auto_save_state(self):
+        """Periodically save download state with error handling."""
+        while not self.stop_event.is_set():
+            try:
+                time.sleep(PROGRESS_SAVE_INTERVAL)
+                self.download_state.save_state()
+            except Exception as e:
+                self.logger.error(f"Error in auto-save: {e}")
+
     def _retry_failed_downloads(self):
-        """
-        Attempt to retry failed downloads with user interaction.
-        """
+        """Retry failed downloads with improved error handling and progress tracking."""
         if not self.failed_downloads:
             return
 
@@ -571,7 +537,7 @@ class WallPimp:
                         continue
 
                     # Validate source file again
-                    is_valid, file_hash = self._validate_image_file(source_path)
+                    is_valid, file_hash = ImageProcessor.validate_image(source_path)
                     if not is_valid:
                         self.logger.error(f"Source file invalid: {source}")
                         remaining_failures.append((source, destination))
@@ -584,6 +550,8 @@ class WallPimp:
                         self.processed_hashes[file_hash] = destination
                         self.download_state.downloaded_files.add(str(destination))
                     else:
+                        if destination.exists():
+                            destination.unlink()
                         remaining_failures.append((source, destination))
 
                 except Exception as e:
@@ -599,10 +567,17 @@ class WallPimp:
         if remaining_failures:
             print(f"\nWarning: {len(remaining_failures)} downloads still failed")
 
+    def _verify_file_integrity(self, filepath: Path, original_hash: str) -> bool:
+        """Verify file integrity with improved error handling."""
+        try:
+            _, new_hash = ImageProcessor.validate_image(filepath, hash_only=True)
+            return new_hash == original_hash
+        except Exception as e:
+            self.logger.error(f"Integrity check failed for {filepath}: {e}")
+            return False
+
     def _display_final_summary(self, start_time: float):
-        """
-        Display comprehensive summary of the download operation.
-        """
+        """Display comprehensive summary with improved statistics."""
         elapsed_time = time.time() - start_time
         hours, remainder = divmod(int(elapsed_time), 3600)
         minutes, seconds = divmod(remainder, 60)
@@ -615,20 +590,21 @@ class WallPimp:
         print(f"⏱️  Time elapsed: {hours}h {minutes}m {seconds}s")
         print(f"✅ Successfully processed repositories: {self.successful_repos}/{len(WALLPAPER_REPOS)}")
         
-        total_size = sum(f.stat().st_size for f in self.output_folder.glob('**/*') 
-                        if f.is_file())
-        gb_size = total_size / (1024**3)
-        print(f"💽 Total data downloaded: {gb_size:.2f} GB")
+        try:
+            total_size = sum(f.stat().st_size for f in self.output_folder.glob('**/*') 
+                           if f.is_file())
+            gb_size = total_size / (1024**3)
+            print(f"💽 Total data downloaded: {gb_size:.2f} GB")
+        except Exception as e:
+            self.logger.error(f"Error calculating total size: {e}")
         
         if self.failed_downloads:
             print(f"⚠️  Failed downloads: {len(self.failed_downloads)}")
             print("\nFailed files have been logged to wallpimp.log")
 
     def _sanitize_filename(self, filename: str) -> str:
-        """
-        Sanitize filename with enhanced character handling.
-        """
-        # Replace invalid characters
+        """Sanitize filename with improved character handling and length limits."""
+        # Remove or replace invalid characters
         invalid_chars = r'[<>:"/\\|?*\x00-\x1f]'
         sanitized = re.sub(invalid_chars, '_', filename)
         
@@ -643,43 +619,17 @@ class WallPimp:
             
         return sanitized
 
-    def _get_file_hash(self, filepath: Path) -> str:
-        """
-        Calculate file hash with progress for large files.
-        """
-        file_size = filepath.stat().st_size
-        sha256_hash = hashlib.sha256()
-        
-        # Show progress only for large files
-        if file_size > 100 * 1024 * 1024:  # 100MB
-            with open(filepath, "rb") as f, tqdm(
-                total=file_size,
-                unit='B',
-                unit_scale=True,
-                desc=f"Calculating hash for {filepath.name}",
-                leave=False
-            ) as pbar:
-                for byte_block in iter(lambda: f.read(DOWNLOAD_CHUNK_SIZE), b""):
-                    sha256_hash.update(byte_block)
-                    pbar.update(len(byte_block))
-        else:
-            with open(filepath, "rb") as f:
-                for byte_block in iter(lambda: f.read(DOWNLOAD_CHUNK_SIZE), b""):
-                    sha256_hash.update(byte_block)
-                    
-        return sha256_hash.hexdigest()
-
     def print_banner(self):
-        """Display the WallPimp banner with enhanced information."""
+        """Display the WallPimp banner with version and feature information."""
         banner = f"""
 ╔══════════════════════════════════════════════════╗
-║                 WallPimp v2.3                    ║
+║                 WallPimp v2.4                    ║
 ║        Developed by ソロックス (oxborn3)           ║
 ║        https://github.com/0xb0rn3                ║
 ╚══════════════════════════════════════════════════╝
 
 🔍 Features:
-• Optimized for large repositories (up to 1GB per file)
+• Optimized for large repositories
 • Precise file verification and duplicate detection
 • Download resume capability
 • Detailed progress tracking
@@ -689,55 +639,31 @@ class WallPimp:
 """
         print(banner)
 
-def check_dependencies():
-    """
-    Verify all required dependencies with detailed feedback.
-    """
-    missing_deps = []
-    optional_deps = []
-    
-    # Check Git installation
+def check_git_installation():
+    """Verify Git installation with detailed feedback."""
     try:
-        git_version = subprocess.run(
+        result = subprocess.run(
             ['git', '--version'], 
             check=True, 
             capture_output=True, 
             text=True
-        ).stdout.strip()
-        print(f"✓ Git detected: {git_version}")
-    except Exception:
-        missing_deps.append('git')
-
-    # Check Python dependencies
-    required_packages = {
-    'PIL': 'pillow',  # Changed from 'Pillow': 'pillow'
-    'requests': 'requests',
-    'tqdm': 'tqdm'
-}
-    
-    for package_name, pip_name in required_packages.items():
-        try:
-            module = __import__(package_name.lower())
-            print(f"✓ {package_name} detected: {getattr(module, '__version__', 'unknown')}")
-        except ImportError:
-            missing_deps.append(pip_name)
-
-    if missing_deps:
-        print("\nError: Missing required dependencies:")
-        for dep in missing_deps:
-            print(f"  - {dep}")
-        print("\nPlease install missing dependencies:")
-        print(f"pip install {' '.join(missing_deps)}")
-        sys.exit(1)
-
-    if optional_deps:
-        print("\nNote: Some optional dependencies are missing:")
-        for dep in optional_deps:
-            print(f"  - {dep}")
+        )
+        return True
+    except subprocess.SubprocessError:
+        print("Error: Git is not installed or not in PATH")
+        print("Please install Git from: https://git-scm.com/downloads")
+        return False
+    except Exception as e:
+        print(f"Error checking Git installation: {e}")
+        return False
 
 def main():
     """Enhanced entry point with comprehensive error handling."""
     try:
+        # Check Git installation first
+        if not check_git_installation():
+            sys.exit(1)
+            
         # Initialize and run WallPimp
         wallpimp = WallPimp()
         wallpimp.run()
