@@ -337,6 +337,36 @@ class WallPimp:
         signal.signal(signal.SIGINT, self._signal_handler)
         signal.signal(signal.SIGTERM, self._signal_handler)
 
+    def _signal_handler(self, signum, frame):
+    """Handle system signals gracefully with proper cleanup.
+    
+    Args:
+        signum: Signal number received
+        frame: Current stack frame
+    """
+    signal_name = signal.Signals(signum).name
+    self.logger.info(f"\nReceived signal {signal_name}")
+    print(f"\nReceived signal {signal_name}. Cleaning up...")
+    
+    # Set stop event to terminate ongoing operations
+    self.stop_event.set()
+    
+    # Save current state
+    try:
+        self.download_state.save_state(force=True)
+        print("Progress saved successfully")
+    except Exception as e:
+        self.logger.error(f"Error saving state during shutdown: {e}")
+    
+    # Perform cleanup
+    try:
+        self._cleanup()
+        print("Cleanup completed")
+    except Exception as e:
+        self.logger.error(f"Error during cleanup: {e}")
+    
+    # Exit with non-zero status for interruption
+    sys.exit(1)
     def _setup_logging(self):
         """Configure rotating log handler with improved formatting and directory creation."""
         log_file = self.output_folder / 'wallpimp.log'
