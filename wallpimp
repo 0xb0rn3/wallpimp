@@ -63,6 +63,96 @@ CLONE_TIMEOUT = 3600                 # Repository clone timeout (1 hour)
 DOWNLOAD_CHUNK_SIZE = 8192           # Download chunk size for large files
 PROGRESS_SAVE_INTERVAL = 60          # Save progress every 60 seconds
 
+class ImageProcessor:
+    """Handles image validation, processing, and hash generation.
+    
+    This class provides methods to verify image files meet size and resolution 
+    requirements, calculate file hashes for deduplication, and validate image 
+    integrity. It uses the PIL library for image processing and hashlib for
+    generating secure hashes.
+    """
+    
+    @staticmethod
+    def validate_image(filepath: Path, hash_only: bool = False) -> Tuple[bool, Optional[str]]:
+        """Validate image file and generate its hash.
+        
+        Args:
+            filepath: Path to the image file
+            hash_only: If True, skip resolution/size checks and only calculate hash
+            
+        Returns:
+            Tuple of (is_valid, file_hash). If hash_only is True, is_valid will
+            always be True unless hash generation fails.
+        """
+        try:
+            # Check if file exists and is readable
+            if not filepath.is_file():
+                return False, None
+                
+            # Get file size
+            file_size = filepath.stat().st_size
+            if not hash_only:
+                if file_size > MAX_IMAGE_SIZE:
+                    logging.debug(f"File too large: {filepath}")
+                    return False, None
+                if file_size < MIN_IMAGE_SIZE:
+                    logging.debug(f"File too small: {filepath}")
+                    return False, None
+            
+            # Calculate file hash first for efficiency
+            file_hash = ImageProcessor._calculate_file_hash(filepath)
+            if not file_hash:
+                return False, None
+                
+            if hash_only:
+                return True, file_hash
+            
+            # Validate image format and dimensions
+            try:
+                with Image.open(filepath) as img:
+                    # Verify it's a valid image format
+                    if not ImageProcessor._is_valid_format(img):
+                        logging.debug(f"Invalid format: {filepath}")
+                        return False, None
+                    
+                    # Check resolution
+                    width, height = img.size
+                    if width < MIN_RESOLUTION[0] or height < MIN_RESOLUTION[1]:
+                        logging.debug(f"Resolution too low: {filepath}")
+                        return False, None
+                    
+                    return True, file_hash
+                    
+            except (OSError, Image.UnidentifiedImageError) as e:
+                logging.debug(f"Error opening image {filepath}: {e}")
+                return False, None
+                
+        except Exception as e:
+            logging.error(f"Error validating {filepath}: {e}")
+            return False, None
+    
+    @staticmethod
+    def _calculate_file_hash(filepath: Path) -> Optional[str]:
+        """Calculate SHA-256 hash of file contents.
+        
+        Uses buffered reading to handle large files efficiently.
+        """
+        try:
+            sha256_hash = hashlib.sha256()
+            with open(filepath, "rb") as f:
+                # Read file in chunks to handle large files
+                for chunk in iter(lambda: f.read(DOWNLOAD_CHUNK_SIZE), b""):
+                    sha256_hash.update(chunk)
+            return sha256_hash.hexdigest()
+        except Exception as e:
+            logging.error(f"Error calculating hash for {filepath}: {e}")
+            return None
+    
+    @staticmethod
+    def _is_valid_format(img: Image.Image) -> bool:
+        """Check if image format is supported."""
+        return img.format and f'.{img.format.lower()}' in IMAGE_FORMATS
+
 class WallPimpError(Exception):
     """Custom exception class for WallPimp-specific errors."""
     pass
@@ -132,7 +222,89 @@ class DependencyManager:
         except Exception:
             print("Warning: Visual C++ Redistributable might be missing")
             print("Visit https://aka.ms/vs/16/release/vc_redist.x64.exe")
-
+class DownloadState:
+    """Manages download state persistence and recovery for the WallPimp tool."""
+    
+    def __init__(self, state_file: Path):
+        """Initialize download state tracking.
+        
+        Args:
+            state_file: Path to the state JSON file
+        """
+        self.state_file = state_file
+        self.processed_repos = set()
+        self.downloaded_files = set()
+        self.last_save = time.time()
+        
+        # Load existing state if available
+        self._load_state()
+    
+    def _load_state(self) -> None:
+        """Load previous download state from file if it exists."""
+        try:
+            if self.state_file.exists():
+                with open(self.state_file, 'r') as f:
+                    state = json.load(f)
+                    self.processed_repos = set(state.get('processed_repos', []))
+                    self.downloaded_files = set(state.get('downloaded_files', []))
+                logging.info(f"Loaded state: {len(self.processed_repos)} repos, "
+                           f"{len(self.downloaded_files)} files")
+        except Exception as e:
+            logging.error(f"Error loading state file: {e}")
+            # Create a backup of the corrupted state file
+            if self.state_file.exists():
+                backup = self.state_file.with_suffix('.json.bak')
+                shutil.copy2(self.state_file, backup)
+                logging.info(f"Created backup of corrupted state file: {backup}")
+    
+    def save_state(self, force: bool = False) -> None:
+        """Save current download state to file.
+        
+        Args:
+            force: If True, save regardless of time since last save
+        """
+        current_time = time.time()
+        # Only save if forced or enough time has passed since last save
+        if not force and (current_time - self.last_save) < PROGRESS_SAVE_INTERVAL:
+            return
+            
+        try:
+            # Create temporary file for atomic write
+            temp_file = self.state_file.with_suffix('.tmp')
+            state = {
+                'processed_repos': list(self.processed_repos),
+                'downloaded_files': list(self.downloaded_files),
+                'last_updated': datetime.now().isoformat()
+            }
+            
+            with open(temp_file, 'w') as f:
+                json.dump(state, f, indent=2)
+            
+            # Atomic replace of state file
+            if platform.system().lower() == 'windows':
+                # Windows needs special handling for atomic file replacement
+                if self.state_file.exists():
+                    self.state_file.unlink()
+                temp_file.rename(self.state_file)
+            else:
+                # POSIX systems support atomic rename
+                temp_file.replace(self.state_file)
+                
+            self.last_save = current_time
+            logging.debug("State saved successfully")
+            
+        except Exception as e:
+            logging.error(f"Error saving state: {e}")
+            if temp_file.exists():
+                temp_file.unlink()
+    
+    def clear_state(self) -> None:
+        """Clear all download state data."""
+        self.processed_repos.clear()
+        self.downloaded_files.clear()
+        if self.state_file.exists():
+            self.state_file.unlink()
+        logging.info("Download state cleared")
 class WallPimp:
     """Enhanced WallPimp wallpaper collection tool."""
     
