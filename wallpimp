@@ -52,6 +52,24 @@ WALLPAPER_REPOS = [
     "https://github.com/k1ng440/Wallpapers",
     "https://github.com/vimfn/walls",
     "https://github.com/expandpi/wallpapers"
+    "https://github.com/polluxau/linuxnext-wallpapers"
+    "https://github.com/port19x/Wallpapers"
+    "https://github.com/k1ng440/Wallpapers"
+    "https://github.com/HENTAI-CODER/Anime-Wallpaper"
+    "https://github.com/rubenswebdev/wallpapers"
+    "https://github.com/vimfn/walls"
+    "https://github.com/IcePocket/Wallpapers"
+    "https://github.com/expandpi/wallpapers"
+    "https://github.com/logicyugi/Backgrounds"
+    "https://github.com/PlannerPlus/Anime-Wallpapers"
+    "https://github.com/Samyc2002/Anime-Wallpapers"
+    "https://github.com/KaikSelhorst/WallpaperPack"
+    "https://github.com/erickmartin890/Anime-Wallpapers"
+    "https://github.com/Motif23/Wallpapers-Anime"
+    "https://github.com/TherryHilaire/anime"
+    "https://github.com/anmac/Wallpapers"
+    "https://github.com/Fuj3l/Wallpaper"
+    "https://github.com/Aluize/animewallpapers"
 ]
 
 IMAGE_FORMATS = {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.tiff'}
