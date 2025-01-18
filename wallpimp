@@ -40,7 +40,7 @@ except ImportError:
         print("pip install Pillow")
         sys.exit(1)
 
-# Configuration constants with improved defaults
+# Configuration constants
 WALLPAPER_REPOS = [
     "https://github.com/dharmx/walls",
     "https://github.com/FrenzyExists/wallpapers",
@@ -54,7 +54,88 @@ WALLPAPER_REPOS = [
     "https://github.com/expandpi/wallpapers"
 ]
 
+IMAGE_FORMATS = {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.tiff'}
+MAX_IMAGE_SIZE = 1024 * 1024 * 1024  # 1GB maximum file size
+MIN_IMAGE_SIZE = 1 * 1024            # 1KB minimum file size
+MIN_RESOLUTION = (1280, 720)         # Minimum resolution (HD)
+MAX_RETRIES = 5                      # Maximum number of retry attempts
+CLONE_TIMEOUT = 3600                 # Repository clone timeout (1 hour)
+DOWNLOAD_CHUNK_SIZE = 8192           # Download chunk size for large files
+PROGRESS_SAVE_INTERVAL = 60          # Save progress every 60 seconds
+
+class WallPimpError(Exception):
+    """Custom exception class for WallPimp-specific errors."""
+    pass
+
+class DependencyManager:
+    """Handles dependency checking and installation."""
+    
+    @staticmethod
+    def check_environment() -> None:
+        """Verify Python version and platform compatibility."""
+        if sys.version_info < (3, 6):
+            raise WallPimpError("Python 3.6 or higher is required")
+            
+        # Check for necessary system libraries based on platform
+        system = platform.system().lower()
+        check_methods = {
+            'linux': DependencyManager._check_linux_dependencies,
+            'darwin': DependencyManager._check_macos_dependencies,
+            'windows': DependencyManager._check_windows_dependencies
+        }
+        
+        if system in check_methods:
+            check_methods[system]()
+    
+    @staticmethod
+    def _check_linux_dependencies() -> None:
+        """Check for required system libraries on Linux."""
+        try:
+            libraries = ['libjpeg', 'zlib1g', 'libpng']
+            missing = []
+            
+            for lib in libraries:
+                result = subprocess.run(['ldconfig', '-p'], 
+                                     stdout=subprocess.PIPE, 
+                                     stderr=subprocess.PIPE,
+                                     text=True)
+                if lib not in result.stdout:
+                    missing.append(lib)
+            
+            if missing:
+                print(f"Missing system libraries: {', '.join(missing)}")
+                print("Please install them using your package manager:")
+                print("sudo apt-get install " + " ".join(missing))
+        except Exception as e:
+            logging.warning(f"Could not check system libraries: {e}")
+    
+    @staticmethod
+    def _check_macos_dependencies() -> None:
+        """Check for required system libraries on macOS."""
+        try:
+            result = subprocess.run(['which', 'brew'], 
+                                 stdout=subprocess.PIPE, 
+                                 stderr=subprocess.PIPE)
+            if result.returncode != 0:
+                print("Homebrew not found. Some dependencies may be missing.")
+                print("Visit https://brew.sh for installation instructions")
+        except Exception as e:
+            logging.warning(f"Could not check system dependencies: {e}")
+    
+    @staticmethod
+    def _check_windows_dependencies() -> None:
+        """Check for required components on Windows."""
+        try:
+            import winreg
+            key_path = r"SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes"
+            winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, key_path)
+        except Exception:
+            print("Warning: Visual C++ Redistributable might be missing")
+            print("Visit https://aka.ms/vs/16/release/vc_redist.x64.exe")
+
 class WallPimp:
+    """Enhanced WallPimp wallpaper collection tool."""
+    
     def __init__(self):
         # Initialize DependencyManager first
         DependencyManager.check_environment()
