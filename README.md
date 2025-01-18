@@ -1,213 +1,219 @@
-# WallPimp v2.3
+# WallPimp v2.4
 
-WallPimp is a sophisticated cross-platform automated wallpaper collection tool that efficiently fetches and organizes high-quality wallpapers from curated GitHub repositories. The tool is designed to handle large repositories with precision, providing robust error handling and detailed progress tracking.
+WallPimp is a sophisticated cross-platform wallpaper collection tool that automatically gathers and manages high-quality wallpapers from curated GitHub repositories. With its advanced file handling capabilities, intelligent duplicate detection, and robust error recovery mechanisms, WallPimp ensures a seamless wallpaper collection experience.
 
-## Features
+## Key Features
 
-### Advanced Download Management
-- Supports repositories up to 1GB in size per file
-- Intelligent handling of partial downloads and interruptions
-- Resume capability for interrupted operations
-- Automatic duplicate detection with interactive resolution
-- Precise file verification and integrity checks
+WallPimp offers a comprehensive set of features designed for reliable and efficient wallpaper collection:
 
-### Smart File Processing
-- Validates image quality and resolution requirements
-- Supports multiple image formats (JPG, PNG, GIF, BMP, WebP, TIFF)
-- Ensures minimum resolution of 1280x720 (HD)
-- Maintains original image metadata
-- Implements efficient file deduplication using SHA-256 hashing
+- **Smart Duplicate Detection**: Uses SHA-256 hash verification to ensure you never download the same wallpaper twice
+- **Quality Assurance**: Automatically filters wallpapers based on resolution (minimum 1280x720) and file integrity
+- **Cross-Platform Support**: Runs seamlessly on Windows, macOS, and Linux
+- **Intelligent Resume**: Remembers your progress and can continue from where it left off
+- **Performance Optimized**: Uses parallel processing for faster downloads and repository scanning
+- **Error Recovery**: Automatically retries failed downloads and handles network interruptions gracefully
+- **Progress Tracking**: Provides detailed real-time progress information and download statistics
 
-### Progress Tracking and Feedback
-- Real-time progress indication for both repository and file operations
-- Detailed statistics about downloaded content
-- Comprehensive logging system
-- Clear error reporting and status updates
-- Interactive handling of duplicate files
+## System Requirements
 
-### System Integration
-- Cross-platform compatibility (Windows, macOS, Linux)
-- Efficient resource utilization
-- Automatic cleanup of temporary files
-- Proper handling of system signals
-- Integration with system picture directories
+### Base Requirements
+- Python 3.6 or higher
+- Git (must be accessible in system PATH)
+- 1GB minimum free disk space (recommended: 10GB+)
+- Active internet connection
 
-## Requirements
+### Platform-Specific Dependencies
 
-### System Requirements
-- Python 3.7 or higher
-- Git (must be installed and accessible from command line)
-- At least 2GB of free RAM
-- Sufficient disk space for downloaded wallpapers
+#### Windows
+- Visual C++ Redistributable (2015 or newer)
+- Git for Windows
+- PowerShell 5.0 or higher (for automated installation)
 
-### Python Dependencies
+#### macOS
+- Xcode Command Line Tools
+- Homebrew (recommended for managing dependencies)
+
+#### Linux
+Required system libraries (automatically checked during installation):
+- libjpeg
+- zlib1g
+- libpng
+
+## Installation Guide
+
+### Windows Installation
+
+Windows users have two installation options:
+
+#### Option 1: Automated Installation (Recommended)
+
+1. Create a new folder for WallPimp
+2. Save the provided PowerShell script as `windows.ps1` in that folder
+3. Open PowerShell in that folder (Right-click → "Open PowerShell window here")
+4. Run: `.\windows.ps1`
+
+The script will:
+- Check for required software
+- Set up the necessary directories
+- Install Python dependencies
+- Create a convenient desktop shortcut
+- Offer to run WallPimp immediately
+
+#### Option 2: Manual Installation
+
+1. Install Prerequisites:
+   - Download Python from [python.org](https://www.python.org/downloads/windows/)
+   - Install Git from [git-scm.com](https://git-scm.com/download/windows)
+   - Install Visual C++ Redistributable if needed
+
+2. Set Up WallPimp:
+   ```bash
+   # Create and enter installation directory
+   mkdir C:\WallPimp
+   cd C:\WallPimp
+
+   # Clone the repository
+   git clone https://github.com/0xb0rn3/wallpimp.git
+
+   # Enter the wallpimp directory
+   cd wallpimp
+
+   # Install required Python packages
+   pip install Pillow tqdm
+   ```
+
+### macOS Installation
+
 ```bash
-pip install pillow requests tqdm
-```
+# Install Xcode Command Line Tools
+xcode-select --install
 
-## Installation
+# Install Homebrew if not already installed
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
 
-1. Clone the repository:
-```bash
+# Install Python and Git
+brew install python git
+
+# Clone WallPimp
 git clone https://github.com/0xb0rn3/wallpimp.git
 cd wallpimp
+
+# Install Python dependencies
+pip3 install Pillow tqdm
 ```
 
-2. Install required dependencies:
+### Linux Installation
+
 ```bash
-pip install -r requirements.txt
+# Ubuntu/Debian
+sudo apt-get update
+sudo apt-get install python3 python3-pip git libjpeg-dev zlib1g-dev libpng-dev
+
+# Clone WallPimp
+git clone https://github.com/0xb0rn3/wallpimp.git
+cd wallpimp
+
+# Install Python dependencies
+pip3 install Pillow tqdm
 ```
 
 ## Usage
 
-### Basic Usage
-Simply run the script from your terminal:
-```bash
-python wallpimp.py
-```
+1. Navigate to the WallPimp directory:
+   ```bash
+   cd wallpimp
+   ```
 
-The tool will automatically:
-- Create necessary directories
-- Download wallpapers from configured repositories
-- Handle duplicates and errors
-- Provide progress updates
-- Save wallpapers to your Pictures directory
+2. Run WallPimp:
+   ```bash
+   python wallpimp.py
+   ```
 
-### Output Location
-Wallpapers are saved in your system's Pictures directory:
-- Windows: `%USERPROFILE%\Pictures\WallPimp`
-- macOS: `~/Pictures/WallPimp`
-- Linux: `~/Pictures/WallPimp` or `$XDG_PICTURES_DIR/WallPimp`
+3. WallPimp will:
+   - Create a wallpaper directory in your Pictures folder
+   - Begin downloading and processing wallpapers
+   - Show real-time progress and statistics
+   - Handle any errors automatically
 
-### Configuring Sources
-The default configuration includes several curated wallpaper repositories. You can modify the `WALLPAPER_REPOS` list in the script to add or remove sources.
+## Troubleshooting Guide
 
-Example of adding a new repository:
-```python
-WALLPAPER_REPOS = [
-    "https://github.com/your-repo-here",
-    # ... existing repositories ...
-]
-```
+### Common Issues and Solutions
 
-### Configuration Options
-You can customize various settings by modifying the constants at the beginning of the script:
+#### "Python is not recognized"
+- Reinstall Python and ensure "Add Python to PATH" is checked
+- Log out and log back in to refresh environment variables
 
-```python
-IMAGE_FORMATS = {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.tiff'}
-MAX_IMAGE_SIZE = 1024 * 1024 * 1024  # 1GB maximum file size
-MIN_IMAGE_SIZE = 1 * 1024            # 1KB minimum file size
-MIN_RESOLUTION = (1280, 720)         # Minimum resolution (HD)
-```
+#### "Git is not recognized"
+- Reinstall Git
+- Add Git to system PATH
+- Restart your terminal/command prompt
 
-## Error Handling and Recovery
+#### "Permission denied"
+- Run terminal/PowerShell as administrator
+- Check folder permissions
+- Ensure antivirus isn't blocking the script
 
-### Interruption Recovery
-If the download process is interrupted, WallPimp will:
-- Save the current progress
-- Remember successfully downloaded files
-- Allow resuming from the last successful point
-- Avoid re-downloading existing files
+#### "No module named 'PIL'"
+- Run: `pip install Pillow`
+- Try: `python -m pip install Pillow`
+- If on Linux, install system dependencies first
 
-### Duplicate Handling
-When duplicates are detected, WallPimp will:
-1. Show the paths of both files
-2. Display file information
-3. Ask whether to keep or replace the existing file
-4. Remember your choice for the session
+#### Script appears frozen
+- This is normal during repository cloning
+- Large repositories may take time to process
+- Check the progress indicator
+- First run is typically slower due to initial downloads
 
-### Error Logging
-Detailed logs are maintained in:
-- Location: `<output_directory>/wallpimp.log`
-- Contains: Download attempts, errors, and operations
-- Helps in troubleshooting issues
+## Advanced Configuration
 
-## Contributing
+WallPimp stores its configuration and state in the following locations:
 
-We welcome contributions to WallPimp! Here's how you can help:
+- **Windows**: `%USERPROFILE%\WallPimp`
+- **macOS**: `~/Pictures/WallPimp`
+- **Linux**: `~/Pictures/WallPimp`
 
-1. Fork the repository
-2. Create a feature branch
-3. Commit your changes
-4. Push to the branch
-5. Create a Pull Request
+The `.wallpimp_state.json` file in this directory tracks download progress and can be safely deleted to start fresh.
 
-Please ensure your code:
-- Follows the existing style
-- Includes appropriate comments
-- Adds tests for new features
-- Updates documentation as needed
+## Support and Feedback
 
-## Troubleshooting
+If you encounter issues:
 
-### Common Issues
+1. Check the `wallpimp.log` file in your WallPimp directory
+2. Review any error messages carefully
+3. Try running the setup script again
+4. If problems persist, create an issue on GitHub with:
+   - Your operating system and version
+   - Python version (`python --version`)
+   - Git version (`git --version`)
+   - The error message
+   - The contents of wallpimp.log
 
-1. Git Not Found
-```bash
-Error: Missing required dependencies:
-  - git
-```
-Solution: Install Git from https://git-scm.com/
+Visit the [GitHub repository](https://github.com/0xb0rn3) for:
+- Latest updates and releases
+- Bug reports and feature requests
+- Contributing guidelines
+- Additional documentation
 
-2. Python Dependencies Missing
-```bash
-Error: Missing required dependencies:
-  - pillow
-  - requests
-  - tqdm
-```
-Solution: Run `pip install -r requirements.txt`
+## Security
 
-3. Permission Denied
-```bash
-Error: Permission denied when creating directory
-```
-Solution: Run with appropriate permissions or modify output directory
+WallPimp includes several security features:
 
-### Getting Help
-- Check the wallpimp.log file for detailed error information
-- Open an issue on GitHub with:
-  - Your system information
-  - Error messages
-  - Log file contents
-  - Steps to reproduce the issue
+- File integrity verification using SHA-256 hashing
+- Secure file handling with atomic operations
+- Repository validation before processing
+- Sanitized filename handling
+- Resource usage limits and timeouts
 
-## Credits
+## License
 
-Developed by ソロックス (oxborn3)  
-GitHub: https://github.com/0xb0rn3
+This project is available under the MIT License. See the LICENSE file for details.
 
-### Contributing Repositories
-Special thanks to the maintainers of the wallpaper repositories used in this tool:
-- dharmx/walls
-- FrenzyExists/wallpapers
-- Dreamer-Paul/Anime-Wallpaper
-- michaelScopic/Wallpapers
-- ryan4yin/wallpapers
-- And others listed in the source code
+## Acknowledgments
 
-## Version History
-
-### v2.3 (Current)
-- Added support for large repositories up to 1GB
-- Implemented download resume capability
-- Enhanced error handling and recovery
-- Added detailed progress tracking
-- Improved duplicate detection
-
-### v2.2
-- Added file integrity verification
-- Improved cross-platform compatibility
-- Enhanced error logging
-- Added support for more image formats
-
-### v2.1
-- Initial public release
-- Basic wallpaper downloading functionality
-- Support for multiple repositories
-- v2.0: Major rewrite with cross-platform support and automated building
-- v1.0: Initial release
+Special thanks to:
+- The maintainers of the wallpaper repositories
+- Contributors to the project
+- The Python community for essential libraries
 
 ---
-
-Developed with ❤️ by [ソロックス (oxborn3)](https://github.com/0xb0rn3)
+Developed by ソロックス (oxborn3) | [GitHub](https://github.com/0xb0rn3)
