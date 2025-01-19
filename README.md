@@ -182,3 +182,4 @@ Project Link: [https://github.com/0xb0rn3/wallpimp](https://github.com/0xb0rn3/w
 ## Security
 
 If you discover any security-related issues, please email the project maintainer instead of using the issue tracker. All security vulnerabilities will be promptly addressed.
+
