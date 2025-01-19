@@ -54,7 +54,7 @@ $WallpaperRepos = @(
     "https://github.com/TherryHilaire/anime",
     "https://github.com/anmac/Wallpapers",
     "https://github.com/Fuj3l/Wallpaper",
-    "https://github.com/Aluize/animewallpapers",
+    "https://github.com/Aluize/animewallpapers"
 )
 
 $SupportedFormats = @("jpg", "jpeg", "png", "gif", "webp")
