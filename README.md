@@ -1,219 +1,184 @@
-# WallPimp v2.4
+# WallPimp - Wallpaper Download Assistant
 
-WallPimp is a sophisticated cross-platform wallpaper collection tool that automatically gathers and manages high-quality wallpapers from curated GitHub repositories. With its advanced file handling capabilities, intelligent duplicate detection, and robust error recovery mechanisms, WallPimp ensures a seamless wallpaper collection experience.
+WallPimp is a powerful script that helps you build an extensive wallpaper collection from curated GitHub repositories. Available for both PowerShell and Bash environments, it automatically handles downloading, deduplication, and organization of wallpapers.
 
-## Key Features
+## Features
 
-WallPimp offers a comprehensive set of features designed for reliable and efficient wallpaper collection:
+- Automatic downloading from multiple curated wallpaper repositories
+- Intelligent deduplication using SHA256 hashing
+- Progress visualization with spinner animation
+- Support for multiple image formats (jpg, jpeg, png, gif, webp)
+- Automatic Git installation (PowerShell version)
+- Customizable save location
+- Automatic cleanup of temporary files
+- Detailed progress and completion reporting
 
-- **Smart Duplicate Detection**: Uses SHA-256 hash verification to ensure you never download the same wallpaper twice
-- **Quality Assurance**: Automatically filters wallpapers based on resolution (minimum 1280x720) and file integrity
-- **Cross-Platform Support**: Runs seamlessly on Windows, macOS, and Linux
-- **Intelligent Resume**: Remembers your progress and can continue from where it left off
-- **Performance Optimized**: Uses parallel processing for faster downloads and repository scanning
-- **Error Recovery**: Automatically retries failed downloads and handles network interruptions gracefully
-- **Progress Tracking**: Provides detailed real-time progress information and download statistics
+## Quick Start
 
-## System Requirements
+### PowerShell Version (Windows)
 
-### Base Requirements
-- Python 3.6 or higher
-- Git (must be accessible in system PATH)
-- 1GB minimum free disk space (recommended: 10GB+)
-- Active internet connection
-
-### Platform-Specific Dependencies
-
-#### Windows
-- Visual C++ Redistributable (2015 or newer)
-- Git for Windows
-- PowerShell 5.0 or higher (for automated installation)
-
-#### macOS
-- Xcode Command Line Tools
-- Homebrew (recommended for managing dependencies)
-
-#### Linux
-Required system libraries (automatically checked during installation):
-- libjpeg
-- zlib1g
-- libpng
-
-## Installation Guide
-
-### Windows Installation
-
-Windows users have two installation options:
-
-#### Option 1: Automated Installation (Recommended)
-
-1. Create a new folder for WallPimp
-2. Save the provided PowerShell script as `windows.ps1` in that folder
-3. Open PowerShell in that folder (Right-click → "Open PowerShell window here")
-4. Run: `.\windows.ps1`
-
-The script will:
-- Check for required software
-- Set up the necessary directories
-- Install Python dependencies
-- Create a convenient desktop shortcut
-- Offer to run WallPimp immediately
-
-#### Option 2: Manual Installation
-
-1. Install Prerequisites:
-   - Download Python from [python.org](https://www.python.org/downloads/windows/)
-   - Install Git from [git-scm.com](https://git-scm.com/download/windows)
-   - Install Visual C++ Redistributable if needed
-
-2. Set Up WallPimp:
-   ```bash
-   # Create and enter installation directory
-   mkdir C:\WallPimp
-   cd C:\WallPimp
-
-   # Clone the repository
-   git clone https://github.com/0xb0rn3/wallpimp.git
-
-   # Enter the wallpimp directory
-   cd wallpimp
-
-   # Install required Python packages
-   pip install Pillow tqdm
-   ```
-
-### macOS Installation
-
-```bash
-# Install Xcode Command Line Tools
-xcode-select --install
-
-# Install Homebrew if not already installed
-/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-
-# Install Python and Git
-brew install python git
-
-# Clone WallPimp
-git clone https://github.com/0xb0rn3/wallpimp.git
-cd wallpimp
-
-# Install Python dependencies
-pip3 install Pillow tqdm
+One-line installation and execution:
+```powershell
+iwr -useb https://raw.githubusercontent.com/0xb0rn3/wallpimp/main/wallpimp.ps1 | iex
 ```
 
-### Linux Installation
+Or download and run manually:
+```powershell
+# Download the script
+Invoke-WebRequest -Uri "https://raw.githubusercontent.com/0xb0rn3/wallpimp/main/wallpimp.ps1" -OutFile "wallpimp.ps1"
 
+# Execute the script
+.\wallpimp.ps1
+```
+
+### Bash Version (Linux/MacOS)
+
+One-line installation and execution:
 ```bash
-# Ubuntu/Debian
-sudo apt-get update
-sudo apt-get install python3 python3-pip git libjpeg-dev zlib1g-dev libpng-dev
+curl -sSL https://raw.githubusercontent.com/0xb0rn3/wallpimp/main/wallpimp | bash
+```
 
-# Clone WallPimp
+Or download and run manually:
+```bash
+# Download the script
+curl -O https://raw.githubusercontent.com/0xb0rn3/wallpimp/main/wallpimp
+
+# Make it executable
+chmod +x wallpimp
+
+# Run the script
+./wallpimp
+```
+
+## Requirements
+
+### PowerShell Version
+- Windows PowerShell 5.1+ or PowerShell Core 6.0+
+- Git (automatically installed if missing)
+- Administrator privileges (only needed if Git installation is required)
+
+### Bash Version
+- Bash shell
+- Git
+- curl or wget (for downloading)
+- Standard Unix utilities (sha256sum, find, etc.)
+
+## Installation
+
+### Method 1: Git Clone
+```bash
+# Clone the repository
 git clone https://github.com/0xb0rn3/wallpimp.git
+
+# Navigate to the directory
 cd wallpimp
 
-# Install Python dependencies
-pip3 install Pillow tqdm
+# Run the appropriate version for your system
+# For Windows:
+.\wallpimp.ps1
+
+# For Linux/MacOS:
+./wallpimp
 ```
+
+### Method 2: Direct Download
+Download the script directly from the releases page or use the one-line installation commands provided in the Quick Start section.
 
 ## Usage
 
-1. Navigate to the WallPimp directory:
-   ```bash
-   cd wallpimp
-   ```
+1. Run the script using one of the methods described above
+2. When prompted, enter your preferred save location or press Enter to use the default
+   - Windows default: `%USERPROFILE%\Pictures\Wallpapers`
+   - Linux/MacOS default: `$HOME/Pictures/Wallpapers`
+3. The script will automatically:
+   - Check for and install Git (PowerShell version only)
+   - Download wallpapers from all repositories
+   - Remove duplicates
+   - Organize files in your chosen directory
+   - Clean up temporary files
 
-2. Run WallPimp:
-   ```bash
-   python wallpimp.py
-   ```
+## Configuration
 
-3. WallPimp will:
-   - Create a wallpaper directory in your Pictures folder
-   - Begin downloading and processing wallpapers
-   - Show real-time progress and statistics
-   - Handle any errors automatically
+Both versions of the script include configurable variables at the top:
 
-## Troubleshooting Guide
+```powershell
+# PowerShell Version
+$SUPPORTED_FORMATS = @("*.img", "*.jpg", "*.jpeg", "*.png", "*.gif", "*.webp")
+$MAX_RETRIES = 3
+$DEFAULT_OUTPUT_DIR = [System.IO.Path]::Combine($env:USERPROFILE, "Pictures", "Wallpapers")
+```
 
-### Common Issues and Solutions
+```bash
+# Bash Version
+SUPPORTED_FORMATS=("img" "jpg" "jpeg" "png" "gif" "webp")
+MAX_RETRIES=3
+DEFAULT_OUTPUT_DIR="$HOME/Pictures/Wallpapers"
+```
 
-#### "Python is not recognized"
-- Reinstall Python and ensure "Add Python to PATH" is checked
-- Log out and log back in to refresh environment variables
+## Repository List
 
-#### "Git is not recognized"
-- Reinstall Git
-- Add Git to system PATH
-- Restart your terminal/command prompt
+The script includes a curated list of wallpaper repositories. You can modify the `WALLPAPER_REPOS` array in the script to add or remove repositories according to your preferences.
 
-#### "Permission denied"
-- Run terminal/PowerShell as administrator
-- Check folder permissions
-- Ensure antivirus isn't blocking the script
+## Troubleshooting
 
-#### "No module named 'PIL'"
-- Run: `pip install Pillow`
-- Try: `python -m pip install Pillow`
-- If on Linux, install system dependencies first
+### PowerShell Version
+- If you encounter execution policy errors:
+  ```powershell
+  Set-ExecutionPolicy -ExecutionPolicy Bypass -Scope Process
+  ```
+- If Git installation fails:
+  - Download and install Git manually from https://git-scm.com/download/win
+  - Run the script again
 
-#### Script appears frozen
-- This is normal during repository cloning
-- Large repositories may take time to process
-- Check the progress indicator
-- First run is typically slower due to initial downloads
+### Bash Version
+- If you encounter permission errors:
+  ```bash
+  chmod +x wallpimp
+  ```
+- If Git is missing:
+  ```bash
+  # Debian/Ubuntu
+  sudo apt-get install git
 
-## Advanced Configuration
+  # Fedora
+  sudo dnf install git
 
-WallPimp stores its configuration and state in the following locations:
+  # macOS
+  brew install git
+  ```
 
-- **Windows**: `%USERPROFILE%\WallPimp`
-- **macOS**: `~/Pictures/WallPimp`
-- **Linux**: `~/Pictures/WallPimp`
+## Contributing
 
-The `.wallpimp_state.json` file in this directory tracks download progress and can be safely deleted to start fresh.
-
-## Support and Feedback
-
-If you encounter issues:
-
-1. Check the `wallpimp.log` file in your WallPimp directory
-2. Review any error messages carefully
-3. Try running the setup script again
-4. If problems persist, create an issue on GitHub with:
-   - Your operating system and version
-   - Python version (`python --version`)
-   - Git version (`git --version`)
-   - The error message
-   - The contents of wallpimp.log
-
-Visit the [GitHub repository](https://github.com/0xb0rn3) for:
-- Latest updates and releases
-- Bug reports and feature requests
-- Contributing guidelines
-- Additional documentation
-
-## Security
-
-WallPimp includes several security features:
-
-- File integrity verification using SHA-256 hashing
-- Secure file handling with atomic operations
-- Repository validation before processing
-- Sanitized filename handling
-- Resource usage limits and timeouts
+1. Fork the repository
+2. Create your feature branch: `git checkout -b feature/AmazingFeature`
+3. Commit your changes: `git commit -m 'Add some AmazingFeature'`
+4. Push to the branch: `git push origin feature/AmazingFeature`
+5. Open a Pull Request
 
 ## License
 
-This project is available under the MIT License. See the LICENSE file for details.
+This project is licensed under the MIT License - see the LICENSE file for details.
 
 ## Acknowledgments
 
-Special thanks to:
-- The maintainers of the wallpaper repositories
-- Contributors to the project
-- The Python community for essential libraries
+- Thanks to all the wallpaper repository maintainers
+- Inspired by various wallpaper collection scripts in the community
+- Built with ❤️ by the open-source community
 
----
-Developed by ソロックス (oxborn3) | [GitHub](https://github.com/0xb0rn3)
+## Version History
+
+- 0.2.0
+  - Added PowerShell version with automatic Git installation
+  - Improved error handling and progress reporting
+  - Added automatic cleanup
+- 0.1.0
+  - Initial release with Bash version
+  - Basic functionality implemented
+
+## Contact
+
+Project Link: [https://github.com/0xb0rn3/wallpimp](https://github.com/0xb0rn3/wallpimp)
+
+## Security
+
+If you discover any security-related issues, please email the project maintainer instead of using the issue tracker. All security vulnerabilities will be promptly addressed.
