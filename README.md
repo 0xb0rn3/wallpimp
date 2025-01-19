@@ -19,13 +19,13 @@ WallPimp is a powerful script that helps you build an extensive wallpaper collec
 
 One-line installation and execution:
 ```powershell
-iwr -useb https://raw.githubusercontent.com/0xb0rn3/wallpimp/main/wallpimp.ps1 | iex
+iwr -useb https://github.com/0xb0rn3/wallpimp/blob/main/wallpimp.ps1 | iex
 ```
 
 Or download and run manually:
 ```powershell
 # Download the script
-Invoke-WebRequest -Uri "https://raw.githubusercontent.com/0xb0rn3/wallpimp/main/wallpimp.ps1" -OutFile "wallpimp.ps1"
+Invoke-WebRequest -Uri "https://github.com/0xb0rn3/wallpimp/blob/main/wallpimp.ps1" -OutFile "wallpimp.ps1"
 
 # Execute the script
 .\wallpimp.ps1
@@ -35,13 +35,13 @@ Invoke-WebRequest -Uri "https://raw.githubusercontent.com/0xb0rn3/wallpimp/main/
 
 One-line installation and execution:
 ```bash
-curl -sSL https://raw.githubusercontent.com/0xb0rn3/wallpimp/main/wallpimp | bash
+curl -sSL https://github.com/0xb0rn3/wallpimp/blob/main/wallpimp | bash
 ```
 
 Or download and run manually:
 ```bash
 # Download the script
-curl -O https://raw.githubusercontent.com/0xb0rn3/wallpimp/main/wallpimp
+curl -O https://github.com/0xb0rn3/wallpimp/blob/main/wallpimp
 
 # Make it executable
 chmod +x wallpimp
