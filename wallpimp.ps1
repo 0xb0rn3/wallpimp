@@ -1,23 +1,15 @@
 # WallPimp PowerShell Edition
-# Requires PowerShell 5.1 or higher and Git for Windows
+# Requires PowerShell 5.0 or higher and Git for Windows
 
-# Enable strict mode for better error handling
-Set-StrictMode -Version Latest
+# Error handling preferences
 $ErrorActionPreference = "Stop"
 
-# Configuration variables
-$script:SupportedFormats = @("*.jpg", "*.jpeg", "*.png", "*.gif", "*.webp")
-$script:MaxRetries = 3
-$script:DefaultOutputDir = Join-Path $env:USERPROFILE "Pictures\Wallpapers"
-$script:OrganizedDirs = @("abstract", "anime", "nature", "minimal", "art", "other")
-$script:TempDir = Join-Path $env:TEMP "wallpimp_$([System.Guid]::NewGuid().ToString())"
-
 # Repository list - same as bash version
-$script:WallpaperRepos = @(
+$Repos = @(
     "https://github.com/dharmx/walls",
-    "https://github.com/FrenzyExample/wallpapers",
-    "https://github.com/Dreamer-Paul/Anime-Wallpaper"
-    "https://github.com/michaelScopic/Wallpapers"
+    "https://github.com/FrenzyExists/wallpapers",
+    "https://github.com/Dreamer-Paul/Anime-Wallpaper",
+    "https://github.com/michaelScopic/Wallpapers",
     "https://github.com/ryan4yin/wallpapers"
     "https://github.com/HENTAI-CODER/Anime-Wallpaper"
     "https://github.com/port19x/Wallpapers"
@@ -44,214 +36,181 @@ $script:WallpaperRepos = @(
     "https://github.com/Aluize/animewallpapers"
 )
 
-# Function to show the banner
-function Show-Banner {
-    Clear-Host
-    Write-Host @"
-╔═══════════════════════════════════════╗
-║         WallPimp Ver:0.3              ║
-║    Wallpaper Download Assistant       ║
-╚═══════════════════════════════════════╝
-"@
-}
-
-# Function to show a spinning progress indicator
-function Show-SpinnerProgress {
-    param(
-        [string]$Activity,
-        [int]$DurationMs = 100
+# Show animated loader with message
+function Show-Loader {
+    param (
+        [string]$Message,
+        [scriptblock]$ScriptBlock
     )
     
-    $spinner = "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"
-    $i = 0
+    $symbols = @("⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏")
+    $job = Start-Job -ScriptBlock $ScriptBlock
     
-    Write-Host "`r$Activity " -NoNewline
-    $spinner[$i]
-    Start-Sleep -Milliseconds $DurationMs
-    $i = ($i + 1) % $spinner.Length
-    Write-Host "`r" -NoNewline
-}
-
-# Function to show progress bar
-function Show-ProgressBar {
-    param(
-        [int]$Current,
-        [int]$Total,
-        [string]$Activity
-    )
+    Write-Host "$Message " -NoNewline
     
-    $percentComplete = [math]::Round(($Current / $Total) * 100)
-    Write-Progress -Activity $Activity -Status "$percentComplete% Complete" -PercentComplete $percentComplete
-}
-
-# Function to create organized directory structure
-function Initialize-DirectoryStructure {
-    param([string]$BaseDir)
-    
-    foreach ($dir in $script:OrganizedDirs) {
-        $path = Join-Path $BaseDir $dir
-        if (-not (Test-Path $path)) {
-            New-Item -Path $path -ItemType Directory -Force | Out-Null
+    while ($job.State -eq "Running") {
+        foreach ($symbol in $symbols) {
+            Write-Host "`r$Message [$symbol]" -NoNewline
+            Start-Sleep -Milliseconds 100
         }
     }
+    
+    $result = Receive-Job -Job $job
+    Remove-Job -Job $job
+    
+    Write-Host "`r$Message [✓]"
+    return $result
 }
 
-# Function to download repository with retries
+# Download repository with retry mechanism
 function Get-Repository {
-    param(
+    param (
         [string]$RepoUrl,
-        [string]$TargetDir
+        [string]$TargetPath,
+        [int]$MaxRetries = 3
     )
     
-    $attempt = 1
-    while ($attempt -le $script:MaxRetries) {
+    $retry = 0
+    while ($retry -lt $MaxRetries) {
         try {
-            Write-Host "Downloading $(Split-Path $RepoUrl -Leaf) (Attempt $attempt/$script:MaxRetries)" -NoNewline
-            git clone --depth 1 $RepoUrl $TargetDir 2>&1 | Out-Null
-            Write-Host "`rDownload successful!                            "
+            git clone --depth 1 $RepoUrl $TargetPath 2>&1 | Out-Null
             return $true
         }
         catch {
-            Write-Host "`rRetrying..." -NoNewline
-            $attempt++
-            Start-Sleep -Seconds 2
+            $retry++
+            if ($retry -lt $MaxRetries) {
+                Write-Host "`rRetrying download... (Attempt $($retry + 1)/$MaxRetries)" -NoNewline
+                Start-Sleep -Seconds 2
+            }
         }
     }
-    Write-Host "`rFailed to download repository                    "
     return $false
 }
 
-# Function to categorize wallpapers
-function Get-WallpaperCategory {
-    param([string]$FileName)
+# Calculate file hash
+function Get-Sha256Hash {
+    param ([string]$FilePath)
     
-    $fileName = $FileName.ToLower()
-    
-    if ($fileName -match "(abstract|geometry|pattern)") { return "abstract" }
-    elseif ($fileName -match "(anime|manga|character)") { return "anime" }
-    elseif ($fileName -match "(nature|landscape|mountain|forest)") { return "nature" }
-    elseif ($fileName -match "(minimal|simple|clean)") { return "minimal" }
-    elseif ($fileName -match "(art|painting|digital)") { return "art" }
-    else { return "other" }
-}
-
-# Function to process and organize files
-function Process-Wallpapers {
-    param([string]$OutputDir)
-    
-    $fileHashes = @{}
-    $totalFiles = 0
-    $processedFiles = 0
-    
-    # Count total files
-    $script:SupportedFormats | ForEach-Object {
-        $totalFiles += (Get-ChildItem -Path $script:TempDir -Recurse -Filter $_).Count
-    }
-    
-    Write-Host "`nProcessing $totalFiles files..."
-    
-    # Process each file
-    foreach ($format in $script:SupportedFormats) {
-        Get-ChildItem -Path $script:TempDir -Recurse -Filter $format | ForEach-Object {
-            $hash = (Get-FileHash -Path $_.FullName -Algorithm SHA256).Hash
-            
-            if (-not $fileHashes.ContainsKey($hash)) {
-                $safeName = $_.Name -replace '[^\w\-\.]', '_'
-                $category = Get-WallpaperCategory -FileName $safeName
-                $targetPath = Join-Path $OutputDir $category $safeName
-                
-                # Handle filename collisions
-                if (Test-Path $targetPath) {
-                    $basename = [System.IO.Path]::GetFileNameWithoutExtension($safeName)
-                    $extension = [System.IO.Path]::GetExtension($safeName)
-                    $counter = 1
-                    while (Test-Path $targetPath) {
-                        $targetPath = Join-Path $OutputDir $category "$basename`_$counter$extension"
-                        $counter++
-                    }
-                }
-                
-                Copy-Item $_.FullName -Destination $targetPath
-                $fileHashes[$hash] = $targetPath
-            }
-            
-            $processedFiles++
-            Show-ProgressBar -Current $processedFiles -Total $totalFiles -Activity "Organizing wallpapers"
-        }
-    }
+    $hash = Get-FileHash -Path $FilePath -Algorithm SHA256
+    return $hash.Hash.ToLower()
 }
 
 # Main function
 function Start-WallpaperDownload {
-    Show-Banner
+    # Clear screen and show banner
+    Clear-Host
+    Write-Host "╔═══════════════════════════════════════╗"
+    Write-Host "║         WallPimp Ver:0.4              ║"
+    Write-Host "║    Wallpaper Download Assistant       ║"
+    Write-Host "╚═══════════════════════════════════════╝"
     
-    # Get output directory
-    Write-Host "`nWallpaper save location [$script:DefaultOutputDir]: " -NoNewline
-    $outputDir = Read-Host
-    if ([string]::IsNullOrWhiteSpace($outputDir)) {
-        $outputDir = $script:DefaultOutputDir
+    # Set up directories
+    $defaultDir = Join-Path $env:USERPROFILE "Pictures\Wallpapers"
+    Write-Host "`nWhere would you like to save wallpapers? [$defaultDir]: " -NoNewline
+    $saveDir = Read-Host
+    
+    if ([string]::IsNullOrWhiteSpace($saveDir)) {
+        $saveDir = $defaultDir
     }
     
-    # Create directories
-    Initialize-DirectoryStructure -BaseDir $outputDir
-    New-Item -Path $script:TempDir -ItemType Directory -Force | Out-Null
-    
-    Write-Host "`nInitiating wallpaper download..."
+    # Create temporary and save directories
+    $tempDir = Join-Path $env:TEMP "wallpaper_download_$([Guid]::NewGuid().ToString())"
+    New-Item -ItemType Directory -Force -Path $saveDir | Out-Null
+    New-Item -ItemType Directory -Force -Path $tempDir | Out-Null
     
     # Download repositories
-    $totalRepos = $script:WallpaperRepos.Count
-    $successfulRepos = 0
-    $failedRepos = 0
+    $successful = 0
+    $failed = 0
     
-    for ($i = 0; $i -lt $totalRepos; $i++) {
-        $repo = $script:WallpaperRepos[$i]
-        Show-ProgressBar -Current $i -Total $totalRepos -Activity "Downloading repositories"
+    Write-Host "`nStarting downloads...`n"
+    
+    foreach ($repo in $Repos) {
+        $repoName = Split-Path $repo -Leaf
+        Write-Host "Pinging server for $repoName... " -NoNewline
         
-        $targetDir = Join-Path $script:TempDir (Split-Path $repo -Leaf)
-        if (Get-Repository -RepoUrl $repo -TargetDir $targetDir) {
-            $successfulRepos++
+        # Test server connection
+        try {
+            git ls-remote $repo 2>&1 | Out-Null
+            Write-Host "`rServer connection successful for $repoName [✓]"
+        }
+        catch {
+            Write-Host "`rServer check failed for $repoName [✗]"
+            $failed++
+            continue
+        }
+        
+        # Download repository
+        $targetPath = Join-Path $tempDir $repoName
+        Write-Host "Downloading $repoName... " -NoNewline
+        
+        $downloadResult = Show-Loader -Message "Downloading $repoName" -ScriptBlock {
+            param($repo, $target)
+            Get-Repository -RepoUrl $repo -TargetPath $target
+        } -ArgumentList $repo, $targetPath
+        
+        if ($downloadResult) {
+            $successful++
         }
         else {
-            $failedRepos++
+            Write-Host "`rDownload failed for $repoName [✗]"
+            $failed++
         }
     }
     
-    # Process files
-    Process-Wallpapers -OutputDir $outputDir
+    # Process and deduplicate wallpapers
+    Write-Host "`nProcessing wallpapers..."
+    
+    $totalProcessed = 0
+    $duplicates = 0
+    $extensions = @("*.jpg", "*.jpeg", "*.png", "*.gif", "*.webp")
+    
+    # Get all image files
+    $files = Get-ChildItem -Path $tempDir -Recurse -Include $extensions
+    
+    foreach ($file in $files) {
+        $hash = Get-Sha256Hash -FilePath $file.FullName
+        $newFileName = "${hash}_$($file.Name)"
+        $targetPath = Join-Path $saveDir $newFileName
+        
+        # Check if file with same hash exists
+        $existingFile = Get-ChildItem -Path $saveDir -File | Where-Object {
+            (Get-Sha256Hash -FilePath $_.FullName) -eq $hash
+        }
+        
+        if (-not $existingFile) {
+            Copy-Item -Path $file.FullName -Destination $targetPath -Force
+            $totalProcessed++
+            Write-Host "`rProcessed: $totalProcessed files" -NoNewline
+        }
+        else {
+            $duplicates++
+        }
+    }
     
     # Cleanup
-    Write-Host "`nCleaning up temporary files..."
-    Remove-Item -Path $script:TempDir -Recurse -Force
+    Remove-Item -Path $tempDir -Recurse -Force -ErrorAction SilentlyContinue
     
-    # Show summary
-    $totalFiles = (Get-ChildItem -Path $outputDir -Recurse -File).Count
-    Write-Host "`n✓ Download Summary:"
-    Write-Host "  - Total wallpapers: $totalFiles"
-    Write-Host "  - Successful downloads: $successfulRepos repositories"
-    Write-Host "  - Failed downloads: $failedRepos repositories"
-    Write-Host "  - Save location: $outputDir"
-    
-    Write-Host "`n✓ Wallpapers organized into categories:"
-    foreach ($dir in $script:OrganizedDirs) {
-        $count = (Get-ChildItem -Path (Join-Path $outputDir $dir) -File).Count
-        Write-Host "  - $dir`: $count files"
-    }
+    # Show final summary
+    Write-Host "`n`nDownload Summary:"
+    Write-Host "✓ Successfully downloaded: $successful repositories"
+    Write-Host "✗ Failed downloads: $failed repositories"
+    Write-Host "✓ Total wallpapers processed: $totalProcessed"
+    Write-Host "✓ Duplicates skipped: $duplicates"
+    Write-Host "✓ Wallpapers saved to: $saveDir"
+}
+
+# Check for Git installation
+if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
+    Write-Host "Error: Git is not installed or not in PATH. Please install Git for Windows first."
+    Write-Host "You can download it from: https://git-scm.com/download/win"
+    exit 1
 }
 
 # Run the script
 try {
-    # Check if Git is installed
-    if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
-        Write-Host "Error: Git is not installed or not in PATH. Please install Git for Windows first."
-        exit 1
-    }
-    
     Start-WallpaperDownload
 }
 catch {
-    Write-Host "An error occurred: $_"
-    if (Test-Path $script:TempDir) {
-        Remove-Item -Path $script:TempDir -Recurse -Force
-    }
+    Write-Host "`nAn error occurred: $_"
     exit 1
 }
