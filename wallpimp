@@ -1,208 +1,256 @@
-#!/usr/bin/env bash
+#!/usr/bin/env python3
 
-# Enable strict error handling
-set -euo pipefail
+import os
+import sys
+import hashlib
+import shutil
+import subprocess
+import tempfile
+import asyncio
+import aiohttp
+import platform
+from pathlib import Path
+from typing import List, Set, Dict
+from dataclasses import dataclass
+from rich.console import Console
+from rich.progress import Progress, SpinnerColumn, TextColumn
+from PIL import Image
+from concurrent.futures import ThreadPoolExecutor
 
-# Color definitions
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-BLUE='\033[0;34m'
-NC='\033[0m'
-
-# Quiet output redirections
-exec 3>&1
-exec 1>/dev/null 2>&1
-
-# Function to print to screen even with redirected output
-print_screen() {
-    echo -e "$1" >&3
-}
-
-# Enhanced loading animation
-show_loader() {
-    local pid=$1
-    local message=$2
-    local symbols=("⠋" "⠙" "⠹" "⠸" "⠼" "⠴" "⠦" "⠧" "⠇" "⠏")
-    local delay=0.1
+@dataclass
+class DownloadStats:
+    """Track statistics for the download operation"""
+    successful_repos: int = 0
+    failed_repos: int = 0
+    total_processed: int = 0
+    duplicates: int = 0
     
-    while kill -0 "$pid" 2>/dev/null; do
-        for symbol in "${symbols[@]}"; do
-            echo -ne "\r$message [$symbol]" >&3
-            sleep $delay
-        done
-    done
-    wait "$pid"
-    local exit_status=$?
-    if [ $exit_status -eq 0 ]; then
-        echo -e "\r$message [✓]" >&3
-    else
-        echo -e "\r$message [✗]" >&3
-        return 1
-    fi
-}
+class WallpaperDownloader:
+    # Enhanced repository list with metadata
+    REPOS = [
+        {
+            "url": "https://github.com/dharmx/walls",
+            "branch": "main",
+            "description": "Minimal and aesthetic wallpapers"
+        },
+        {
+            "url": "https://github.com/FrenzyExists/wallpapers",
+            "branch": "main",
+            "description": "Nature and abstract art wallpapers"
+        },
+        {
+            "url": "https://github.com/michaelScopic/Wallpapers",
+            "branch": "main",
+            "description": "Scenic and landscape wallpapers"
+        },
+        {
+            "url": "https://github.com/ryan4yin/wallpapers",
+            "branch": "main",
+            "description": "Anime and digital art wallpapers"
+        },
+        {
+            "url": "https://github.com/port19x/Wallpapers",
+            "branch": "main",
+            "description": "Minimalist desktop wallpapers"
+        },
+        {
+            "url": "https://github.com/D3Ext/aesthetic-wallpapers",
+            "branch": "main",
+            "description": "Aesthetic and artistic wallpapers"
+        },
+        {
+            "url": "https://github.com/makccr/wallpapers",
+            "branch": "main",
+            "description": "Mixed collection of high-quality wallpapers"
+        }
+    ]
 
-# Silent dependency installation
-install_dependencies() {
-    local packages=("imagemagick" "git")
-    local missing_packages=()
-    
-    for package in "${packages[@]}"; do
-        if ! command -v "$package" &>/dev/null; then
-            missing_packages+=("$package")
-        fi
-    done
-    
-    if [ ${#missing_packages[@]} -ne 0 ]; then
-        (if command -v apt &>/dev/null; then
-            sudo apt-get update
-            sudo apt-get install -y "${missing_packages[@]}"
-        elif command -v dnf &>/dev/null; then
-            sudo dnf install -y "${missing_packages[@]}"
-        elif command -v pacman &>/dev/null; then
-            sudo pacman -Sy --noconfirm "${missing_packages[@]}"
-        elif command -v zypper &>/dev/null; then
-            sudo zypper install -y "${missing_packages[@]}"
-        else
-            exit 1
-        fi) &
-        show_loader $! "Installing required packages"
-    fi
-}
-
-# Repository list
-REPOS=(
-    "https://github.com/dharmx/walls"
-    "https://github.com/FrenzyExists/wallpapers"
-    "https://github.com/michaelScopic/Wallpapers"
-    "https://github.com/ryan4yin/wallpapers"
-    "https://github.com/port19x/Wallpapers"
-    "https://github.com/D3Ext/aesthetic-wallpapers"
-    "https://github.com/makccr/wallpapers"
-)
-
-# Download function with silent output
-download_repo() {
-    local repo=$1
-    local target=$2
-    git clone --depth 1 "$repo" "$target"
-}
-
-# Process image function
-process_image() {
-    local file=$1
-    local destination=$2
-    
-    if [ ! -r "$file" ]; then
-        return 1
-    fi
-    
-    if identify "$file" &>/dev/null; then
-        local hash
-        hash=$(sha256sum "$file" | cut -d' ' -f1)
-        local filename
-        filename=$(basename "$file")
-        local ext
-        ext=$(echo "${filename##*.}" | tr '[:upper:]' '[:lower:]')
+    def __init__(self):
+        self.console = Console()
+        self.stats = DownloadStats()
+        self.temp_dir = Path(tempfile.mkdtemp())
+        self.processed_hashes: Set[str] = set()
+        self.supported_formats = {'.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.tiff'}
         
-        if ! find "$destination" -type f -exec sha256sum {} \; | grep -q "^$hash"; then
-            case "$ext" in
-                jpg|jpeg|png|gif|webp)
-                    cp "$file" "$destination/${hash}_${filename}"
-                    ;;
-                *)
-                    convert "$file" "$destination/${hash}_${filename%.*}.png"
-                    ;;
-            esac
-            return 0
-        fi
-    fi
-    return 1
-}
+    async def check_dependencies(self) -> bool:
+        """Check and install required system dependencies"""
+        required_packages = {
+            'git': 'git',
+            'pillow': 'python3-pillow',
+            'rich': 'python3-rich',
+            'aiohttp': 'python3-aiohttp'
+        }
+        
+        missing_packages = []
+        
+        # Check Python packages
+        for package in required_packages:
+            try:
+                __import__(package)
+            except ImportError:
+                missing_packages.append(required_packages[package])
+        
+        if missing_packages:
+            self.console.print(f"Installing missing dependencies: {', '.join(missing_packages)}")
+            
+            # Determine package manager and install command
+            if platform.system() == "Linux":
+                if shutil.which("apt"):
+                    cmd = ["sudo", "apt", "install", "-y"] + missing_packages
+                elif shutil.which("dnf"):
+                    cmd = ["sudo", "dnf", "install", "-y"] + missing_packages
+                elif shutil.which("pacman"):
+                    cmd = ["sudo", "pacman", "-S", "--noconfirm"] + missing_packages
+                else:
+                    self.console.print("No supported package manager found. Please install dependencies manually.")
+                    return False
+                
+                try:
+                    subprocess.run(cmd, check=True)
+                except subprocess.CalledProcessError:
+                    self.console.print("Failed to install dependencies")
+                    return False
+                    
+        return True
 
-# Cleanup function
-cleanup() {
-    [ -d "$TEMP_DIR" ] && rm -rf "$TEMP_DIR"
-}
+    async def download_repo(self, repo: Dict[str, str], save_dir: Path) -> bool:
+        """Download and process a single repository"""
+        repo_name = repo['url'].split('/')[-1]
+        repo_path = self.temp_dir / repo_name
+        
+        try:
+            # Clone repository with depth 1 to save bandwidth
+            process = await asyncio.create_subprocess_exec(
+                'git', 'clone', '--depth', '1', 
+                '--branch', repo['branch'], 
+                repo['url'], str(repo_path),
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            
+            await process.communicate()
+            
+            if process.returncode != 0:
+                return False
+                
+            # Process all images in the repository
+            await self.process_directory(repo_path, save_dir)
+            return True
+            
+        except Exception as e:
+            self.console.print(f"Error processing {repo_name}: {str(e)}")
+            return False
+            
+    async def process_directory(self, source_dir: Path, dest_dir: Path):
+        """Process all images in a directory"""
+        with ThreadPoolExecutor() as executor:
+            tasks = []
+            for file_path in source_dir.rglob('*'):
+                if file_path.suffix.lower() in self.supported_formats:
+                    tasks.append(
+                        asyncio.get_event_loop().run_in_executor(
+                            executor,
+                            self.process_image,
+                            file_path,
+                            dest_dir
+                        )
+                    )
+            
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            
+            for result in results:
+                if isinstance(result, Exception):
+                    self.stats.failed_repos += 1
+                elif result:
+                    self.stats.total_processed += 1
+                else:
+                    self.stats.duplicates += 1
 
-trap cleanup EXIT
+    def process_image(self, source: Path, dest_dir: Path) -> bool:
+        """Process a single image file"""
+        try:
+            # Calculate file hash
+            with open(source, 'rb') as f:
+                file_hash = hashlib.sha256(f.read()).hexdigest()
+            
+            # Skip if we've seen this hash before
+            if file_hash in self.processed_hashes:
+                return False
+                
+            # Open and verify image
+            with Image.open(source) as img:
+                # Get image dimensions
+                width, height = img.size
+                
+                # Skip if image is too small
+                if width < 1920 or height < 1080:
+                    return False
+                
+                # Convert to PNG if needed and save
+                new_filename = f"{file_hash}_{source.name}"
+                if source.suffix.lower() not in {'.png', '.jpg', '.jpeg'}:
+                    new_filename = f"{file_hash}_{source.stem}.png"
+                
+                output_path = dest_dir / new_filename
+                img.save(output_path, quality=95)
+                
+                self.processed_hashes.add(file_hash)
+                return True
+                
+        except Exception as e:
+            self.console.print(f"Error processing {source}: {str(e)}")
+            return False
 
-# Main execution starts here
-clear
-# Restore output temporarily for the welcome message
-exec 1>&3
-cat << "EOF"
+    async def run(self):
+        """Main execution flow"""
+        # Show welcome message
+        self.console.print("""
 ╔═══════════════════════════════════════╗
-║      WallPimp Ver:0.5 Stable          ║
+║      WallPimp Ver:1.0 Python          ║
 ║    Wallpaper Download Assistant       ║
-║        by 0xb0rn3                     ║
+║        by 0xb0rn3 (Python Port)       ║
 ╚═══════════════════════════════════════╝
-EOF
-# Redirect output again
-exec 1>/dev/null
-
-# Check and install dependencies silently
-install_dependencies
-
-# Setup directories
-DEFAULT_DIR="$HOME/Pictures/Wallpapers"
-print_screen "\nWhere would you like to save wallpapers? [$DEFAULT_DIR]: "
-read -r SAVE_DIR
-SAVE_DIR=${SAVE_DIR:-$DEFAULT_DIR}
-TEMP_DIR="/tmp/wallpaper_download_$$"
-
-mkdir -p "$SAVE_DIR" "$TEMP_DIR"
-
-# Initialize counters
-total_repos=${#REPOS[@]}
-successful=0
-failed=0
-total_processed=0
-duplicates=0
-
-print_screen "\nStarting downloads...\n"
-
-for repo in "${REPOS[@]}"; do
-    repo_name=$(basename "$repo")
-    
-    # Test connection
-    (timeout 10 git ls-remote "$repo") &
-    if ! show_loader $! "Testing connection to $repo_name"; then
-        ((failed++))
-        continue
-    fi
-    
-    repo_temp_dir="$TEMP_DIR/$repo_name"
-    mkdir -p "$repo_temp_dir"
-    
-    # Download repository
-    (download_repo "$repo" "$repo_temp_dir") &
-    if ! show_loader $! "Downloading $repo_name"; then
-        ((failed++))
-        continue
-    fi
-    
-    # Process images
-    while IFS= read -r -d '' file; do
-        if process_image "$file" "$SAVE_DIR"; then
-            ((total_processed++))
-        else
-            ((duplicates++))
-        fi
-    done < <(find "$repo_temp_dir" -type f -iregex '.*\.\(jpg\|jpeg\|png\|gif\|webp\|bmp\|tiff\)$' -print0)
-    
-    print_screen "Processed $total_processed files from $repo_name [✓]"
-    ((successful++))
-    rm -rf "$repo_temp_dir"
-done
-
-# Show final summary
-print_screen "
+        """)
+        
+        # Check dependencies
+        if not await self.check_dependencies():
+            return
+        
+        # Get save directory
+        default_dir = Path.home() / "Pictures" / "Wallpapers"
+        save_dir = Path(input(f"\nWhere would you like to save wallpapers? [{default_dir}]: ").strip() or str(default_dir))
+        save_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Download and process repositories
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            console=self.console
+        ) as progress:
+            for repo in self.REPOS:
+                task_id = progress.add_task(f"Processing {repo['url'].split('/')[-1]}", total=None)
+                
+                if await self.download_repo(repo, save_dir):
+                    self.stats.successful_repos += 1
+                    progress.update(task_id, description=f"✓ Completed {repo['url'].split('/')[-1]}")
+                else:
+                    self.stats.failed_repos += 1
+                    progress.update(task_id, description=f"✗ Failed {repo['url'].split('/')[-1]}")
+        
+        # Show summary
+        self.console.print(f"""
 ╔════════ Download Summary ════════╗
-║ Successfully downloaded: $successful repos
-║ Failed downloads: $failed repos
-║ Total wallpapers processed: $total_processed
-║ Duplicates skipped: $duplicates
-║ Wallpapers saved to: $SAVE_DIR
-╚══════════════════════════════╝"
+║ Successfully downloaded: {self.stats.successful_repos} repos
+║ Failed downloads: {self.stats.failed_repos} repos
+║ Total wallpapers processed: {self.stats.total_processed}
+║ Duplicates skipped: {self.stats.duplicates}
+║ Wallpapers saved to: {save_dir}
+╚══════════════════════════════════╝
+        """)
+        
+        # Cleanup
+        shutil.rmtree(self.temp_dir)
 
-exit 0
+if __name__ == "__main__":
+    downloader = WallpaperDownloader()
+    asyncio.run(downloader.run())
