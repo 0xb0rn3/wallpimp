@@ -1,10 +1,10 @@
 # WallPimp PowerShell Edition
 # Requires PowerShell 5.0 or higher and Git for Windows
 
-# Error handling preferences
+# Ensure we stop on errors but don't exit immediately
 $ErrorActionPreference = "Stop"
 
-# Repository list - same as bash version
+# Repository list
 $Repos = @(
     "https://github.com/dharmx/walls",
     "https://github.com/FrenzyExists/wallpapers",
@@ -36,7 +36,7 @@ $Repos = @(
     "https://github.com/Aluize/animewallpapers"
 )
 
-# Show animated loader with message
+# Improved loader function that maintains script execution
 function Show-Loader {
     param (
         [string]$Message,
@@ -46,23 +46,31 @@ function Show-Loader {
     $symbols = @("⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏")
     $job = Start-Job -ScriptBlock $ScriptBlock
     
+    $spinIndex = 0
     Write-Host "$Message " -NoNewline
     
-    while ($job.State -eq "Running") {
-        foreach ($symbol in $symbols) {
-            Write-Host "`r$Message [$symbol]" -NoNewline
-            Start-Sleep -Milliseconds 100
-        }
+    do {
+        $symbol = $symbols[$spinIndex]
+        Write-Host "`r$Message [$symbol]" -NoNewline
+        Start-Sleep -Milliseconds 100
+        $spinIndex = ($spinIndex + 1) % $symbols.Length
+        $jobStatus = $job.State
+    } while ($jobStatus -eq "Running")
+    
+    # Ensure we get the job result before cleaning up
+    $result = Receive-Job -Job $job -Wait
+    Remove-Job -Job $job -Force
+    
+    if ($job.State -eq "Completed") {
+        Write-Host "`r$Message [✓]"
+    } else {
+        Write-Host "`r$Message [✗]"
     }
     
-    $result = Receive-Job -Job $job
-    Remove-Job -Job $job
-    
-    Write-Host "`r$Message [✓]"
     return $result
 }
 
-# Download repository with retry mechanism
+# Improved repository download function
 function Get-Repository {
     param (
         [string]$RepoUrl,
@@ -73,144 +81,183 @@ function Get-Repository {
     $retry = 0
     while ($retry -lt $MaxRetries) {
         try {
-            git clone --depth 1 $RepoUrl $TargetPath 2>&1 | Out-Null
-            return $true
+            # Use Start-Process to ensure Git execution completes
+            $processInfo = Start-Process -FilePath "git" -ArgumentList @(
+                "clone",
+                "--depth", "1",
+                $RepoUrl,
+                $TargetPath
+            ) -NoNewWindow -Wait -PassThru
+            
+            if ($processInfo.ExitCode -eq 0) {
+                return $true
+            }
         }
         catch {
-            $retry++
-            if ($retry -lt $MaxRetries) {
-                Write-Host "`rRetrying download... (Attempt $($retry + 1)/$MaxRetries)" -NoNewline
-                Start-Sleep -Seconds 2
-            }
+            Write-Verbose "Download attempt $($retry + 1) failed: $_"
+        }
+        
+        $retry++
+        if ($retry -lt $MaxRetries) {
+            Start-Sleep -Seconds 2
         }
     }
     return $false
 }
 
-# Calculate file hash
-function Get-Sha256Hash {
-    param ([string]$FilePath)
-    
-    $hash = Get-FileHash -Path $FilePath -Algorithm SHA256
-    return $hash.Hash.ToLower()
-}
-
-# Main function
+# Main function with improved error handling
 function Start-WallpaperDownload {
-    # Clear screen and show banner
-    Clear-Host
-    Write-Host "╔═══════════════════════════════════════╗"
-    Write-Host "║         WallPimp Ver:0.4              ║"
-    Write-Host "║    Wallpaper Download Assistant       ║"
-    Write-Host "╚═══════════════════════════════════════╝"
-    
-    # Set up directories
-    $defaultDir = Join-Path $env:USERPROFILE "Pictures\Wallpapers"
-    Write-Host "`nWhere would you like to save wallpapers? [$defaultDir]: " -NoNewline
-    $saveDir = Read-Host
-    
-    if ([string]::IsNullOrWhiteSpace($saveDir)) {
-        $saveDir = $defaultDir
-    }
-    
-    # Create temporary and save directories
-    $tempDir = Join-Path $env:TEMP "wallpaper_download_$([Guid]::NewGuid().ToString())"
-    New-Item -ItemType Directory -Force -Path $saveDir | Out-Null
-    New-Item -ItemType Directory -Force -Path $tempDir | Out-Null
-    
-    # Download repositories
-    $successful = 0
-    $failed = 0
-    
-    Write-Host "`nStarting downloads...`n"
-    
-    foreach ($repo in $Repos) {
-        $repoName = Split-Path $repo -Leaf
-        Write-Host "Pinging server for $repoName... " -NoNewline
+    try {
+        Clear-Host
+        Write-Host "╔═══════════════════════════════════════╗"
+        Write-Host "║         WallPimp Ver:0.4              ║"
+        Write-Host "║    Wallpaper Download Assistant       ║"
+        Write-Host "╚═══════════════════════════════════════╝"
         
-        # Test server connection
-        try {
-            git ls-remote $repo 2>&1 | Out-Null
-            Write-Host "`rServer connection successful for $repoName [✓]"
-        }
-        catch {
-            Write-Host "`rServer check failed for $repoName [✗]"
-            $failed++
-            continue
+        # Set up directories with error checking
+        $defaultDir = Join-Path $env:USERPROFILE "Pictures\Wallpapers"
+        Write-Host "`nWhere would you like to save wallpapers? [$defaultDir]: " -NoNewline
+        $saveDir = Read-Host
+        
+        if ([string]::IsNullOrWhiteSpace($saveDir)) {
+            $saveDir = $defaultDir
         }
         
-        # Download repository
-        $targetPath = Join-Path $tempDir $repoName
-        Write-Host "Downloading $repoName... " -NoNewline
+        # Create directories with verification
+        $tempDir = Join-Path $env:TEMP "wallpaper_download_$([Guid]::NewGuid().ToString())"
         
-        $downloadResult = Show-Loader -Message "Downloading $repoName" -ScriptBlock {
-            param($repo, $target)
-            Get-Repository -RepoUrl $repo -TargetPath $target
-        } -ArgumentList $repo, $targetPath
-        
-        if ($downloadResult) {
-            $successful++
-        }
-        else {
-            Write-Host "`rDownload failed for $repoName [✗]"
-            $failed++
-        }
-    }
-    
-    # Process and deduplicate wallpapers
-    Write-Host "`nProcessing wallpapers..."
-    
-    $totalProcessed = 0
-    $duplicates = 0
-    $extensions = @("*.jpg", "*.jpeg", "*.png", "*.gif", "*.webp")
-    
-    # Get all image files
-    $files = Get-ChildItem -Path $tempDir -Recurse -Include $extensions
-    
-    foreach ($file in $files) {
-        $hash = Get-Sha256Hash -FilePath $file.FullName
-        $newFileName = "${hash}_$($file.Name)"
-        $targetPath = Join-Path $saveDir $newFileName
-        
-        # Check if file with same hash exists
-        $existingFile = Get-ChildItem -Path $saveDir -File | Where-Object {
-            (Get-Sha256Hash -FilePath $_.FullName) -eq $hash
+        if (-not (Test-Path $saveDir)) {
+            New-Item -ItemType Directory -Force -Path $saveDir | Out-Null
+            Write-Host "Created directory: $saveDir"
         }
         
-        if (-not $existingFile) {
-            Copy-Item -Path $file.FullName -Destination $targetPath -Force
+        if (-not (Test-Path $tempDir)) {
+            New-Item -ItemType Directory -Force -Path $tempDir | Out-Null
+        }
+        
+        $successful = 0
+        $failed = 0
+        
+        Write-Host "`nStarting downloads...`n"
+        
+        # Download repositories with improved state management
+        foreach ($repo in $Repos) {
+            $repoName = Split-Path $repo -Leaf
+            Write-Host "Pinging server for $repoName... " -NoNewline
+            
+            # Test connection with timeout
+            $connectionTest = {
+                param($repo)
+                try {
+                    $null = git ls-remote $repo 2>&1
+                    return $true
+                }
+                catch {
+                    return $false
+                }
+            }
+            
+            $connected = Show-Loader -Message "Checking connection for $repoName" -ScriptBlock {
+                param($repo)
+                & $using:connectionTest $repo
+            } -ArgumentList $repo
+            
+            if (-not $connected) {
+                Write-Host "`rServer check failed for $repoName [✗]"
+                $failed++
+                continue
+            }
+            
+            $targetPath = Join-Path $tempDir $repoName
+            
+            # Download with state preservation
+            $downloadBlock = {
+                param($repo, $target)
+                Get-Repository -RepoUrl $repo -TargetPath $target
+            }
+            
+            $downloadSuccess = Show-Loader -Message "Downloading $repoName" -ScriptBlock {
+                param($repo, $target)
+                & $using:downloadBlock $repo $target
+            } -ArgumentList $repo, $targetPath
+            
+            if ($downloadSuccess) {
+                $successful++
+            }
+            else {
+                $failed++
+            }
+        }
+        
+        # Process files with progress tracking
+        Write-Host "`nProcessing wallpapers..."
+        
+        $totalProcessed = 0
+        $duplicates = 0
+        $extensions = @("*.jpg", "*.jpeg", "*.png", "*.gif", "*.webp")
+        
+        # Get all files and show progress
+        $files = Get-ChildItem -Path $tempDir -Recurse -Include $extensions
+        $fileCount = $files.Count
+        
+        foreach ($file in $files) {
             $totalProcessed++
-            Write-Host "`rProcessed: $totalProcessed files" -NoNewline
+            Write-Progress -Activity "Processing Files" -Status "$totalProcessed of $fileCount" -PercentComplete (($totalProcessed / $fileCount) * 100)
+            
+            $hash = (Get-FileHash -Path $file.FullName -Algorithm SHA256).Hash.ToLower()
+            $newFileName = "${hash}_$($file.Name)"
+            $targetPath = Join-Path $saveDir $newFileName
+            
+            if (-not (Test-Path $targetPath)) {
+                Copy-Item -Path $file.FullName -Destination $targetPath -Force
+            }
+            else {
+                $duplicates++
+            }
         }
-        else {
-            $duplicates++
+        
+        Write-Progress -Activity "Processing Files" -Completed
+        
+        # Cleanup with verification
+        if (Test-Path $tempDir) {
+            Remove-Item -Path $tempDir -Recurse -Force -ErrorAction SilentlyContinue
         }
+        
+        # Show final summary
+        Write-Host "`nDownload Summary:"
+        Write-Host "✓ Successfully downloaded: $successful repositories"
+        Write-Host "✗ Failed downloads: $failed repositories"
+        Write-Host "✓ Total wallpapers processed: $totalProcessed"
+        Write-Host "✓ Duplicates skipped: $duplicates"
+        Write-Host "✓ Wallpapers saved to: $saveDir"
+        
+        # Keep window open
+        Write-Host "`nPress any key to exit..."
+        $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
     }
-    
-    # Cleanup
-    Remove-Item -Path $tempDir -Recurse -Force -ErrorAction SilentlyContinue
-    
-    # Show final summary
-    Write-Host "`n`nDownload Summary:"
-    Write-Host "✓ Successfully downloaded: $successful repositories"
-    Write-Host "✗ Failed downloads: $failed repositories"
-    Write-Host "✓ Total wallpapers processed: $totalProcessed"
-    Write-Host "✓ Duplicates skipped: $duplicates"
-    Write-Host "✓ Wallpapers saved to: $saveDir"
+    catch {
+        Write-Host "`nAn error occurred: $_" -ForegroundColor Red
+        Write-Host "Press any key to exit..."
+        $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+    }
 }
 
-# Check for Git installation
+# Verify Git installation
 if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
     Write-Host "Error: Git is not installed or not in PATH. Please install Git for Windows first."
     Write-Host "You can download it from: https://git-scm.com/download/win"
+    Write-Host "`nPress any key to exit..."
+    $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
     exit 1
 }
 
-# Run the script
+# Run the script with error handling
 try {
     Start-WallpaperDownload
 }
 catch {
-    Write-Host "`nAn error occurred: $_"
+    Write-Host "`nA critical error occurred: $_" -ForegroundColor Red
+    Write-Host "Press any key to exit..."
+    $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
     exit 1
 }
