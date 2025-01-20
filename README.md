@@ -71,7 +71,7 @@ mkdir wallpimp
 cd wallpimp
 
 # Download the script (replace with actual URL or copy manually)
-curl -O https://github.com/0xb0rn3/wallpimp/wallpimp
+curl -O https://github.com/0xb0rn3/wallpimp/blob/main/wallpimp
 
 # Make the script executable
 chmod +x wallpimp
