@@ -70,7 +70,7 @@ class WallpaperDownloader:
         self.stats = DownloadStats()
         self.temp_dir = Path(tempfile.mkdtemp())
         self.processed_hashes: Set[str] = set()
-        self.supported_formats = {'.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.tiff'}
+        self.supported_formats = {'.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.png', '.tiff'}
         
     async def check_dependencies(self) -> bool:
         """Check and install required system dependencies"""
