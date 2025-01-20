@@ -1,185 +1,166 @@
-# WallPimp - Wallpaper Download Assistant
+# WallPimp
 
-WallPimp is a powerful script that helps you build an extensive wallpaper collection from curated GitHub repositories. Available for both PowerShell and Bash environments, it automatically handles downloading, deduplication, and organization of wallpapers.
+A streamlined wallpaper management tool that helps you build your collection from curated GitHub repositories. WallPimp automatically downloads, organizes, and deduplicates wallpapers while providing a smooth, interactive experience.
+
 
 ## Features
 
-- Automatic downloading from multiple curated wallpaper repositories
-- Intelligent deduplication using SHA256 hashing
-- Progress visualization with spinner animation
-- Support for multiple image formats (jpg, jpeg, png, gif, webp)
-- Automatic Git installation (PowerShell version)
-- Customizable save location
-- Automatic cleanup of temporary files
-- Detailed progress and completion reporting
+- Downloads wallpapers from curated GitHub repositories
+- Removes duplicate wallpapers using SHA256 hashing
+- Interactive progress display with server connection checks
+- Automatic retry mechanism for failed downloads
+- Cross-platform support (Linux/Unix and Windows)
+- Simple, user-friendly interface
 
 ## Quick Start
 
-### PowerShell Version (Windows)
+### Windows (PowerShell)
 
-One-line installation and execution:
+One-line installation using PowerShell:
 ```powershell
-iwr -useb https://github.com/0xb0rn3/wallpimp/blob/main/wallpimp.ps1 | iex
+irm https://raw.githubusercontent.com/0xb0rn3/wallpimp/main/wallpimp.ps1 | iex
 ```
 
 Or download and run manually:
+1. Download `wallpimp.ps1`
+2. Open PowerShell and navigate to the download location
+3. Enable script execution (if needed):
 ```powershell
-# Download the script
-Invoke-WebRequest -Uri "https://github.com/0xb0rn3/wallpimp/blob/main/wallpimp.ps1" -OutFile "wallpimp.ps1"
-
-# Execute the script
+Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+```
+4. Run the script:
+```powershell
 .\wallpimp.ps1
 ```
 
-### Bash Version (Linux/MacOS)
+### Linux/Unix (Bash)
 
-One-line installation and execution:
+One-line installation using curl:
 ```bash
-curl -sSL https://github.com/0xb0rn3/wallpimp/blob/main/wallpimp | bash
+curl -sSL https://raw.githubusercontent.com/0xb0rn3/wallpimp/main/wallpimp | bash
 ```
 
 Or download and run manually:
+1. Download `wallpimp`
+2. Make it executable:
 ```bash
-# Download the script
-curl -O https://github.com/0xb0rn3/wallpimp/blob/main/wallpimp
-
-# Make it executable
 chmod +x wallpimp
-
-# Run the script
-./wallpimp
 ```
-
-## Requirements
-
-### PowerShell Version
-- Windows PowerShell 5.1+ or PowerShell Core 6.0+
-- Git (automatically installed if missing)
-- Administrator privileges (only needed if Git installation is required)
-
-### Bash Version
-- Bash shell
-- Git
-- curl or wget (for downloading)
-- Standard Unix utilities (sha256sum, find, etc.)
-
-## Installation
-
-### Method 1: Git Clone
+3. Run the script:
 ```bash
-# Clone the repository
-git clone https://github.com/0xb0rn3/wallpimp.git
-
-# Navigate to the directory
-cd wallpimp
-
-# Run the appropriate version for your system
-# For Windows:
-.\wallpimp.ps1
-
-# For Linux/MacOS:
 ./wallpimp
 ```
 
-### Method 2: Direct Download
-Download the script directly from the releases page or use the one-line installation commands provided in the Quick Start section.
+## Prerequisites
+
+### Windows Requirements
+- Windows PowerShell 5.0 or higher (pre-installed on Windows 10 and later)
+- Git for Windows ([Download Here](https://git-scm.com/download/win))
+
+### Linux/Unix Requirements
+- Bash shell (pre-installed on most distributions)
+- Git (`sudo apt install git` for Debian/Ubuntu)
+- curl (for one-line installation)
+
+## Installation Options
+
+### Method 1: Direct Download
+1. Visit the [WallPimp Repository](https://github.com/0xb0rn3/wallpimp)
+2. Download the appropriate script:
+   - Windows: `wallpimp.ps1`
+   - Linux/Unix: `wallpimp`
+
+### Method 2: Git Clone
+```bash
+git clone https://github.com/0xb0rn3/wallpimp.git
+cd wallpimp
+```
+
+### Method 3: One-Line Installation
+Choose the appropriate command for your system from the Quick Start section above.
 
 ## Usage
 
-1. Run the script using one of the methods described above
-2. When prompted, enter your preferred save location or press Enter to use the default
+1. Run the script using the appropriate method for your system
+2. When prompted, enter your preferred save location or press Enter to use the default:
    - Windows default: `%USERPROFILE%\Pictures\Wallpapers`
-   - Linux/MacOS default: `$HOME/Pictures/Wallpapers`
-3. The script will automatically:
-   - Check for and install Git (PowerShell version only)
-   - Download wallpapers from all repositories
+   - Linux default: `$HOME/Pictures/Wallpapers`
+3. The script will:
+   - Check server connections
+   - Download wallpapers
    - Remove duplicates
-   - Organize files in your chosen directory
-   - Clean up temporary files
+   - Show progress and results
 
-## Configuration
+## Understanding the Output
 
-Both versions of the script include configurable variables at the top:
+The script provides real-time feedback using the following indicators:
+- `[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]` - Active download in progress
+- `[✓]` - Successful operation
+- `[✗]` - Failed operation
 
-```powershell
-# PowerShell Version
-$SUPPORTED_FORMATS = @("*.img", "*.jpg", "*.jpeg", "*.png", "*.gif", "*.webp")
-$MAX_RETRIES = 3
-$DEFAULT_OUTPUT_DIR = [System.IO.Path]::Combine($env:USERPROFILE, "Pictures", "Wallpapers")
+Example output:
 ```
+╔═══════════════════════════════════════╗
+║         WallPimp Ver:0.4              ║
+║    Wallpaper Download Assistant       ║
+╚═══════════════════════════════════════╝
 
-```bash
-# Bash Version
-SUPPORTED_FORMATS=("img" "jpg" "jpeg" "png" "gif" "webp")
-MAX_RETRIES=3
-DEFAULT_OUTPUT_DIR="$HOME/Pictures/Wallpapers"
+Starting downloads...
+
+Server connection successful for walls [✓]
+Downloading walls [✓]
+Processed: 142 files
+
+Download Summary:
+✓ Successfully downloaded: 5 repositories
+✗ Failed downloads: 0 repositories
+✓ Total wallpapers processed: 142
+✓ Duplicates skipped: 3
+✓ Wallpapers saved to: C:\Users\YourUser\Pictures\Wallpapers
 ```
-
-## Repository List
-
-The script includes a curated list of wallpaper repositories. You can modify the `WALLPAPER_REPOS` array in the script to add or remove repositories according to your preferences.
 
 ## Troubleshooting
 
-### PowerShell Version
-- If you encounter execution policy errors:
-  ```powershell
-  Set-ExecutionPolicy -ExecutionPolicy Bypass -Scope Process
-  ```
-- If Git installation fails:
-  - Download and install Git manually from https://git-scm.com/download/win
-  - Run the script again
+### Windows Issues
+1. "Running scripts is disabled on this system"
+   - Solution: Run `Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser`
 
-### Bash Version
-- If you encounter permission errors:
-  ```bash
-  chmod +x wallpimp
-  ```
-- If Git is missing:
-  ```bash
-  # Debian/Ubuntu
-  sudo apt-get install git
+2. "Git is not recognized as a command"
+   - Solution: Install Git for Windows and restart PowerShell
 
-  # Fedora
-  sudo dnf install git
+### Linux/Unix Issues
+1. "Permission denied"
+   - Solution: Run `chmod +x wallpimp`
 
-  # macOS
-  brew install git
-  ```
+2. "git: command not found"
+   - Solution: Install Git using your package manager
 
 ## Contributing
 
+Contributions are welcome! Please feel free to submit a Pull Request. For major changes, please open an issue first to discuss what you would like to change.
+
 1. Fork the repository
-2. Create your feature branch: `git checkout -b feature/AmazingFeature`
-3. Commit your changes: `git commit -m 'Add some AmazingFeature'`
-4. Push to the branch: `git push origin feature/AmazingFeature`
+2. Create your feature branch (`git checkout -b feature/AmazingFeature`)
+3. Commit your changes (`git commit -m 'Add some AmazingFeature'`)
+4. Push to the branch (`git push origin feature/AmazingFeature`)
 5. Open a Pull Request
 
-## License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+## Author
+
+- **0xb0rn3** - *Initial work* - [GitHub Profile](https://github.com/0xb0rn3)
 
 ## Acknowledgments
 
-- Thanks to all the wallpaper repository maintainers
-- Inspired by various wallpaper collection scripts in the community
-- Built with ❤️ by the open-source community
+- Thanks to all wallpaper repository maintainers
+- Special thanks to the GitHub community for hosting the wallpaper collections
 
-## Version History
+## Support
 
-- 0.2.0
-  - Added PowerShell version with automatic Git installation
-  - Improved error handling and progress reporting
-  - Added automatic cleanup
-- 0.1.0
-  - Initial release with Bash version
-  - Basic functionality implemented
+If you encounter any issues or have questions, please:
+1. Check the [Issues](https://github.com/0xb0rn3/wallpimp/issues) page
+2. Create a new issue if needed
+3. Include your system information and error messages
 
-## Contact
-
-Project Link: [https://github.com/0xb0rn3/wallpimp](https://github.com/0xb0rn3/wallpimp)
-
-## Security
-
-If you discover any security-related issues, please email the project maintainer instead of using the issue tracker. All security vulnerabilities will be promptly addressed.
-
+---
+Created with ♥ by [0xb0rn3](https://github.com/0xb0rn3)
