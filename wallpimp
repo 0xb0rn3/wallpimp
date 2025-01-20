@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
+sudo apt install imagemagick > /dev/null/ 2>&1
 # Enable error handling
 set -e
 
-# Show a simple animated loading indicator
+# Show a simple animated loading indicator with improved visibility
 show_loader() {
     local pid=$1
     local message=$2
@@ -51,12 +52,21 @@ REPOS=(
     "https://github.com/Aluize/animewallpapers"
 )
 
-# Show welcome message
+# Print welcome message
 clear
 echo "╔═══════════════════════════════════════╗"
-echo "║         WallPimp Ver:0.4              ║"
+echo "║         WallPimp Ver:0.5              ║"
 echo "║    Wallpaper Download Assistant       ║"
 echo "╚═══════════════════════════════════════╝"
+
+# Check for required commands
+for cmd in git identify convert; do
+    if ! command -v "$cmd" &> /dev/null; then
+        echo "Error: Required command '$cmd' not found. Please install it first."
+        [ "$cmd" = "identify" -o "$cmd" = "convert" ] && echo "These commands are part of the ImageMagick package."
+        exit 1
+    fi
+done
 
 # Set up directories
 DEFAULT_DIR="$HOME/Pictures/Wallpapers"
@@ -68,7 +78,7 @@ TEMP_DIR="/tmp/wallpaper_download_$$"
 # Create directories
 mkdir -p "$SAVE_DIR" "$TEMP_DIR"
 
-# Download function with retry mechanism
+# Download function with retry mechanism and improved error handling
 download_repo() {
     local repo=$1
     local target=$2
@@ -88,10 +98,46 @@ download_repo() {
     return 1
 }
 
+# Function to validate and process image files
+process_image() {
+    local file=$1
+    local destination=$2
+    
+    # Check if it's a valid image file
+    if identify "$file" &>/dev/null; then
+        # Calculate hash
+        local hash=$(sha256sum "$file" | cut -d' ' -f1)
+        local filename=$(basename "$file")
+        local ext="${filename##*.}"
+        
+        # Convert to lowercase extension
+        ext=$(echo "$ext" | tr '[:upper:]' '[:lower:]')
+        
+        # Skip if hash already exists
+        if ! find "$destination" -type f -exec sha256sum {} \; | grep -q "^$hash"; then
+            # Ensure proper file extension
+            case "$ext" in
+                jpg|jpeg|png|gif|webp)
+                    cp "$file" "$destination/${hash}_${filename}"
+                    return 0
+                    ;;
+                *)
+                    # Convert other image formats to PNG
+                    convert "$file" "$destination/${hash}_${filename%.*}.png"
+                    return 0
+                    ;;
+            esac
+        fi
+    fi
+    return 1
+}
+
 # Download repositories
 total_repos=${#REPOS[@]}
 successful=0
 failed=0
+total_processed=0
+duplicates=0
 
 echo -e "\nStarting downloads...\n"
 
@@ -107,48 +153,47 @@ for repo in "${REPOS[@]}"; do
     fi
     echo -e "\rServer connection successful for $repo_name [✓]"
     
+    # Create temporary directory for this repository
+    repo_temp_dir="$TEMP_DIR/$repo_name"
+    
     echo -n "Downloading $repo_name... "
-    if download_repo "$repo" "$TEMP_DIR/$repo_name" &>/dev/null & then
+    if download_repo "$repo" "$repo_temp_dir" &>/dev/null & then
         show_loader $! "Downloading $repo_name"
+        
+        echo -n "Processing images from $repo_name... "
+        
+        # Find and process all potential image files
+        while IFS= read -r -d '' file; do
+            if process_image "$file" "$SAVE_DIR"; then
+                ((total_processed++))
+                echo -ne "\rProcessed: $total_processed files from $repo_name"
+            else
+                ((duplicates++))
+            fi
+        done < <(find "$repo_temp_dir" -type f -iregex '.*\.\(jpg\|jpeg\|png\|gif\|webp\|bmp\|tiff\)$' -print0)
+        
+        echo -e "\rFinished processing $repo_name [✓]"
         ((successful++))
+        
+        # Clean up repository directory
+        rm -rf "$repo_temp_dir"
     else
         echo -e "\rDownload failed for $repo_name [✗]"
         ((failed++))
     fi
 done
 
-# Process and deduplicate wallpapers
-echo -e "\nProcessing wallpapers..."
-
-# Find all image files and process them
-total_processed=0
-duplicates=0
-
-find "$TEMP_DIR" -type f \( -iname "*.jpg" -o -iname "*.jpeg" -o -iname "*.png" -o -iname "*.gif" -o -iname "*.webp" \) -print0 | while IFS= read -r -d '' file; do
-    # Calculate hash
-    hash=$(sha256sum "$file" | cut -d' ' -f1)
-    filename=$(basename "$file")
-    
-    # Check if file with same hash exists
-    if ! find "$SAVE_DIR" -type f -exec sha256sum {} \; | grep -q "^$hash"; then
-        cp "$file" "$SAVE_DIR/${hash}_${filename}"
-        ((total_processed++))
-        echo -ne "\rProcessed: $total_processed files"
-    else
-        ((duplicates++))
-    fi
-done
-
-# Cleanup
+# Cleanup temporary directory
 rm -rf "$TEMP_DIR"
 
-# Show final summary
-echo -e "\n\nDownload Summary:"
-echo "✓ Successfully downloaded: $successful repositories"
-echo "✗ Failed downloads: $failed repositories"
-echo "✓ Total wallpapers processed: $total_processed"
-echo "✓ Duplicates skipped: $duplicates"
-echo "✓ Wallpapers saved to: $SAVE_DIR"
+# Show final summary with more detailed statistics
+echo -e "\n\n╔════════ Download Summary ════════╗"
+echo "║ Successfully downloaded: $successful repos"
+echo "║ Failed downloads: $failed repos"
+echo "║ Total wallpapers processed: $total_processed"
+echo "║ Duplicates skipped: $duplicates"
+echo "║ Wallpapers saved to: $SAVE_DIR"
+echo "╚══════════════════════════════╝"
 
 # Exit successfully
 exit 0
