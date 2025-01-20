@@ -1,0 +1,160 @@
+#!/usr/bin/env bash
+# Enable error handling
+set -e
+
+# Visual elements for the UI
+show_banner() {
+    clear
+    cat << "EOF"
+╔═══════════════════════════════════════╗
+║         WallPimp Ver:0.2              ║
+║    Wallpaper Download Assistant       ║
+╚═══════════════════════════════════════╝
+EOF
+}
+
+# Spinner animation for loading states
+spinner() {
+    local pid=$1
+    local delay=0.1
+    local spinstr='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
+    while [ "$(ps a | awk '{print $1}' | grep $pid)" ]; do
+        local temp=${spinstr#?}
+        printf " [%c]  " "$spinstr"
+        local spinstr=$temp${spinstr%"$temp"}
+        printf "\b\b\b\b\b\b"
+        sleep $delay
+    done
+    printf "    \b\b\b\b"
+}
+
+# Complete repository list
+WALLPAPER_REPOS=(
+    "https://github.com/dharmx/walls"
+    "https://github.com/FrenzyExists/wallpapers"
+    "https://github.com/Dreamer-Paul/Anime-Wallpaper"
+    "https://github.com/michaelScopic/Wallpapers"
+    "https://github.com/ryan4yin/wallpapers"
+    "https://github.com/HENTAI-CODER/Anime-Wallpaper"
+    "https://github.com/port19x/Wallpapers"
+    "https://github.com/k1ng440/Wallpapers"
+    "https://github.com/vimfn/walls"
+    "https://github.com/expandpi/wallpapers"
+    "https://github.com/polluxau/linuxnext-wallpapers"
+    "https://github.com/port19x/Wallpapers"
+    "https://github.com/k1ng440/Wallpapers"
+    "https://github.com/HENTAI-CODER/Anime-Wallpaper"
+    "https://github.com/rubenswebdev/wallpapers"
+    "https://github.com/vimfn/walls"
+    "https://github.com/IcePocket/Wallpapers"
+    "https://github.com/expandpi/wallpapers"
+    "https://github.com/logicyugi/Backgrounds"
+    "https://github.com/PlannerPlus/Anime-Wallpapers"
+    "https://github.com/Samyc2002/Anime-Wallpapers"
+    "https://github.com/KaikSelhorst/WallpaperPack"
+    "https://github.com/erickmartin890/Anime-Wallpapers"
+    "https://github.com/Motif23/Wallpapers-Anime"
+    "https://github.com/TherryHilaire/anime"
+    "https://github.com/anmac/Wallpapers"
+    "https://github.com/Fuj3l/Wallpaper"
+    "https://github.com/Aluize/animewallpapers"
+)
+
+# Configuration
+SUPPORTED_FORMATS=("img" "jpg" "jpeg" "png" "gif" "webp")
+MAX_RETRIES=3
+TEMP_DIR="/tmp/wallpimp_$$"
+DEFAULT_OUTPUT_DIR="$HOME/Pictures/Wallpapers"
+
+# Function to handle repository download with retries
+download_repo() {
+    local repo="$1"
+    local target_dir="$2"
+    local attempt=1
+
+    while [ $attempt -le $MAX_RETRIES ]; do
+        if git clone --depth 1 "$repo" "$target_dir" >/dev/null 2>&1; then
+            return 0
+        fi
+        ((attempt++))
+        sleep 2
+    done
+    return 1
+}
+
+# Function to process and deduplicate files
+process_files() {
+    local output_dir="$1"
+    declare -A file_hashes
+
+    # Process each supported file format
+    for format in "${SUPPORTED_FORMATS[@]}"; do
+        while IFS= read -r -d '' file; do
+            local hash=$(sha256sum "$file" | cut -d' ' -f1)
+            
+            if [[ -z ${file_hashes[$hash]} ]]; then
+                local filename=$(basename "$file" | tr ' ' '_' | tr -cd 'A-Za-z0-9._-')
+                local target="$output_dir/$filename"
+                
+                # Handle filename collisions
+                if [[ -f "$target" ]]; then
+                    local base="${filename%.*}"
+                    local ext="${filename##*.}"
+                    local counter=1
+                    while [[ -f "$target" ]]; do
+                        target="$output_dir/${base}_${counter}.${ext}"
+                        ((counter++))
+                    done
+                fi
+                
+                cp "$file" "$target"
+                file_hashes[$hash]="$target"
+            fi
+        done < <(find "$TEMP_DIR" -type f -iname "*.$format" -print0)
+    done
+}
+
+# Main function
+main() {
+    show_banner
+    
+    # Get output directory from user or use default
+    printf "\nWallpaper save location [$DEFAULT_OUTPUT_DIR]: "
+    read -r output_dir
+    output_dir=${output_dir:-$DEFAULT_OUTPUT_DIR}
+    
+    # Create directories
+    mkdir -p "$output_dir" "$TEMP_DIR"
+    
+    # Show initial progress
+    echo -e "\nDownloading wallpapers..."
+    
+    # Download repositories
+    failed_repos=0
+    for repo in "${WALLPAPER_REPOS[@]}"; do
+        (download_repo "$repo" "$TEMP_DIR/$(basename "$repo")") &
+        spinner $!
+        if ! wait $! 2>/dev/null; then
+            ((failed_repos++))
+        fi
+    done
+    
+    # Process and deduplicate files
+    echo -e "\nProcessing wallpapers..."
+    process_files "$output_dir" &
+    spinner $!
+    
+    # Final cleanup
+    rm -rf "$TEMP_DIR"
+    
+    # Show completion message
+    total_files=$(find "$output_dir" -type f | wc -l)
+    echo -e "\n✓ Downloaded wallpapers: $total_files"
+    echo "✓ Save location: $output_dir"
+    if [ $failed_repos -gt 0 ]; then
+        echo "! Some repositories failed to download ($failed_repos)"
+    fi
+}
+
+# Run main function
+main
