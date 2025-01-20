@@ -1,166 +1,227 @@
-# WallPimp
+# Wallpaper Downloader (WallPimp Python Edition)
 
-A streamlined wallpaper management tool that helps you build your collection from curated GitHub repositories. WallPimp automatically downloads, organizes, and deduplicates wallpapers while providing a smooth, interactive experience.
-
+WallPimp is a powerful wallpaper management tool that automatically downloads and organizes high-quality wallpapers from curated GitHub repositories. It features duplicate detection, quality filtering, and efficient parallel downloads.
 
 ## Features
 
-- Downloads wallpapers from curated GitHub repositories
-- Removes duplicate wallpapers using SHA256 hashing
-- Interactive progress display with server connection checks
-- Automatic retry mechanism for failed downloads
-- Cross-platform support (Linux/Unix and Windows)
-- Simple, user-friendly interface
+This Python implementation includes several advanced capabilities:
+- Asynchronous downloading for improved performance
+- Automatic duplicate detection using SHA-256 hashing
+- Quality filtering (minimum 1920x1080 resolution)
+- Format conversion and optimization
+- Beautiful progress indicators and status updates
+- Cross-platform compatibility (Windows, macOS, Linux)
 
-## Quick Start
+## Installation Guide
 
-### Windows (PowerShell)
+### Prerequisites
 
-One-line installation using PowerShell:
-```powershell
-irm https://raw.githubusercontent.com/0xb0rn3/wallpimp/main/wallpimp.ps1 | iex
-```
+You'll need Python 3.8 or newer installed on your system. Here's how to check your Python version:
 
-Or download and run manually:
-1. Download `wallpimp.ps1`
-2. Open PowerShell and navigate to the download location
-3. Enable script execution (if needed):
-```powershell
-Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
-```
-4. Run the script:
-```powershell
-.\wallpimp.ps1
-```
-
-### Linux/Unix (Bash)
-
-One-line installation using curl:
 ```bash
-curl -sSL https://raw.githubusercontent.com/0xb0rn3/wallpimp/main/wallpimp | bash
+python --version
+# or
+python3 --version
 ```
 
-Or download and run manually:
-1. Download `wallpimp`
-2. Make it executable:
+If you need to install Python:
+
+#### Windows
+1. Visit the official Python website (https://www.python.org/downloads/)
+2. Download the latest Python installer for Windows
+3. Run the installer
+4. Important: Check "Add Python to PATH" during installation
+5. Click "Install Now"
+
+#### macOS
+Using Homebrew (recommended):
 ```bash
+# Install Homebrew if you haven't already
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+
+# Install Python
+brew install python
+```
+
+Alternatively, download the installer from python.org.
+
+#### Linux
+Ubuntu/Debian:
+```bash
+sudo apt update
+sudo apt install python3 python3-pip git
+```
+
+Fedora:
+```bash
+sudo dnf install python3 python3-pip git
+```
+
+Arch Linux:
+```bash
+sudo pacman -S python python-pip git
+```
+
+### Installing WallPimp
+
+1. Download the script:
+```bash
+# Create a directory for the script
+mkdir wallpimp
+cd wallpimp
+
+# Download the script (replace with actual URL or copy manually)
+curl -O https://github.com/0xb0rn3/wallpimp/wallpimp
+
+# Make the script executable
 chmod +x wallpimp
 ```
+
+2. Install required Python packages:
+
+```bash
+# Using pip (Windows)
+pip install pillow rich aiohttp
+
+# Using pip (macOS/Linux)
+pip3 install pillow rich aiohttp
+```
+
+## Usage Instructions
+
+1. Open your terminal or command prompt
+
+2. Navigate to the script directory:
+```bash
+cd path/to/wallpimp
+```
+
 3. Run the script:
 ```bash
+# Windows
+python wallpimp
+
+# macOS/Linux
 ./wallpimp
+# or
+python3 wallpimp
 ```
 
-## Prerequisites
+4. When prompted, enter the desired save location for your wallpapers, or press Enter to use the default location:
+   - Windows: `C:\Users\YourUsername\Pictures\Wallpapers`
+   - macOS: `/Users/YourUsername/Pictures/Wallpapers`
+   - Linux: `/home/YourUsername/Pictures/Wallpapers`
 
-### Windows Requirements
-- Windows PowerShell 5.0 or higher (pre-installed on Windows 10 and later)
-- Git for Windows ([Download Here](https://git-scm.com/download/win))
-
-### Linux/Unix Requirements
-- Bash shell (pre-installed on most distributions)
-- Git (`sudo apt install git` for Debian/Ubuntu)
-- curl (for one-line installation)
-
-## Installation Options
-
-### Method 1: Direct Download
-1. Visit the [WallPimp Repository](https://github.com/0xb0rn3/wallpimp)
-2. Download the appropriate script:
-   - Windows: `wallpimp.ps1`
-   - Linux/Unix: `wallpimp`
-
-### Method 2: Git Clone
-```bash
-git clone https://github.com/0xb0rn3/wallpimp.git
-cd wallpimp
-```
-
-### Method 3: One-Line Installation
-Choose the appropriate command for your system from the Quick Start section above.
-
-## Usage
-
-1. Run the script using the appropriate method for your system
-2. When prompted, enter your preferred save location or press Enter to use the default:
-   - Windows default: `%USERPROFILE%\Pictures\Wallpapers`
-   - Linux default: `$HOME/Pictures/Wallpapers`
-3. The script will:
-   - Check server connections
-   - Download wallpapers
-   - Remove duplicates
-   - Show progress and results
-
-## Understanding the Output
-
-The script provides real-time feedback using the following indicators:
-- `[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]` - Active download in progress
-- `[✓]` - Successful operation
-- `[✗]` - Failed operation
-
-Example output:
-```
-╔═══════════════════════════════════════╗
-║         WallPimp Ver:0.4              ║
-║    Wallpaper Download Assistant       ║
-╚═══════════════════════════════════════╝
-
-Starting downloads...
-
-Server connection successful for walls [✓]
-Downloading walls [✓]
-Processed: 142 files
-
-Download Summary:
-✓ Successfully downloaded: 5 repositories
-✗ Failed downloads: 0 repositories
-✓ Total wallpapers processed: 142
-✓ Duplicates skipped: 3
-✓ Wallpapers saved to: C:\Users\YourUser\Pictures\Wallpapers
-```
+5. The script will:
+   - Check and install any missing dependencies
+   - Download wallpapers from the configured repositories
+   - Process and optimize the images
+   - Skip any duplicates
+   - Show progress in real-time
+   - Display a summary when finished
 
 ## Troubleshooting
 
-### Windows Issues
-1. "Running scripts is disabled on this system"
-   - Solution: Run `Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser`
+### Common Issues and Solutions
 
-2. "Git is not recognized as a command"
-   - Solution: Install Git for Windows and restart PowerShell
+#### Permission Errors
 
-### Linux/Unix Issues
-1. "Permission denied"
-   - Solution: Run `chmod +x wallpimp`
+Windows:
+- Run Command Prompt as Administrator
+- Check antivirus settings
+- Ensure you have write permission to the save directory
 
-2. "git: command not found"
-   - Solution: Install Git using your package manager
+macOS/Linux:
+```bash
+# Fix permission issues
+sudo chown -R $USER:$USER ~/Pictures/Wallpapers
+chmod 755 wallpimp
+```
 
-## Contributing
+#### Network Issues
+- Check your internet connection
+- If behind a proxy, set the appropriate environment variables:
+```bash
+# Windows (PowerShell)
+$env:HTTP_PROXY="http://proxy.example.com:8080"
+$env:HTTPS_PROXY="http://proxy.example.com:8080"
 
-Contributions are welcome! Please feel free to submit a Pull Request. For major changes, please open an issue first to discuss what you would like to change.
+# macOS/Linux
+export HTTP_PROXY="http://proxy.example.com:8080"
+export HTTPS_PROXY="http://proxy.example.com:8080"
+```
 
-1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/AmazingFeature`)
-3. Commit your changes (`git commit -m 'Add some AmazingFeature'`)
-4. Push to the branch (`git push origin feature/AmazingFeature`)
-5. Open a Pull Request
+#### Package Installation Failures
 
+Windows:
+```bash
+# Try using --user flag
+pip install --user pillow rich aiohttp
+```
 
-## Author
+macOS/Linux:
+```bash
+# Update pip first
+python3 -m pip install --upgrade pip
+# Then install packages
+python3 -m pip install --user pillow rich aiohttp
+```
 
-- **0xb0rn3** - *Initial work* - [GitHub Profile](https://github.com/0xb0rn3)
+### Getting Help
 
-## Acknowledgments
+If you encounter any issues:
+1. Check that all prerequisites are installed
+2. Verify your Python version is 3.8 or newer
+3. Ensure you have a stable internet connection
+4. Check system permissions
+5. Look for error messages in the output
 
-- Thanks to all wallpaper repository maintainers
-- Special thanks to the GitHub community for hosting the wallpaper collections
+## Customization
 
-## Support
+The script includes several repositories by default, but you can modify the `REPOS` list in the script to add or remove sources. Each repository entry should include:
+- `url`: The GitHub repository URL
+- `branch`: The branch to download (usually "main" or "master")
+- `description`: A brief description of the wallpaper collection
 
-If you encounter any issues or have questions, please:
-1. Check the [Issues](https://github.com/0xb0rn3/wallpimp/issues) page
-2. Create a new issue if needed
-3. Include your system information and error messages
+Example of adding a new repository:
+```python
+REPOS = [
+    {
+        "url": "https://github.com/yournewrepo/wallpapers",
+        "branch": "main",
+        "description": "Your collection description"
+    },
+    # ... existing repositories ...
+]
+```
 
----
-Created with ♥ by [0xb0rn3](https://github.com/0xb0rn3)
+## Performance Tips
+
+1. For faster downloads:
+   - Use a wired internet connection when possible
+   - Close other bandwidth-intensive applications
+   - Run during off-peak hours
+
+2. For better processing:
+   - Close memory-intensive applications
+   - Ensure adequate free disk space
+   - Use an SSD for the temporary directory if possible
+
+## Technical Details
+
+The script uses:
+- `asyncio` for concurrent downloads
+- `aiohttp` for efficient HTTP requests
+- `PIL` (Python Imaging Library) for image processing
+- `rich` for terminal output formatting
+- SHA-256 for duplicate detection
+- ThreadPoolExecutor for parallel image processing
+
+Memory usage scales with the number of concurrent downloads and image processing tasks. On a typical system, expect to use:
+- 100-200MB base memory
+- Additional 50-100MB per concurrent download
+- Temporary disk space approximately equal to the size of downloaded repositories
+
+## License
+
+This software is provided as-is under the MIT License. Feel free to modify and distribute according to your needs.
