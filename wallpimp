@@ -7,28 +7,46 @@ show_banner() {
     clear
     cat << "EOF"
 ╔═══════════════════════════════════════╗
-║         WallPimp Ver:0.2              ║
+║         WallPimp Ver:0.3              ║
 ║    Wallpaper Download Assistant       ║
 ╚═══════════════════════════════════════╝
 EOF
 }
 
-# Spinner animation for loading states
+# Enhanced progress spinner with message support
 spinner() {
     local pid=$1
+    local message=$2
     local delay=0.1
     local spinstr='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
+    printf "\r%s " "$message"
     while [ "$(ps a | awk '{print $1}' | grep $pid)" ]; do
         local temp=${spinstr#?}
-        printf " [%c]  " "$spinstr"
+        printf "[%c]" "$spinstr"
         local spinstr=$temp${spinstr%"$temp"}
-        printf "\b\b\b\b\b\b"
+        printf "\b\b\b"
         sleep $delay
     done
     printf "    \b\b\b\b"
 }
 
-# Complete repository list
+# Progress bar function
+progress_bar() {
+    local current=$1
+    local total=$2
+    local message=$3
+    local width=50
+    local percentage=$((current * 100 / total))
+    local filled=$((percentage * width / 100))
+    local empty=$((width - filled))
+    
+    printf "\r%s [" "$message"
+    printf "%${filled}s" '' | tr ' ' '█'
+    printf "%${empty}s" '' | tr ' ' '░'
+    printf "] %3d%%" "$percentage"
+}
+
+# Repository list
 WALLPAPER_REPOS=(
     "https://github.com/dharmx/walls"
     "https://github.com/FrenzyExists/wallpapers"
@@ -61,32 +79,72 @@ WALLPAPER_REPOS=(
 )
 
 # Configuration
-SUPPORTED_FORMATS=("img" "jpg" "jpeg" "png" "gif" "webp")
+SUPPORTED_FORMATS=("jpg" "jpeg" "png" "gif" "webp")
 MAX_RETRIES=3
-TEMP_DIR="/tmp/wallpimp_$$"
 DEFAULT_OUTPUT_DIR="$HOME/Pictures/Wallpapers"
+ORGANIZED_DIRS=("abstract" "anime" "nature" "minimal" "art" "other")
 
-# Function to handle repository download with retries
+# Function to create organized directory structure
+create_directory_structure() {
+    local base_dir="$1"
+    for dir in "${ORGANIZED_DIRS[@]}"; do
+        mkdir -p "$base_dir/$dir"
+    done
+}
+
+# Enhanced download function with proper error handling
 download_repo() {
     local repo="$1"
     local target_dir="$2"
     local attempt=1
-
+    
     while [ $attempt -le $MAX_RETRIES ]; do
+        echo -en "\rTrying to download $(basename "$repo") (Attempt $attempt/$MAX_RETRIES)"
         if git clone --depth 1 "$repo" "$target_dir" >/dev/null 2>&1; then
+            echo -en "\r\033[K"  # Clear the line
             return 0
         fi
         ((attempt++))
         sleep 2
     done
+    echo -en "\r\033[K"  # Clear the line
     return 1
 }
 
-# Function to process and deduplicate files
+# Function to categorize wallpapers based on filename and content
+categorize_wallpaper() {
+    local file="$1"
+    local filename=$(basename "$file" | tr '[:upper:]' '[:lower:]')
+    
+    if [[ $filename =~ (abstract|geometry|pattern) ]]; then
+        echo "abstract"
+    elif [[ $filename =~ (anime|manga|character) ]]; then
+        echo "anime"
+    elif [[ $filename =~ (nature|landscape|mountain|forest) ]]; then
+        echo "nature"
+    elif [[ $filename =~ (minimal|simple|clean) ]]; then
+        echo "minimal"
+    elif [[ $filename =~ (art|painting|digital) ]]; then
+        echo "art"
+    else
+        echo "other"
+    fi
+}
+
+# Enhanced file processing with progress tracking
 process_files() {
     local output_dir="$1"
     declare -A file_hashes
-
+    local total_files=0
+    local processed_files=0
+    
+    # Count total files first
+    for format in "${SUPPORTED_FORMATS[@]}"; do
+        total_files=$((total_files + $(find "$TEMP_DIR" -type f -iname "*.$format" | wc -l)))
+    done
+    
+    echo -e "\nProcessing $total_files files..."
+    
     # Process each supported file format
     for format in "${SUPPORTED_FORMATS[@]}"; do
         while IFS= read -r -d '' file; do
@@ -94,7 +152,8 @@ process_files() {
             
             if [[ -z ${file_hashes[$hash]} ]]; then
                 local filename=$(basename "$file" | tr ' ' '_' | tr -cd 'A-Za-z0-9._-')
-                local target="$output_dir/$filename"
+                local category=$(categorize_wallpaper "$file")
+                local target="$output_dir/$category/$filename"
                 
                 # Handle filename collisions
                 if [[ -f "$target" ]]; then
@@ -102,7 +161,7 @@ process_files() {
                     local ext="${filename##*.}"
                     local counter=1
                     while [[ -f "$target" ]]; do
-                        target="$output_dir/${base}_${counter}.${ext}"
+                        target="$output_dir/$category/${base}_${counter}.${ext}"
                         ((counter++))
                     done
                 fi
@@ -110,50 +169,70 @@ process_files() {
                 cp "$file" "$target"
                 file_hashes[$hash]="$target"
             fi
+            
+            ((processed_files++))
+            progress_bar "$processed_files" "$total_files" "Organizing wallpapers"
         done < <(find "$TEMP_DIR" -type f -iname "*.$format" -print0)
     done
+    echo -e "\n"
 }
 
 # Main function
 main() {
     show_banner
     
+    # Create temporary directory with unique identifier
+    TEMP_DIR="/tmp/wallpimp_$$"
+    
     # Get output directory from user or use default
     printf "\nWallpaper save location [$DEFAULT_OUTPUT_DIR]: "
     read -r output_dir
     output_dir=${output_dir:-$DEFAULT_OUTPUT_DIR}
     
-    # Create directories
-    mkdir -p "$output_dir" "$TEMP_DIR"
+    # Create directory structure
+    create_directory_structure "$output_dir"
+    mkdir -p "$TEMP_DIR"
     
     # Show initial progress
-    echo -e "\nDownloading wallpapers..."
+    echo -e "\nInitiating wallpaper download..."
     
-    # Download repositories
-    failed_repos=0
-    for repo in "${WALLPAPER_REPOS[@]}"; do
-        (download_repo "$repo" "$TEMP_DIR/$(basename "$repo")") &
-        spinner $!
-        if ! wait $! 2>/dev/null; then
+    # Download repositories with progress tracking
+    local total_repos=${#WALLPAPER_REPOS[@]}
+    local successful_repos=0
+    local failed_repos=0
+    
+    for ((i=0; i<total_repos; i++)); do
+        repo="${WALLPAPER_REPOS[i]}"
+        progress_bar "$i" "$total_repos" "Downloading repositories"
+        
+        if download_repo "$repo" "$TEMP_DIR/$(basename "$repo")"; then
+            ((successful_repos++))
+        else
             ((failed_repos++))
         fi
     done
     
-    # Process and deduplicate files
-    echo -e "\nProcessing wallpapers..."
-    process_files "$output_dir" &
-    spinner $!
+    echo -e "\n\nProcessing and organizing wallpapers..."
+    process_files "$output_dir"
     
-    # Final cleanup
+    # Cleanup
+    echo "Cleaning up temporary files..."
     rm -rf "$TEMP_DIR"
     
-    # Show completion message
+    # Show completion message with statistics
     total_files=$(find "$output_dir" -type f | wc -l)
-    echo -e "\n✓ Downloaded wallpapers: $total_files"
-    echo "✓ Save location: $output_dir"
-    if [ $failed_repos -gt 0 ]; then
-        echo "! Some repositories failed to download ($failed_repos)"
-    fi
+    echo -e "\n✓ Download Summary:"
+    echo "  - Total wallpapers: $total_files"
+    echo "  - Successful downloads: $successful_repos repositories"
+    echo "  - Failed downloads: $failed_repos repositories"
+    echo "  - Save location: $output_dir"
+    
+    # Show organization summary
+    echo -e "\n✓ Wallpapers organized into categories:"
+    for dir in "${ORGANIZED_DIRS[@]}"; do
+        local count=$(find "$output_dir/$dir" -type f | wc -l)
+        echo "  - $dir: $count files"
+    done
 }
 
 # Run main function
