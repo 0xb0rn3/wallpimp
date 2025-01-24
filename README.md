@@ -81,9 +81,13 @@ chmod +x wallpimp
 
 ```bash
 # Using pip (Windows)
+pip install requirements.txt
+or
 pip install pillow rich aiohttp
 
 # Using pip (macOS/Linux)
+pip3 install requirements.txt
+or
 pip3 install pillow rich aiohttp
 ```
 
