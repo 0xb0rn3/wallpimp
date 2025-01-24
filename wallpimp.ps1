@@ -3,21 +3,37 @@
 # Developed to automate wallpaper collection from multiple GitHub repositories
 
 param (
+    # Default save path for wallpapers in the user's Pictures directory
     [string]$SavePath = "$env:USERPROFILE\Pictures\Wallpapers",
+    
+    # Flag to disable downloading (useful for testing)
     [switch]$NoDownload = $false,
+    
+    # Enable/disable resolution filtering
     [switch]$FilterByResolution = $true,
+    
+    # Minimum width requirement for wallpapers
     [int]$MinResolutionWidth = 1920,
+    
+    # Minimum height requirement for wallpapers
     [int]$MinResolutionHeight = 1080,
+    
+    # Maximum number of repositories to process in parallel
     [int]$MaxParallelRepos = 3,
+    
+    # List of repositories to exclude from downloading
     [string[]]$ExcludeRepositories = @(),
+    
+    # Logging verbosity levels
     [ValidateSet('Silent', 'Normal', 'Verbose')]
     [string]$LogLevel = 'Normal'
 )
 
-# Load .NET Image Processing Assembly
+# Load .NET Image Processing Assembly for image validation
 Add-Type -AssemblyName System.Drawing
 
 # Enhanced Logging Function
+# Provides flexible logging with color and importance options
 function Write-EnhancedLog {
     param(
         [Parameter(Mandatory=$true)][string]$Message,
@@ -27,21 +43,26 @@ function Write-EnhancedLog {
         [switch]$Important
     )
     
-    # Log level filtering
+    # Log level filtering to control verbosity
     if ($LogLevel -eq 'Silent' -and $Level -ne 'Silent') { return }
     if ($LogLevel -eq 'Normal' -and $Level -eq 'Verbose') { return }
     
+    # Generate timestamp for logging
     $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+    
+    # Use different prefixes for standard and important messages
     $logPrefix = if ($Important) { "🌟 " } else { "➤ " }
     
-    # Console and file logging
+    # Display message in console with color
     Write-Host "[$timestamp] $logPrefix$Message" -ForegroundColor $Color
     
+    # Log to file for persistent record
     $logFile = Join-Path $SavePath "wallpimp_log.txt"
     "[$timestamp] $Message" | Out-File -Append -FilePath $logFile
 }
 
 # Network Connectivity Check
+# Verifies if a given URL is reachable
 function Test-NetworkConnection {
     param([string]$Url)
     try {
@@ -58,18 +79,42 @@ function Test-NetworkConnection {
     }
 }
 
-# Dependency Installation Function
+# Enhanced Dependency Installation Function
+# Provides robust Git detection and installation
 function Install-WallpimpDependencies {
+    # Comprehensive Git detection
     $gitCheck = Get-Command git -ErrorAction SilentlyContinue
     if (-not $gitCheck) {
-        Write-EnhancedLog "Git not found. Attempting installation..." -Color Yellow
+        Write-EnhancedLog "Git not found. Enhanced detection and installation..." -Color Yellow
+
+        # Check potential installation paths
+        $potentialGitPaths = @(
+            "C:\Program Files\Git\cmd\git.exe",
+            "C:\Program Files (x86)\Git\cmd\git.exe",
+            "$env:USERPROFILE\AppData\Local\Programs\Git\cmd\git.exe"
+        )
+
+        $gitPath = $potentialGitPaths | Where-Object { Test-Path $_ } | Select-Object -First 1
+
+        if ($gitPath) {
+            # Add Git to current session PATH
+            $env:Path += ";$(Split-Path $gitPath)"
+            Write-EnhancedLog "Git found at $gitPath" -Color Green
+            return $true
+        }
 
         try {
             $installerPath = Join-Path $env:TEMP "git_installer.exe"
             $gitUrl = "https://github.com/git-for-windows/git/releases/download/v2.47.1.windows.2/Git-2.47.1.2-64-bit.exe"
             
+            # Download Git installer
             Invoke-WebRequest -Uri $gitUrl -OutFile $installerPath
-            Start-Process -FilePath $installerPath -ArgumentList "/SILENT" -Wait
+            
+            # Silent installation with specific directory
+            Start-Process -FilePath $installerPath -ArgumentList "/SILENT /SUPPRESSMSGBOXES /NORESTART /DIR=C:\Program Files\Git" -Wait
+            
+            # Explicitly update system PATH
+            $env:Path += ";C:\Program Files\Git\cmd"
             
             Write-EnhancedLog "Git installed successfully!" -Color Green
         }
@@ -82,6 +127,7 @@ function Install-WallpimpDependencies {
 }
 
 # Image Quality Verification Function
+# Validates wallpaper based on resolution and uniqueness
 function Test-ImageQuality {
     param(
         [string]$ImagePath,
@@ -117,6 +163,7 @@ function Test-ImageQuality {
 }
 
 # Wallpaper Download Function with Background Jobs
+# Processes multiple repositories in parallel
 function Invoke-WallpaperDownload {
     param(
         [string]$SavePath,
@@ -128,7 +175,10 @@ function Invoke-WallpaperDownload {
         [string[]]$ExcludeRepos = @()
     )
 
+    # Filter out excluded repositories
     $repos = $Repositories | Where-Object { $_.Url -notin $ExcludeRepos }
+    
+    # Initialize statistics tracking
     $stats = @{
         TotalRepos = $repos.Count
         SuccessfulRepos = 0
@@ -138,7 +188,7 @@ function Invoke-WallpaperDownload {
         RepoStats = @{}
     }
 
-    # Job script block
+    # Job script block for parallel repository processing
     $jobScript = {
         param($repo, $SavePath, $MinWidth, $MinHeight)
         
@@ -152,12 +202,13 @@ function Invoke-WallpaperDownload {
             $repoName = ($repo.Url -split '/')[-1]
             $clonePath = Join-Path $SavePath $repoName
 
-            # Shallow clone
+            # Shallow clone to minimize download size
             $cloneResult = git clone --depth 1 --branch $repo.Branch $repo.Url $clonePath 2>&1
             if ($LASTEXITCODE -ne 0) {
                 throw "Git clone failed: $cloneResult"
             }
 
+            # Find all image files in the cloned repository
             $imageFiles = Get-ChildItem $clonePath -Recurse -Include @("*.jpg", "*.jpeg", "*.png", "*.gif", "*.webp", "*.bmp") 
 
             foreach ($image in $imageFiles) {
@@ -180,7 +231,7 @@ function Invoke-WallpaperDownload {
             $repoStats.ErrorMessage = $_.Exception.Message
         }
         finally {
-            # Clean up clone directory
+            # Clean up clone directory to save space
             if (Test-Path $clonePath) {
                 Remove-Item $clonePath -Recurse -Force
             }
@@ -195,7 +246,7 @@ function Invoke-WallpaperDownload {
         $job = Start-Job -ScriptBlock $jobScript -ArgumentList $repo, $SavePath, $MinWidth, $MinHeight
         $jobs += $job
 
-        # Limit concurrent jobs
+        # Limit concurrent jobs to prevent overwhelming system
         if ($jobs.Count -ge $MaxJobs) {
             $jobs | Wait-Job
             foreach ($job in $jobs) {
@@ -217,7 +268,7 @@ function Invoke-WallpaperDownload {
         }
     }
 
-    # Handle remaining jobs
+    # Handle any remaining jobs
     if ($jobs.Count -gt 0) {
         $jobs | Wait-Job
         foreach ($job in $jobs) {
@@ -241,7 +292,8 @@ function Invoke-WallpaperDownload {
     return $stats
 }
 
-# Repository Configuration (same as previous script)
+# Repository Configuration
+# List of GitHub repositories to download wallpapers from
 $Repositories = @(
     @{
         Url = "https://github.com/dharmx/walls"
@@ -306,8 +358,9 @@ $Repositories = @(
 )
 
 # Main Execution Function
+# Orchestrates the entire wallpaper collection process
 function Start-WallPimp {
-    # Display header
+    # Display welcome header
     Write-Host @"
 ╔════════════════════════════════════╗
 ║        WallPimp Ver:1.4           ║
