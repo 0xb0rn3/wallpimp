@@ -42,6 +42,9 @@ Set-ExecutionPolicy RemoteSigned -Scope CurrentUser
 # Filter by high-resolution images (4K)
 .\WallPimp.ps1 -FilterByResolution -MinResolutionWidth 3840 -MinResolutionHeight 2160
 
+# Custom configuration
+.\WallPimp.ps1 -SavePath "D:\Wallpapers" -MaxParallelRepos 5 -ExcludeRepositories "https://github.com/dharmx/walls"
+
 # Exclude specific repositories
 .\WallPimp.ps1 -ExcludeRepositories "https://github.com/dharmx/walls"
 
