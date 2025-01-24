@@ -1,71 +1,100 @@
+# WallPimp - Advanced Wallpaper Collection Script
+# Version 1.3
+# Developed to automate wallpaper collection from multiple GitHub repositories
+
+# Script Parameters
 param (
-    [string]$SavePath = "$env:USERPROFILE\Pictures\Wallpapers",
-    [switch]$NoDownload = $false,
-    [switch]$FilterByResolution = $false,
-    [int]$MinResolutionWidth = 1920,
-    [int]$MinResolutionHeight = 1080
+    [string]$SavePath = "$env:USERPROFILE\Pictures\Wallpapers",  # Default save location
+    [switch]$NoDownload = $false,                                # Option to disable downloading
+    [switch]$FilterByResolution = $true,                         # Enable resolution filtering
+    [int]$MinResolutionWidth = 1920,                             # Minimum wallpaper width
+    [int]$MinResolutionHeight = 1080,                            # Minimum wallpaper height
+    [int]$MaxParallelRepos = 3,                                  # Maximum parallel repository processing
+    [int]$CloneTimeoutSeconds = 60,                              # Timeout for repository cloning
+    [string[]]$ExcludeRepositories = @(),                        # Repositories to exclude
+    [ValidateSet('Silent', 'Normal', 'Verbose')]
+    [string]$LogLevel = 'Normal'                                 # Logging verbosity
 )
 
-# Load .NET Image Processing
+# Load .NET Image Processing Assembly
 Add-Type -AssemblyName System.Drawing
 
 # Enhanced Logging Function
-function Write-WallpimpLog {
+function Write-EnhancedLog {
     param(
         [Parameter(Mandatory=$true)][string]$Message,
         [Parameter(Mandatory=$false)][ConsoleColor]$Color = 'White',
+        [Parameter(Mandatory=$false)][ValidateSet('Silent', 'Normal', 'Verbose')]
+        [string]$Level = 'Normal',
         [switch]$Important
     )
+    
+    # Log level filtering
+    if ($LogLevel -eq 'Silent' -and $Level -ne 'Silent') { return }
+    if ($LogLevel -eq 'Normal' -and $Level -eq 'Verbose') { return }
     
     $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
     $logPrefix = if ($Important) { "🌟 " } else { "➤ " }
     
+    # Console output
     Write-Host "[$timestamp] $logPrefix$Message" -ForegroundColor $Color
     
-    # Optional: Log to file
+    # Log file management with rotation
     $logFile = Join-Path $SavePath "wallpimp_log.txt"
+    $maxLogSize = 10MB
+    if ((Test-Path $logFile) -and ((Get-Item $logFile).Length -gt $maxLogSize)) {
+        Move-Item $logFile ($logFile -replace '\.txt$', "_$(Get-Date -Format 'yyyyMMddHHmmss').txt")
+    }
     "[$timestamp] $Message" | Out-File -Append -FilePath $logFile
+}
+
+# Network Connectivity Check
+function Test-NetworkConnection {
+    param([string]$Url)
+    try {
+        $request = [System.Net.WebRequest]::Create($Url)
+        $request.Method = "HEAD"
+        $request.Timeout = 5000  # 5-second timeout
+        $response = $request.GetResponse()
+        $response.Close()
+        return $true
+    }
+    catch {
+        Write-EnhancedLog "Network connectivity issue: $Url" -Color Red -Level Verbose
+        return $false
+    }
 }
 
 # Dependency Installation Function
 function Install-WallpimpDependencies {
-    # Check for Git
-    $gitCheck = Get-Command git -ErrorAction SilentlyContinue
-    if (-not $gitCheck) {
-        Write-WallpimpLog "Git not found. Installing..." -Color Yellow
-        
-        try {
-            # Determine system architecture
-            $arch = if ([Environment]::Is64BitOperatingSystem) { "64-bit" } else { "32-bit" }
-            $gitUrl = if ($arch -eq "64-bit") {
-                "https://github.com/git-for-windows/git/releases/download/v2.47.1.windows.2/Git-2.47.1.2-64-bit.exe"
-            } else {
-                "https://github.com/git-for-windows/git/releases/download/v2.47.1.windows.2/Git-2.47.1.2-32-bit.exe"
-            }
+    $dependencies = @{
+        'git' = @{
+            CheckCommand = { Get-Command git -ErrorAction SilentlyContinue }
+            InstallUrl = "https://github.com/git-for-windows/git/releases/download/v2.47.1.windows.2/Git-2.47.1.2-64-bit.exe"
+        }
+    }
 
-            $tempInstaller = Join-Path $env:TEMP "git_installer.exe"
-            Write-WallpimpLog "Downloading Git from $gitUrl" -Color Cyan
-            
-            Invoke-WebRequest -Uri $gitUrl -OutFile $tempInstaller
-            
-            Start-Process -FilePath $tempInstaller -ArgumentList "/SILENT" -Wait
-            
-            Write-WallpimpLog "Git installed successfully!" -Color Green
-        }
-        catch {
-            Write-WallpimpLog "Git installation failed: $_" -Color Red -Important
-            return $false
-        }
-        finally {
-            if (Test-Path $tempInstaller) {
-                Remove-Item $tempInstaller -Force
+    foreach ($dep in $dependencies.Keys) {
+        if (-not ($dependencies[$dep].CheckCommand.Invoke())) {
+            Write-EnhancedLog "$dep not found. Attempting installation..." -Color Yellow
+
+            try {
+                $installerPath = Join-Path $env:TEMP "${dep}_installer.exe"
+                Invoke-WebRequest -Uri $dependencies[$dep].InstallUrl -OutFile $installerPath
+                Start-Process -FilePath $installerPath -ArgumentList "/SILENT" -Wait
+                
+                Write-EnhancedLog "$dep installed successfully!" -Color Green
+            }
+            catch {
+                Write-EnhancedLog "$dep installation failed: $_" -Color Red -Important
+                return $false
             }
         }
     }
     return $true
 }
 
-# Image Quality Check Function
+# Image Quality Verification Function
 function Test-ImageQuality {
     param(
         [string]$ImagePath,
@@ -77,10 +106,10 @@ function Test-ImageQuality {
     try {
         $image = [System.Drawing.Image]::FromFile($ImagePath)
         
-        # Resolution Check
+        # Resolution validation
         $meetsResolution = ($image.Width -ge $MinWidth -and $image.Height -ge $MinHeight)
         
-        # Duplicate Detection (Optional)
+        # Duplicate detection
         $unique = $true
         if ($CheckUnique) {
             $hash = (Get-FileHash -Algorithm SHA256 -Path $ImagePath).Hash
@@ -94,139 +123,106 @@ function Test-ImageQuality {
         return ($meetsResolution -and $unique)
     }
     catch {
-        Write-WallpimpLog "Image processing error: $ImagePath" -Color Red
+        Write-EnhancedLog "Image processing error: $ImagePath" -Color Red
         return $false
     }
 }
 
-# Wallpaper Download Function
+# Wallpaper Download Function with Parallel Processing
 function Invoke-WallpaperDownload {
     param(
         [string]$SavePath,
         [array]$Repositories,
-        [bool]$FilterResolution = $false,
+        [bool]$FilterResolution = $true,
         [int]$MinWidth = 1920,
-        [int]$MinHeight = 1080
+        [int]$MinHeight = 1080,
+        [int]$MaxParallel = 3,
+        [string[]]$ExcludeRepos = @()
     )
 
-    # Ensure save directory exists
-    if (!(Test-Path $SavePath)) {
-        New-Item -ItemType Directory -Path $SavePath | Out-Null
-    }
-
+    $repos = $Repositories | Where-Object { $_.Url -notin $ExcludeRepos }
     $stats = @{
-        TotalRepos = $Repositories.Count
+        TotalRepos = $repos.Count
         SuccessfulRepos = 0
         FailedRepos = 0
         ProcessedWallpapers = 0
         SavedWallpapers = 0
+        RepoStats = @{}
     }
 
-    # Temporary cloning directory
-    $tempDir = Join-Path $env:TEMP "WallPimp_$(Get-Date -Format 'yyyyMMdd_HHmmss')"
-    New-Item -ItemType Directory -Path $tempDir | Out-Null
+    # Parallel repository processing
+    $repos | ForEach-Object -ThrottleLimit $MaxParallel -Parallel {
+        $repo = $_
+        $repoStats = @{
+            Processed = 0
+            Saved = 0
+            ErrorMessage = $null
+        }
 
-    foreach ($repo in $Repositories) {
         try {
-            Write-WallpimpLog "Processing Repository: $($repo.Url)" -Color Yellow
+            Write-EnhancedLog "Processing Repository: $($repo.Url)" -Color Yellow -Level Verbose
+
+            # Network connectivity check
+            if (-not (Test-NetworkConnection -Url $repo.Url)) {
+                throw "Network connectivity issue"
+            }
 
             $repoName = ($repo.Url -split '/')[-1]
-            $clonePath = Join-Path $tempDir $repoName
+            $clonePath = Join-Path $using:SavePath $repoName
 
-            # Shallow clone to reduce bandwidth and time
-            git clone --depth 1 --branch $repo.Branch $repo.Url $clonePath
+            # Shallow clone process
+            $cloneProcess = Start-Process git -ArgumentList "clone --depth 1 --branch $($repo.Branch) $($repo.Url) `"$clonePath`"" -PassThru -Wait -NoNewWindow
 
-            # Find image files with broader extension support
+            if ($cloneProcess.ExitCode -ne 0) {
+                throw "Git clone failed with exit code $($cloneProcess.ExitCode)"
+            }
+
             $imageFiles = Get-ChildItem $clonePath -Recurse -Include @("*.jpg", "*.jpeg", "*.png", "*.gif", "*.webp", "*.bmp") 
 
             foreach ($image in $imageFiles) {
-                $stats.ProcessedWallpapers++
+                $repoStats.Processed++
 
-                # Apply resolution and uniqueness filtering
-                if (Test-ImageQuality -ImagePath $image.FullName -MinWidth $MinWidth -MinHeight $MinHeight) {
-                    # Generate unique filename with hash
+                # Apply image filtering
+                if (Test-ImageQuality -ImagePath $image.FullName -MinWidth $using:MinWidth -MinHeight $using:MinHeight) {
                     $hash = (Get-FileHash -Algorithm SHA256 -Path $image.FullName).Hash
                     $newFilename = "$hash$($image.Extension)"
-                    $destinationPath = Join-Path $SavePath $newFilename
+                    $destinationPath = Join-Path $using:SavePath $newFilename
 
                     Copy-Item -Path $image.FullName -Destination $destinationPath -Force
-                    $stats.SavedWallpapers++
+                    $repoStats.Saved++
                 }
             }
 
             $stats.SuccessfulRepos++
-            Write-WallpimpLog "Successfully processed: $($repo.Url)" -Color Green
+            Write-EnhancedLog "Successfully processed: $($repo.Url)" -Color Green -Level Normal
         }
         catch {
+            $repoStats.ErrorMessage = $_.Exception.Message
             $stats.FailedRepos++
-            Write-WallpimpLog "Failed to process repository: $($repo.Url)" -Color Red -Important
+            Write-EnhancedLog "Failed to process repository: $($repo.Url) - $($_.Exception.Message)" -Color Red -Important
         }
-    }
+        finally {
+            # Clean up temporary clone directory
+            if (Test-Path $clonePath) {
+                Remove-Item $clonePath -Recurse -Force
+            }
+        }
 
-    # Clean up temporary directory
-    Remove-Item $tempDir -Recurse -Force
+        # Thread-safe stats update
+        $stats.ProcessedWallpapers += $repoStats.Processed
+        $stats.SavedWallpapers += $repoStats.Saved
+        $stats.RepoStats[$repo.Url] = $repoStats
+    }
 
     return $stats
 }
 
-# Main Script Execution Function
-function Start-WallPimp {
-    # Display Header
-    Write-Host @"
-╔════════════════════════════════════╗
-║        WallPimp Ver:1.2           ║
-║   Advanced Wallpaper Collector    ║
-╚════════════════════════════════════╝
-"@ -ForegroundColor Cyan
-
-    # User Configurations
-    if ($NoDownload) {
-        Write-WallpimpLog "No-Download mode enabled. Exiting." -Color Yellow
-        return
-    }
-
-    # Dependency Check
-    if (-not (Install-WallpimpDependencies)) {
-        Write-WallpimpLog "Dependency installation failed. Cannot proceed." -Color Red -Important
-        return
-    }
-
-    # User Input for Save Location
-    $userSavePath = Read-Host "Enter wallpaper save location (press Enter for default: $SavePath)"
-    if ($userSavePath) {
-        $SavePath = $userSavePath
-    }
-
-    # Download Wallpapers
-    $results = Invoke-WallpaperDownload -SavePath $SavePath `
-        -Repositories $Repositories `
-        -FilterResolution:$FilterByResolution `
-        -MinWidth $MinResolutionWidth `
-        -MinHeight $MinResolutionHeight
-
-    # Display Comprehensive Summary
-    Write-Host @"
-╔════════ Wallpaper Collection Summary ════════╗
-║ Repositories Processed: $($results.TotalRepos)
-║ Successful Repos: $($results.SuccessfulRepos)
-║ Failed Repos: $($results.FailedRepos)
-║ Total Wallpapers Processed: $($results.ProcessedWallpapers)
-║ Wallpapers Saved: $($results.SavedWallpapers)
-║ Save Location: $SavePath
-╚══════════════════════════════════════════════╝
-"@ -ForegroundColor Green
-
-    # Optional: Open save location
-    Invoke-Item $SavePath
-}
-
-# Extensive Repositories Configuration
+# Repository Configuration
 $Repositories = @(
-    # Minimalist & Aesthetic Collections
     @{
         Url = "https://github.com/dharmx/walls"
         Branch = "main"
-        Description = "Minimal and aesthetic wallpapers with clean, sophisticated design"
+        Description = "Minimal and aesthetic wallpapers with clean design"
     },
     @{
         Url = "https://github.com/port19x/Wallpapers"
@@ -238,51 +234,45 @@ $Repositories = @(
         Branch = "main"
         Description = "Curated minimalist and abstract wallpaper collection"
     },
-
-    # Nature & Landscape Themes
     @{
         Url = "https://github.com/FrenzyExists/wallpapers"
         Branch = "main"
-        Description = "Nature and abstract art wallpapers featuring scenic landscapes"
+        Description = "Nature and abstract art wallpapers"
     },
     @{
         Url = "https://github.com/michaelScopic/Wallpapers"
         Branch = "main"
-        Description = "Scenic and landscape wallpapers with breathtaking panoramas"
+        Description = "Scenic and landscape wallpapers"
     },
     @{
         Url = "https://github.com/linuxdotexe/wallpapers"
         Branch = "main"
-        Description = "High-resolution nature and earth photography wallpapers"
+        Description = "High-resolution nature photography wallpapers"
     },
-
-    # Digital Art & Anime
     @{
         Url = "https://github.com/ryan4yin/wallpapers"
         Branch = "main"
-        Description = "Anime and digital art wallpapers with vibrant styles"
+        Description = "Anime and digital art wallpapers"
     },
     @{
         Url = "https://github.com/satyawrat/WallPapers"
         Branch = "main"
-        Description = "Diverse collection of anime and pop culture wallpapers"
+        Description = "Diverse anime and pop culture wallpapers"
     },
     @{
         Url = "https://github.com/lxndrblz/animeWallpapers"
         Branch = "main"
-        Description = "Curated anime wallpapers with high-quality artwork"
+        Description = "Curated anime wallpapers"
     },
-
-    # Abstract & Artistic
     @{
         Url = "https://github.com/D3Ext/aesthetic-wallpapers"
         Branch = "main"
-        Description = "Abstract and aesthetic wallpapers with unique visual designs"
+        Description = "Abstract and aesthetic wallpapers"
     },
     @{
         Url = "https://github.com/notlmn/wallpapers"
         Branch = "main"
-        Description = "Artistic wallpapers with creative compositions and color schemes"
+        Description = "Artistic wallpapers with creative compositions"
     },
     @{
         Url = "https://github.com/minhonna/background-collection"
@@ -291,5 +281,74 @@ $Repositories = @(
     }
 )
 
-# Run Script
+# Main Execution Function
+function Start-WallPimp {
+    # Display header
+    Write-Host @"
+╔════════════════════════════════════╗
+║        WallPimp Ver:1.3           ║
+║   Advanced Wallpaper Collector    ║
+╚════════════════════════════════════╝
+"@ -ForegroundColor Cyan
+
+    # Dependency checks
+    if (-not (Install-WallpimpDependencies)) {
+        Write-EnhancedLog "Critical dependency check failed." -Color Red -Important
+        return
+    }
+
+    # No-download mode
+    if ($NoDownload) {
+        Write-EnhancedLog "No-Download mode enabled. Exiting." -Color Yellow
+        return
+    }
+
+    # Save location configuration
+    $userSavePath = Read-Host "Enter wallpaper save location (press Enter for default: $SavePath)"
+    if ($userSavePath) {
+        $SavePath = $userSavePath
+    }
+
+    # Ensure save directory exists
+    if (!(Test-Path $SavePath)) {
+        New-Item -ItemType Directory -Path $SavePath | Out-Null
+    }
+
+    # Download wallpapers
+    $results = Invoke-WallpaperDownload -SavePath $SavePath `
+        -Repositories $Repositories `
+        -FilterResolution:$FilterByResolution `
+        -MinWidth $MinResolutionWidth `
+        -MinHeight $MinResolutionHeight `
+        -MaxParallel $MaxParallelRepos `
+        -ExcludeRepos $ExcludeRepositories
+
+    # Comprehensive summary
+    Write-Host @"
+╔════════ Wallpaper Collection Summary ════════╗
+║ Repositories Processed: $($results.TotalRepos)
+║ Successful Repos: $($results.SuccessfulRepos)
+║ Failed Repos: $($results.FailedRepos)
+║ Total Wallpapers Processed: $($results.ProcessedWallpapers)
+║ Wallpapers Saved: $($results.SavedWallpapers)
+║ Save Location: $SavePath
+╚══════════════════════════════════════════════╝
+"@ -ForegroundColor Green
+
+    # Detailed repository statistics
+    foreach ($repoUrl in $results.RepoStats.Keys) {
+        $repoStats = $results.RepoStats[$repoUrl]
+        if ($repoStats.ErrorMessage) {
+            Write-EnhancedLog "Repository: $repoUrl" -Color Yellow
+            Write-EnhancedLog "  Processed Images: $($repoStats.Processed)" -Color Yellow
+            Write-EnhancedLog "  Saved Images: $($repoStats.Saved)" -Color Yellow
+            Write-EnhancedLog "  Error: $($repoStats.ErrorMessage)" -Color Red
+        }
+    }
+
+    # Open save location
+    Invoke-Item $SavePath
+}
+
+# Script Execution
 Start-WallPimp
