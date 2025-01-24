@@ -57,28 +57,6 @@ When prompted, choose your wallpaper save location (default is `~/Pictures/Wallp
 3. Processes images with intelligent filtering
 4. Saves unique wallpapers to your specified directory
 
-## 📦 Included Repositories
-
-WallPimp currently downloads from these high-quality wallpaper repositories:
-
-- **dharmx/walls**: Minimal and aesthetic wallpapers
-- **FrenzyExists/wallpapers**: Nature and abstract art
-- **michaelScopic/Wallpapers**: Scenic landscapes
-- **ryan4yin/wallpapers**: Anime and digital art
-- **port19x/Wallpapers**: Minimalist designs
-- **D3Ext/aesthetic-wallpapers**: Artistic collections
-- **makccr/wallpapers**: Mixed high-quality wallpapers
-
-## 🔧 Customization
-
-### Adding Repositories
-Edit the `REPOS` array in the script to add or modify repository sources.
-
-Repository format:
-```bash
-"https://github.com/username/repo,branch,description"
-```
-
 ## 📊 Version
 
 - **Current Version**: 0.3 Stable
@@ -93,9 +71,6 @@ Repository format:
 4. Push to the branch (`git push origin feature/AmazingFeature`)
 5. Open a Pull Request
 
-## 📜 License
-
-Distributed under the MIT License. See `LICENSE` for more information.
 
 ## 🐛 Issues
 
