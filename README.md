@@ -1,146 +1,202 @@
-# WallPimp 🎮️ - Cross-Platform Wallpaper Collection Assistant
+# WallPimp: Automated Wallpaper Collection Tool
 
-## 🌟 Overview
+## 📖 Project Overview
 
-WallPimp is a versatile wallpaper collection tool designed for both Windows and Linux users. It allows you to automatically download and organize high-quality wallpapers from curated GitHub repositories. Whether you're on a Windows PC or a Linux distribution, WallPimp makes building your perfect wallpaper collection simple and efficient.
+WallPimp is a sophisticated, cross-platform wallpaper downloading utility designed to effortlessly curate high-quality wallpapers from multiple GitHub repositories. Developed by 0xb0rn3, this tool simplifies the process of building a diverse and visually stunning wallpaper collection.
 
----
+## 🌟 Key Features
 
-## 🚀 Features
+### Cross-Platform Compatibility
+- **Linux**: Python-based implementation
+- **Windows**: PowerShell script
+- Consistent functionality across operating systems
 
-- **Multi-Platform Support**: Runs on Windows (PowerShell script) and Linux (Bash executable).
-- **Curated Repositories**: Sources wallpapers from multiple high-quality GitHub repositories.
-- **Intelligent Filtering**:
-  - Minimum resolution: 1920x1080
-  - Supports 20+ image formats, including JPG, PNG, WEBP, RAW, and more.
-  - Prevents duplicate downloads using SHA256 hashing.
-- **Custom Save Locations**: Choose your wallpaper destination or use the default folder.
-- **Logging and Statistics**: Provides comprehensive download and filtering logs.
-- **Diverse Wallpaper Styles**:
-  - Minimalist and aesthetic designs
-  - Nature and abstract art
-  - Scenic landscapes
-  - Anime and digital art
+### Advanced Image Curation
+- Intelligent image filtering
+- Minimum resolution check (1920x1080)
+- Duplicate image removal
+- Support for multiple image formats
+- Automatic repository processing
 
----
+### Diverse Wallpaper Sources
+WallPimp aggregates wallpapers from multiple themed repositories:
+- Minimalist & Aesthetic Designs
+- Nature and Landscape Photography
+- Digital Art and Anime
+- Abstract and Artistic Compositions
+- Space and Sci-Fi Themes
+- Urban and Architectural Scenes
+- Gaming and Pop Culture Imagery
 
-## 🔠 Requirements
+## 🖥️ System Requirements
 
-### For Windows
-- Windows 10 or Windows 11
-- PowerShell 5.1+ (pre-installed on most systems)
-- Git for Windows
+### Linux Requirements
+- Python 3.7+
+- Operating Systems:
+  - Ubuntu
+  - Fedora
+  - Arch Linux
+  - Other modern Linux distributions
 
-### For Linux
-- `bash`
-- `git`
-- `file`
-- `find`
+#### Required Python Packages
+- git
+- pillow
+- rich
+- aiohttp
 
-Recommended Linux Distributions:
-- Ubuntu/Debian
-- Fedora
-- Arch Linux
-- Other systemd-based distributions
+### Windows Requirements
+- PowerShell 5.1+
+- Windows 10 or 11
+- Minimum 2GB free disk space
+- Internet connection
 
----
+## 🚀 Installation & Setup
 
-## 📋 Installation Steps
+### Linux Installation
 
-### On Windows
-1. **Downlaod the wallpimp.ps1 file to your desired location example C:\Downloads**:
+#### Method 1: Direct Download
+```bash
+# Clone the repository
+git clone https://github.com/0xb0rn3/WallPimp.git
 
-   then
-    
-3. **Set PowerShell Execution Policy**:
-   - Open PowerShell as Administrator.
-   - Copy Paste and Run: `Set-ExecutionPolicy RemoteSigned -Scope CurrentUser`
-     
-4. **Unblock the  Script**
- - Right-click the script file (wallpimp.ps1)
- - Select "Properties"
- - At the bottom of the General tab, click "Unblock"
- - Click "Apply" and then "OK"
+# Navigate to project directory
+cd WallPimp
 
-5. **Right-click `wallpimp.ps1`.**
-6. **Select "Run with PowerShell."**
-7. **Choose the wallpaper save location when prompted.** 
+# Make script executable
+chmod +x run
 
-### On Linux
-1. **Clone the Repository**:
-   ```bash
-   git clone https://github.com/0xb0rn3/wallpimp.git
-   cd wallpimp
-   ```
-2. **Make the Script Executable**:
-   ```bash
-   chmod +x run
-   ```
-3. **Run the script with**
-   ```bash
-   ./run
+# Install dependencies
+pip install pillow rich aiohttp
 
+# Run the script
+./run
 ```
-When prompted, choose your wallpaper save location (default: `~/Pictures/Wallpapers`).
 
----
+#### Method 2: Package Installation
+```bash
+# For Debian/Ubuntu
+sudo apt-get update
+sudo apt-get install python3-git python3-pillow python3-rich python3-aiohttp
 
-## 🔍 How It Works
+# For Fedora
+sudo dnf install python3-git python3-pillow python3-rich python3-aiohttp
 
-1. Verifies necessary dependencies (Git, PowerShell/bash).
-2. Clones curated GitHub repositories.
-3. Filters images based on resolution and format.
-4. Prevents duplicate wallpapers using SHA256 hashes.
-5. Saves unique wallpapers to the specified directory.
-6. Provides a summary of downloads and operations.
+# Clone and run
+git clone https://github.com/0xb0rn3/WallPimp.git
+cd WallPimp
+./run
+```
 
----
+### Windows Installation
 
-## 🔧 Troubleshooting
+#### Method 1: PowerShell Direct Execution
+1. Download `wallpimp.ps1` from GitHub releases
+2. Open PowerShell as Administrator
+3. Set execution policy:
+```powershell
+Set-ExecutionPolicy RemoteSigned -Scope CurrentUser
+```
+4. Navigate to script location
+5. Run the script:
+```powershell
+.\wallpimp.ps1
+```
 
-### Common Issues on Windows
-- **Git Not Installed**: Download [Git for Windows](https://git-scm.com/download/win).
-- **PowerShell Execution Policy Blocked**:
-   ```powershell
-   Set-ExecutionPolicy RemoteSigned -Scope CurrentUser
-   ```
-- **No Wallpapers Downloaded**: Check your internet connection or repository accessibility.
+#### Method 2: Git Clone
+```powershell
+# Clone repository
+git clone https://github.com/0xb0rn3/WallPimp.git
 
-### Common Issues on Linux
-- **Missing Dependencies**: Install `git`, `file`, or `find` via your package manager.
-- **Permission Issues**: Ensure the script has executable permissions with `chmod +x run`.
+# Navigate to directory
+cd WallPimp
 
----
+# Execute script
+.\wallpimp.ps1
+```
 
-## 📦 Included Repositories
+## 🔧 Usage Instructions
 
-WallPimp currently sources wallpapers from:
-- Minimalist and aesthetic wallpaper collections.
-- Nature and abstract art repositories.
-- Scenic landscapes and cityscapes.
-- Anime and digital art collections.
+### Wallpaper Download Process
+1. Script launches and displays welcome banner
+2. Checks and installs necessary dependencies
+3. Prompts for wallpaper save location
+   - Default: 
+     - Linux: `~/Pictures/Wallpapers`
+     - Windows: `%USERPROFILE%\Pictures\Wallpapers`
+4. Clones selected repositories
+5. Processes and saves unique wallpapers
 
----
+### Customization Options
+- Edit repository list in source code
+- Modify image processing criteria
+- Add custom repository sources
+
+## 🖼️ Image Quality Criteria
+
+### Filtering Standards
+- Minimum resolution: 1920x1080
+- Unique content verification
+- Hash-based duplicate detection
+- Support for formats:
+  - JPEG
+  - PNG
+  - WebP
+  - GIF
+  - BMP
+
+## 🛡️ Security & Privacy
+
+### Dependency Management
+- Automatic dependency detection
+- Secure, silent installations
+- No personal data collection
+- Open-source repositories only
+
+### Execution Safety
+- Limited system modifications
+- Transparent dependency handling
+- Optional manual repository review
+
+## 🐛 Troubleshooting
+
+### Common Linux Issues
+- Ensure Python packages installed
+- Check internet connectivity
+- Verify GitHub repository access
+
+### Common Windows Issues
+- PowerShell execution policy
+- Administrator privileges
+- Antivirus interference
 
 ## 🤝 Contributing
 
-1. Fork the repository.
-2. Create your feature branch (`git checkout -b feature/AmazingFeature`).
-3. Commit your changes (`git commit -m 'Add some AmazingFeature'`).
-4. Push to the branch (`git push origin feature/AmazingFeature`).
-5. Open a Pull Request.
+### How to Contribute
+1. Fork the repository
+2. Create feature branch
+3. Commit your changes
+4. Push to branch
+5. Create pull request
 
+### Contribution Areas
+- Additional repository sources
+- Image processing improvements
+- Cross-platform compatibility
+- Bug fixes and optimizations
+
+## 📊 Version Information
+- **Linux Version**: 0.4 Stable
+- **Windows Version**: 1.2
+- **Last Updated**: January 2024
+- **Platform Support**: Linux, Windows
+
+## 📜 License
+MIT License - Free for personal and commercial use
+
+## 👥 Contact & Support
+- **GitHub**: [0xb0rn3 on GitHub](https://github.com/0xb0rn3)
+- **Issues**: [Project Issue Tracker](https://github.com/0xb0rn3/WallPimp/issues)
 
 ---
 
-## 👨‍💻 Created By
-
-- **Developer**: [0xb0rn3](https://github.com/0xb0rn3)
-- **Version**:
-  - Windows Edition: v1.0
-  - Linux Edition: v0.3 (Stable)
-
----
-
-**Happy Wallpaper Hunting!** 🎮️🎨
-
+### 🎨 Enjoy Your New Wallpapers! 🖥️
