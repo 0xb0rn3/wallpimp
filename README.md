@@ -54,11 +54,17 @@ Recommended Linux Distributions:
     
 3. **Set PowerShell Execution Policy**:
    - Open PowerShell as Administrator.
-   - Copy Paste and Run: `Set-ExecutionPolicy RemoteSigned`
+   - Copy Paste and Run: `Set-ExecutionPolicy RemoteSigned -Scope CurrentUser`
+     
+4. **Unblock the  Script**
+ - Right-click the script file (wallpimp.ps1)
+ - Select "Properties"
+ - At the bottom of the General tab, click "Unblock"
+ - Click "Apply" and then "OK"
 
-4. **Right-click `wallpimp.ps1`.**
-5. **Select "Run with PowerShell."**
-6. **Choose the wallpaper save location when prompted.** 
+5. **Right-click `wallpimp.ps1`.**
+6. **Select "Run with PowerShell."**
+7. **Choose the wallpaper save location when prompted.** 
 
 ### On Linux
 1. **Clone the Repository**:
