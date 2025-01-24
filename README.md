@@ -33,9 +33,14 @@ Set-ExecutionPolicy RemoteSigned -Scope CurrentUser
 
    Flexible Command-Line Parameters
 
-   - NoDownload: Skip wallpaper download
-   - FilterByResolution: Optional resolution filtering
-   - MinResolutionWidth and -MinResolutionHeight: Customizable resolution thresholds
+- # Standard usage
+.\WallPimp.ps1
+
+# Skip downloads
+.\WallPimp.ps1 -NoDownload
+
+# Filter by high-resolution images (4K)
+.\WallPimp.ps1 -FilterByResolution -MinResolutionWidth 3840 -MinResolutionHeight 2160
 
 ### 🛠️ Windows System Requirements
 - Windows 10 or 11
