@@ -1,116 +1,226 @@
 param (
-    [string]$SavePath = "$env:USERPROFILE\Pictures\Wallpapers"
+    [string]$SavePath = "$env:USERPROFILE\Pictures\Wallpapers",
+    [switch]$NoDownload = $false,
+    [switch]$FilterByResolution = $false,
+    [int]$MinResolutionWidth = 1920,
+    [int]$MinResolutionHeight = 1080
 )
 
-# Determine System Architecture
-function Get-SystemArchitecture {
-    $osArchitecture = $env:PROCESSOR_ARCHITECTURE
+# Load .NET Image Processing
+Add-Type -AssemblyName System.Drawing
 
-    # Mapping architectures for precise matching
-    switch ($osArchitecture) {
-        "AMD64" { return "64-bit" }
-        "x86" { return "32-bit" }
-        default { 
-            Write-Warning "Unsupported architecture detected: $osArchitecture"
-            return "64-bit"  # Default to 64-bit if uncertain
-        }
-    }
-}
-
-# Dynamic Dependency Configuration
-function Get-DependencyConfig {
-    $architecture = Get-SystemArchitecture
+# Enhanced Logging Function
+function Write-WallpimpLog {
+    param(
+        [Parameter(Mandatory=$true)][string]$Message,
+        [Parameter(Mandatory=$false)][ConsoleColor]$Color = 'White',
+        [switch]$Important
+    )
     
-    return @{
-        Git = @{
-            Name = "git"
-            DownloadUrl = if ($architecture -eq "64-bit") {
-                "https://github.com/git-for-windows/git/releases/download/v2.47.1.windows.2/Git-2.47.1.2-64-bit.exe"
-            } else {
-                "https://github.com/git-for-windows/git/releases/download/v2.47.1.windows.2/Git-2.47.1.2-32-bit.exe"
-            }
-            InstallerType = "exe"
-            # Comprehensive installation components
-            InstallArgs = "/SILENT /COMPONENTS='icons,ext,ext\shellhere,ext\guihere,assoc,assoc_sh'"
-        }
-        SevenZip = @{
-            Name = "7z"
-            DownloadUrl = if ($architecture -eq "64-bit") {
-                "https://www.7-zip.org/a/7z2201-x64.exe"
-            } else {
-                "https://www.7-zip.org/a/7z2201-x86.exe"
-            }
-            InstallerType = "exe"
-            InstallArgs = "/S"
-        }
-    }
-}
-
-# Logging and UI Functions (Enhanced from previous versions)
-function Write-WallpimpHeader {
-    $architecture = Get-SystemArchitecture
-    Write-Host @"
-╔═══════════════════════════════════════╗
-║      WallPimp Ver:1.2 ($architecture)  ║
-║    Wallpaper Download Assistant       ║
-╚═══════════════════════════════════════╝
-"@ -ForegroundColor Cyan
+    $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+    $logPrefix = if ($Important) { "🌟 " } else { "➤ " }
+    
+    Write-Host "[$timestamp] $logPrefix$Message" -ForegroundColor $Color
+    
+    # Optional: Log to file
+    $logFile = Join-Path $SavePath "wallpimp_log.txt"
+    "[$timestamp] $Message" | Out-File -Append -FilePath $logFile
 }
 
 # Dependency Installation Function
 function Install-WallpimpDependencies {
-    $Dependencies = Get-DependencyConfig
-    $missingDependencies = @()
-
-    # Identify Missing Dependencies
-    foreach ($depName in $Dependencies.Keys) {
-        $dep = $Dependencies[$depName]
-        $installedCheck = Get-Command $dep.Name -ErrorAction SilentlyContinue
-
-        if (!$installedCheck) {
-            $missingDependencies += $dep
-        }
-    }
-
-    # Auto-Install Missing Dependencies
-    if ($missingDependencies.Count -gt 0) {
-        Write-Host "🔍 Detecting Missing Dependencies..." -ForegroundColor Yellow
+    # Check for Git
+    $gitCheck = Get-Command git -ErrorAction SilentlyContinue
+    if (-not $gitCheck) {
+        Write-WallpimpLog "Git not found. Installing..." -Color Yellow
         
-        foreach ($dep in $missingDependencies) {
-            try {
-                Write-Host "Installing $($dep.Name)..." -ForegroundColor Cyan
-                
-                $tempInstaller = Join-Path $env:TEMP "$($dep.Name)_installer.exe"
-                
-                # Download Installer
-                Write-Host "Downloading from $($dep.DownloadUrl)..." -ForegroundColor Green
-                Invoke-WebRequest -Uri $dep.DownloadUrl -OutFile $tempInstaller
-
-                # Install Silently
-                Start-Process -FilePath $tempInstaller -ArgumentList $dep.InstallArgs -Wait
-
-                # Verify Installation
-                $verifyInstall = Get-Command $dep.Name -ErrorAction Stop
-                Write-Host "✅ $($dep.Name) installed successfully!" -ForegroundColor Green
+        try {
+            # Determine system architecture
+            $arch = if ([Environment]::Is64BitOperatingSystem) { "64-bit" } else { "32-bit" }
+            $gitUrl = if ($arch -eq "64-bit") {
+                "https://github.com/git-for-windows/git/releases/download/v2.47.1.windows.2/Git-2.47.1.2-64-bit.exe"
+            } else {
+                "https://github.com/git-for-windows/git/releases/download/v2.47.1.windows.2/Git-2.47.1.2-32-bit.exe"
             }
-            catch {
-                Write-Host "❌ Failed to install $($dep.Name). Error: $_" -ForegroundColor Red
-                Write-Host "Recommendation: Manually download and install from $($dep.DownloadUrl)" -ForegroundColor Yellow
-                return $false
-            }
-            finally {
-                # Clean up installer
-                if (Test-Path $tempInstaller) {
-                    Remove-Item $tempInstaller -Force
-                }
+
+            $tempInstaller = Join-Path $env:TEMP "git_installer.exe"
+            Write-WallpimpLog "Downloading Git from $gitUrl" -Color Cyan
+            
+            Invoke-WebRequest -Uri $gitUrl -OutFile $tempInstaller
+            
+            Start-Process -FilePath $tempInstaller -ArgumentList "/SILENT" -Wait
+            
+            Write-WallpimpLog "Git installed successfully!" -Color Green
+        }
+        catch {
+            Write-WallpimpLog "Git installation failed: $_" -Color Red -Important
+            return $false
+        }
+        finally {
+            if (Test-Path $tempInstaller) {
+                Remove-Item $tempInstaller -Force
             }
         }
     }
-
     return $true
 }
 
-# Repositories Configuration (Unchanged)
+# Image Quality Check Function
+function Test-ImageQuality {
+    param(
+        [string]$ImagePath,
+        [int]$MinWidth = 1920,
+        [int]$MinHeight = 1080,
+        [bool]$CheckUnique = $true
+    )
+
+    try {
+        $image = [System.Drawing.Image]::FromFile($ImagePath)
+        
+        # Resolution Check
+        $meetsResolution = ($image.Width -ge $MinWidth -and $image.Height -ge $MinHeight)
+        
+        # Duplicate Detection (Optional)
+        $unique = $true
+        if ($CheckUnique) {
+            $hash = (Get-FileHash -Algorithm SHA256 -Path $ImagePath).Hash
+            $existing = Get-ChildItem $SavePath | Where-Object { 
+                (Get-FileHash -Algorithm SHA256 -Path $_.FullName).Hash -eq $hash 
+            }
+            $unique = ($existing.Count -eq 0)
+        }
+
+        $image.Dispose()
+        return ($meetsResolution -and $unique)
+    }
+    catch {
+        Write-WallpimpLog "Image processing error: $ImagePath" -Color Red
+        return $false
+    }
+}
+
+# Wallpaper Download Function
+function Invoke-WallpaperDownload {
+    param(
+        [string]$SavePath,
+        [array]$Repositories,
+        [bool]$FilterResolution = $false,
+        [int]$MinWidth = 1920,
+        [int]$MinHeight = 1080
+    )
+
+    # Ensure save directory exists
+    if (!(Test-Path $SavePath)) {
+        New-Item -ItemType Directory -Path $SavePath | Out-Null
+    }
+
+    $stats = @{
+        TotalRepos = $Repositories.Count
+        SuccessfulRepos = 0
+        FailedRepos = 0
+        ProcessedWallpapers = 0
+        SavedWallpapers = 0
+    }
+
+    # Temporary cloning directory
+    $tempDir = Join-Path $env:TEMP "WallPimp_$(Get-Date -Format 'yyyyMMdd_HHmmss')"
+    New-Item -ItemType Directory -Path $tempDir | Out-Null
+
+    foreach ($repo in $Repositories) {
+        try {
+            Write-WallpimpLog "Processing Repository: $($repo.Url)" -Color Yellow
+
+            $repoName = ($repo.Url -split '/')[-1]
+            $clonePath = Join-Path $tempDir $repoName
+
+            # Shallow clone to reduce bandwidth and time
+            git clone --depth 1 --branch $repo.Branch $repo.Url $clonePath
+
+            # Find image files with broader extension support
+            $imageFiles = Get-ChildItem $clonePath -Recurse -Include @("*.jpg", "*.jpeg", "*.png", "*.gif", "*.webp", "*.bmp") 
+
+            foreach ($image in $imageFiles) {
+                $stats.ProcessedWallpapers++
+
+                # Apply resolution and uniqueness filtering
+                if (Test-ImageQuality -ImagePath $image.FullName -MinWidth $MinWidth -MinHeight $MinHeight) {
+                    # Generate unique filename with hash
+                    $hash = (Get-FileHash -Algorithm SHA256 -Path $image.FullName).Hash
+                    $newFilename = "$hash$($image.Extension)"
+                    $destinationPath = Join-Path $SavePath $newFilename
+
+                    Copy-Item -Path $image.FullName -Destination $destinationPath -Force
+                    $stats.SavedWallpapers++
+                }
+            }
+
+            $stats.SuccessfulRepos++
+            Write-WallpimpLog "Successfully processed: $($repo.Url)" -Color Green
+        }
+        catch {
+            $stats.FailedRepos++
+            Write-WallpimpLog "Failed to process repository: $($repo.Url)" -Color Red -Important
+        }
+    }
+
+    # Clean up temporary directory
+    Remove-Item $tempDir -Recurse -Force
+
+    return $stats
+}
+
+# Main Script Execution Function
+function Start-WallPimp {
+    # Display Header
+    Write-Host @"
+╔════════════════════════════════════╗
+║        WallPimp Ver:1.2           ║
+║   Advanced Wallpaper Collector    ║
+╚════════════════════════════════════╝
+"@ -ForegroundColor Cyan
+
+    # User Configurations
+    if ($NoDownload) {
+        Write-WallpimpLog "No-Download mode enabled. Exiting." -Color Yellow
+        return
+    }
+
+    # Dependency Check
+    if (-not (Install-WallpimpDependencies)) {
+        Write-WallpimpLog "Dependency installation failed. Cannot proceed." -Color Red -Important
+        return
+    }
+
+    # User Input for Save Location
+    $userSavePath = Read-Host "Enter wallpaper save location (press Enter for default: $SavePath)"
+    if ($userSavePath) {
+        $SavePath = $userSavePath
+    }
+
+    # Download Wallpapers
+    $results = Invoke-WallpaperDownload -SavePath $SavePath `
+        -Repositories $Repositories `
+        -FilterResolution:$FilterByResolution `
+        -MinWidth $MinResolutionWidth `
+        -MinHeight $MinResolutionHeight
+
+    # Display Comprehensive Summary
+    Write-Host @"
+╔════════ Wallpaper Collection Summary ════════╗
+║ Repositories Processed: $($results.TotalRepos)
+║ Successful Repos: $($results.SuccessfulRepos)
+║ Failed Repos: $($results.FailedRepos)
+║ Total Wallpapers Processed: $($results.ProcessedWallpapers)
+║ Wallpapers Saved: $($results.SavedWallpapers)
+║ Save Location: $SavePath
+╚══════════════════════════════════════════════╝
+"@ -ForegroundColor Green
+
+    # Optional: Open save location
+    Invoke-Item $SavePath
+}
+
+# Extensive Repositories Configuration
 $Repositories = @(
     # Minimalist & Aesthetic Collections
     @{
@@ -178,162 +288,8 @@ $Repositories = @(
         Url = "https://github.com/minhonna/background-collection"
         Branch = "main"
         Description = "Diverse abstract and geometric wallpaper designs"
-    },
-
-    # Space & Sci-Fi
-    @{
-        Url = "https://github.com/scientifichackers/wallpapers"
-        Branch = "main"
-        Description = "Space, astronomy, and sci-fi themed wallpapers"
-    },
-    @{
-        Url = "https://github.com/satya164/sci-fi-wallpapers"
-        Branch = "main"
-        Description = "High-quality science fiction and cosmic landscape wallpapers"
-    },
-
-    # Urban & Architectural
-    @{
-        Url = "https://github.com/MichaelKim0721/wallpapers"
-        Branch = "main"
-        Description = "Urban landscapes and architectural photography wallpapers"
-    },
-    @{
-        Url = "https://github.com/YashKumarVerma/wallpapers"
-        Branch = "main"
-        Description = "City skylines and modern architectural designs"
-    },
-
-    # Gaming & Pop Culture
-    @{
-        Url = "https://github.com/novatorem/Wallpapers"
-        Branch = "main"
-        Description = "Gaming-inspired and pop culture themed wallpapers"
-    },
-    @{
-        Url = "https://github.com/BtbN/wallpapers"
-        Branch = "main"
-        Description = "Diverse collection of gaming and entertainment wallpapers"
     }
 )
-# Image Quality Check Function
-function Test-ImageQuality {
-    param([string]$ImagePath)
-
-    try {
-        $image = [System.Drawing.Image]::FromFile($ImagePath)
-        
-        # Enhanced Resolution Check
-        if ($image.Width -lt 1920 -or $image.Height -lt 1080) {
-            $image.Dispose()
-            return $false
-        }
-
-        $image.Dispose()
-        return $true
-    }
-    catch {
-        Write-Host "Image processing error: $ImagePath" -ForegroundColor Red
-        return $false
-    }
-}
-
-# Wallpaper Download Function (Mostly unchanged)
-function Invoke-WallpaperDownload {
-    param(
-        [string]$SavePath,
-        [array]$Repositories
-    )
-
-    # Ensure save directory exists
-    if (!(Test-Path $SavePath)) {
-        New-Item -ItemType Directory -Path $SavePath | Out-Null
-    }
-
-    $successCount = 0
-    $failCount = 0
-    $totalWallpapers = 0
-
-    # Temporary directory for cloning
-    $tempDir = Join-Path $env:TEMP "WallPimp_$(Get-Date -Format 'yyyyMMdd_HHmmss')"
-    New-Item -ItemType Directory -Path $tempDir | Out-Null
-
-    foreach ($repo in $Repositories) {
-        try {
-            $repoName = ($repo.Url -split '/')[-1]
-            $clonePath = Join-Path $tempDir $repoName
-
-            Write-Host "Cloning: $($repo.Url)" -ForegroundColor Yellow
-
-            # Clone repository
-            git clone --depth 1 --branch $repo.Branch $repo.Url $clonePath
-
-            # Find and process image files
-            $imageFiles = Get-ChildItem $clonePath -Recurse -Include @("*.jpg", "*.jpeg", "*.png", "*.gif", "*.webp") 
-
-            foreach ($image in $imageFiles) {
-                if (Test-ImageQuality -ImagePath $image.FullName) {
-                    # Generate unique filename
-                    $hash = (Get-FileHash -Algorithm SHA256 -Path $image.FullName).Hash
-                    $newFilename = "$hash$($image.Extension)"
-                    $destinationPath = Join-Path $SavePath $newFilename
-
-                    Copy-Item -Path $image.FullName -Destination $destinationPath -Force
-                    $totalWallpapers++
-                }
-            }
-
-            $successCount++
-        }
-        catch {
-            Write-Host "Failed to process repository: $($repo.Url)" -ForegroundColor Red
-            $failCount++
-        }
-    }
-
-    # Clean up temporary directory
-    Remove-Item $tempDir -Recurse -Force
-
-    return @{
-        SuccessfulRepos = $successCount
-        FailedRepos = $failCount
-        TotalWallpapers = $totalWallpapers
-    }
-}
-
-# Main Script Execution
-function Start-WallPimp {
-    # Display Header with Architecture
-    Write-WallpimpHeader
-
-    # Dependency Installation
-    if (!(Install-WallpimpDependencies)) {
-        Write-Host "❌ Dependency installation failed. Cannot proceed." -ForegroundColor Red
-        return
-    }
-
-    # Prompt for save location
-    $userSavePath = Read-Host "Enter wallpaper save location (press Enter for default: $SavePath)"
-    if ($userSavePath) {
-        $SavePath = $userSavePath
-    }
-
-    # Download Wallpapers
-    $results = Invoke-WallpaperDownload -SavePath $SavePath -Repositories $Repositories
-
-    # Display Summary
-    Write-Host @"
-╔════════ Download Summary ════════╗
-║ Successfully downloaded: $($results.SuccessfulRepos) repos
-║ Failed downloads: $($results.FailedRepos) repos
-║ Total wallpapers processed: $($results.TotalWallpapers)
-║ Wallpapers saved to: $SavePath
-╚══════════════════════════════════╝
-"@ -ForegroundColor Green
-}
-
-# Load .NET Image Processing
-Add-Type -AssemblyName System.Drawing
 
 # Run Script
 Start-WallPimp
