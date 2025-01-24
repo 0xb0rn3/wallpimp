@@ -175,10 +175,13 @@ function Invoke-WallpaperDownload {
         [string[]]$ExcludeRepos = @()
     )
 
+    # Enhanced error handling and logging
+    $ErrorActionPreference = 'Stop'
+
     # Filter out excluded repositories
     $repos = $Repositories | Where-Object { $_.Url -notin $ExcludeRepos }
     
-    # Initialize statistics tracking
+    # Initialize comprehensive statistics tracking
     $stats = @{
         TotalRepos = $repos.Count
         SuccessfulRepos = 0
@@ -189,6 +192,7 @@ function Invoke-WallpaperDownload {
     }
 
     # Job script block for parallel repository processing
+    # Improved job script with robust error handling
     $jobScript = {
         param($repo, $SavePath, $MinWidth, $MinHeight)
         
@@ -199,22 +203,45 @@ function Invoke-WallpaperDownload {
         }
 
         try {
+            # Generate unique directory name to prevent conflicts
             $repoName = ($repo.Url -split '/')[-1]
-            $clonePath = Join-Path $SavePath $repoName
+            $uniqueClonePath = Join-Path $SavePath "$($repoName)_$(Get-Date -Format 'yyyyMMdd_HHmmss')"
 
-            # Shallow clone to minimize download size
-            $cloneResult = git clone --depth 1 --branch $repo.Branch $repo.Url $clonePath 2>&1
-            if ($LASTEXITCODE -ne 0) {
-                throw "Git clone failed: $cloneResult"
+            # Create directory if it doesn't exist
+            if (-not (Test-Path $uniqueClonePath)) {
+                New-Item -ItemType Directory -Path $uniqueClonePath | Out-Null
             }
 
-            # Find all image files in the cloned repository
-            $imageFiles = Get-ChildItem $clonePath -Recurse -Include @("*.jpg", "*.jpeg", "*.png", "*.gif", "*.webp", "*.bmp") 
+            # Enhanced git clone with multiple fail-safes
+            $gitParams = @(
+                'clone', 
+                '--depth', '1', 
+                '--branch', $repo.Branch, 
+                '--single-branch',  # Only clone the specified branch
+                '--no-tags',         # Avoid downloading tags
+                '--config', 'core.askpass=true',  # Prevent interactive prompts
+                $repo.Url, 
+                $uniqueClonePath
+            )
+
+            # Capture git output for detailed logging
+            $cloneOutput = & git $gitParams 2>&1
+            $exitCode = $LASTEXITCODE
+
+            if ($exitCode -ne 0) {
+                throw "Git clone failed: $cloneOutput"
+            }
+
+            # Find all image files, with comprehensive file type support
+            $imageFiles = Get-ChildItem $uniqueClonePath -Recurse -Include @(
+                "*.jpg", "*.jpeg", "*.png", "*.gif", 
+                "*.webp", "*.bmp", "*.tiff", "*.svg"
+            ) 
 
             foreach ($image in $imageFiles) {
                 $repoStats.Processed++
 
-                # Apply image filtering
+                # Advanced image quality filtering
                 if ((Test-ImageQuality -ImagePath $image.FullName -MinWidth $MinWidth -MinHeight $MinHeight -SavePath $SavePath)) {
                     $hash = (Get-FileHash -Algorithm SHA256 -Path $image.FullName).Hash
                     $newFilename = "$hash$($image.Extension)"
@@ -224,16 +251,14 @@ function Invoke-WallpaperDownload {
                     $repoStats.Saved++
                 }
             }
-
-            $repoStats.ErrorMessage = $null
         }
         catch {
             $repoStats.ErrorMessage = $_.Exception.Message
         }
         finally {
-            # Clean up clone directory to save space
-            if (Test-Path $clonePath) {
-                Remove-Item $clonePath -Recurse -Force
+            # Clean up clone directory, even if errors occur
+            if (Test-Path $uniqueClonePath) {
+                Remove-Item $uniqueClonePath -Recurse -Force -ErrorAction SilentlyContinue
             }
         }
 
