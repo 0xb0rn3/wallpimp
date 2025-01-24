@@ -1,8 +1,3 @@
-# WallPimp - Windows Wallpaper Downloader
-# Version 1.2
-# Enhanced Architecture-Aware Dependency Management
-# Compatible with PowerShell 5.1+
-
 param (
     [string]$SavePath = "$env:USERPROFILE\Pictures\Wallpapers"
 )
