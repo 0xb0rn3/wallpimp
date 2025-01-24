@@ -4,7 +4,6 @@
 
 WallPimp is an advanced wallpaper collection tool designed to automatically download and organize high-quality wallpapers from curated GitHub repositories. With support for multiple image formats and intelligent duplicate prevention, WallPimp makes building your perfect wallpaper collection effortless.
 
-![WallPimp Banner](https://via.placeholder.com/800x200.png?text=WallPimp+Wallpaper+Downloader)
 
 ## 🌟 Features
 
