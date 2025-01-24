@@ -33,9 +33,9 @@ Set-ExecutionPolicy RemoteSigned -Scope CurrentUser
 
    Flexible Command-Line Parameters
 
--NoDownload: Skip wallpaper download
--FilterByResolution: Optional resolution filtering
--MinResolutionWidth and -MinResolutionHeight: Customizable resolution thresholds
+   - NoDownload: Skip wallpaper download
+   - FilterByResolution: Optional resolution filtering
+   - MinResolutionWidth and -MinResolutionHeight: Customizable resolution thresholds
 
 ### 🛠️ Windows System Requirements
 - Windows 10 or 11
