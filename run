@@ -1,204 +1,134 @@
 #!/usr/bin/env bash
-# Color and formatting definitions
-BOLD="\e[1m"
-GREEN="\e[32m"
-RED="\e[31m"
-YELLOW="\e[33m"
-BLUE="\e[34m"
-RESET="\e[0m"
+_x(){ printf "$1"; }
+_e(){ eval "$1"; }
+_d(){ echo "$1" | base64 -d; }
 
-# Comprehensive repository list with more details
-REPOS=(
-    "https://github.com/dharmx/walls,main,Minimal and aesthetic wallpapers"
-    "https://github.com/FrenzyExists/wallpapers,main,Nature and abstract art wallpapers"
-    "https://github.com/michaelScopic/Wallpapers,main,Scenic and landscape wallpapers"
-    "https://github.com/ryan4yin/wallpapers,main,Anime and digital art wallpapers"
-    "https://github.com/port19x/Wallpapers,main,Minimalist desktop wallpapers"
-    "https://github.com/D3Ext/aesthetic-wallpapers,main,Aesthetic and artistic wallpapers"
-    "https://github.com/makccr/wallpapers,main,Mixed collection of high-quality wallpapers"
-)
+_c(){
+    local _z=("$@")
+    local _b=()
+    for _a in "${_z[@]}"; do
+        [[ "$_a" =~ ^[^:]+:(.+)$ ]] && _b+=("${BASH_REMATCH[1]}")
+    done
+    printf '%s\n' "${_b[@]}"
+}
 
-# Statistics tracking
-SUCCESSFUL_REPOS=0
-FAILED_REPOS=0
-TOTAL_PROCESSED=0
-DUPLICATES=0
+_f(){
+    local _m="$1"
+    local _n="$2"
+    local _o="$3"
+    local _p=()
+    
+    IFS=':' read -ra _q <<< "$_m"
+    for _r in "${_q[@]}"; do
+        [[ "$_r" =~ ^[^:]+$ ]] && _p+=("$_r")
+    done
+    
+    printf '%s\n' "${_p[@]}" | while read -r _s; do
+        _e "$_n '$_s' '$_o'"
+    done
+}
 
-# Logging and temporary directory setup
-LOG_FILE="/tmp/wallpaper_download.log"
-TEMP_DIR=$(mktemp -d)
-trap 'rm -rf "$TEMP_DIR"' EXIT
-
-# Dependency check function
-check_dependencies() {
-    local dependencies=(
-        "git:Git version control"
-        "file:File type detection"
-        "find:File search utility"
+_g(){
+    local _t=$(mktemp -d)
+    local _u="/tmp/$(tr -dc 'a-zA-Z0-9' < /dev/urandom | fold -w 10 | head -n 1)"
+    trap 'rm -rf "'"$_t"'"' EXIT
+    
+    local _v=(
+        "$(_d "aHR0cHM6Ly9naXRodWIuY29tL2RoYXJteC93YWxscw==,bWFpbixNaW5pbWFsIGFuZCBhZXN0aGV0aWMgd2FsbHBhcGVycw==")"
+        "$(_d "aHR0cHM6Ly9naXRodWIuY29tL0ZyZW56eUV4aXN0cy93YWxscGFwZXJz,bWFpbixOYXR1cmUgYW5kIGFic3RyYWN0IGFydCB3YWxscGFwZXJz")"
+        "$(_d "aHR0cHM6Ly9naXRodWIuY29tL21pY2hhZWxTY29waWMvV2FsbHBhcGVycw==,bWFpbixTY2VuaWMgYW5kIGxhbmRzY2FwZSB3YWxscGFwZXJz")"
+        "$(_d "aHR0cHM6Ly9naXRodWIuY29tL3J5YW40eWluL3dhbGxwYXBlcnM=,bWFpbixBbmltZSBhbmQgZGlnaXRhbCBhcnQgd2FsbHBhcGVycw==")"
+        "$(_d "aHR0cHM6Ly9naXRodWIuY29tL3BvcnQxOXgvV2FsbHBhcGVycw==,bWFpbixNaW5pbWFsaXN0IGRlc2t0b3Agd2FsbHBhcGVycw==")"
+        "$(_d "aHR0cHM6Ly9naXRodWIuY29tL0QzRXh0L2Flc3RoZXRpYy13YWxscGFwZXJz,bWFpbixBZXN0aGV0aWMgYW5kIGFydGlzdGljIHdhbGxwYXBlcnM=")"
+        "$(_d "aHR0cHM6Ly9naXRodWIuY29tL21ha2Njci93YWxscGFwZXJz,bWFpbixNaXhlZCBjb2xsZWN0aW9uIG9mIGhpZ2gtcXVhbGl0eSB3YWxscGFwZXJz")"
     )
-    local missing_deps=()
-
-    printf "${BOLD}${BLUE}Checking system dependencies...${RESET}\n"
-
-    for dep in "${dependencies[@]}"; do
-        IFS=':' read -r cmd description <<< "$dep"
-        if ! command -v "$cmd" &> /dev/null; then
-            missing_deps+=("$cmd ($description)")
-        fi
-    done
-
-    if [ ${#missing_deps[@]} -ne 0 ]; then
-        printf "${RED}Missing dependencies:${RESET}\n"
-        printf '%s\n' "${missing_deps[@]}"
+    
+    local _w=0 _x=0 _y=0 _z=0
+    
+    _h(){ 
+        local _k="$1"
+        local _l=$(basename "$_k")
+        local _m="${_t}/${_l}"
         
-        read -p "Would you like to install these dependencies? (y/n): " install_choice
-        if [[ $install_choice =~ ^[Yy]$ ]]; then
-            # Detect package manager
-            if command -v apt &> /dev/null; then
-                sudo apt update && sudo apt install -y git file findutils
-            elif command -v dnf &> /dev/null; then
-                sudo dnf install -y git file findutils
-            elif command -v pacman &> /dev/null; then
-                sudo pacman -Syu --noconfirm git file findutils
-            else
-                printf "${RED}Unsupported package manager. Please install dependencies manually.${RESET}\n"
-                return 1
-            fi
+        _x "$(_d "XCRCTFVFXSBQcm9jZXNzaW5nIFtcJHtCT0xEfSR7X2x9XCRSRVNFVF1cbiIpIHwgdHIgLWQgJ1xuJw==")"
+        
+        if git clone --depth 1 --branch "$(_c "$_k")" "$(_c "$_k")" "$_m" &> "$_u"; then
+            local _a=0 _b=0
+            
+            local _i=(
+                "*.jpg" "*.jpeg" "*.png" "*.gif" "*.bmp" "*.tiff" "*.webp" "*.psd"
+                "*.raw" "*.cr2" "*.nef" "*.dng"
+                "*.avif" "*.heic" "*.svg" "*.jxr" "*.jp2"
+                "*.JPG" "*.JPEG" "*.PNG" "*.GIF" "*.BMP"
+            )
+            
+            _j(){ 
+                local _y="$1"
+                local _z="$2"
+                
+                local _w=$(file -b --mime-type "$_y")
+                
+                case "$_w" in 
+                    image/*|*image*)
+                        _w=$(echo "$_w" | cut -d';' -f1)
+                        local _h=$(sha256sum "$_y" | cut -d' ' -f1)
+                        local _n=$(basename "$_y")
+                        local _p="${_z}/${_h}_${_n}"
+                        
+                        cp "$_y" "$_p"
+                        return 0
+                        ;;
+                    *)
+                        return 1
+                        ;;
+                esac
+            }
+            
+            local _d_cmd=("find" "$_m" "-type" "f")
+            for _p in "${_i[@]}"; do
+                _d_cmd+=("-o" "-name" "$_p")
+            done
+            
+            while IFS= read -r -d '' _e; do
+                if _j "$_e" "$(_c "$_k" | cut -d',' -f3)"; then
+                    ((_a++))
+                else
+                    ((_b++))
+                fi
+            done < <("${_d_cmd[@]}" -print0)
+            
+            ((_w++))
+            ((_y+=_a))
+            ((_z+=_b))
+            return 0
         else
+            ((_x++))
             return 1
         fi
-    fi
-    return 0
-}
-
-# Process a single image
-process_image() {
-    local source_img="$1"
-    local dest_dir="$2"
+    }
     
-    # Comprehensive mime type check and image type validation
-    local mime_type=$(file -b --mime-type "$source_img")
-    local image_type=$(file -b "$source_img")
-    
-    # Comprehensive image type matching
-    case "$mime_type" in 
-        image/*|*image*)
-            # Extract clean mime type (remove any additional info)
-            mime_type=$(echo "$mime_type" | cut -d';' -f1)
-            
-            # Generate unique filename to prevent duplicates
-            local file_hash=$(sha256sum "$source_img" | cut -d' ' -f1)
-            local filename=$(basename "$source_img")
-            local target_file="${dest_dir}/${file_hash}_${filename}"
-            
-            # Verbose logging of processed images
-            printf "${GREEN}Processing:${RESET} ${filename} (${mime_type})\n"
-            
-            # Copy the image
-            cp "$source_img" "$target_file"
-            return 0
-            ;;
-        *)
-            # Log skipped files for debugging
-            printf "${YELLOW}Skipped:${RESET} ${source_img} (Not an image: ${mime_type})\n"
-            return 1
-            ;;
-    esac
-}
-
-# Download and process a repository
-download_repo() {
-    local repo_url="$1"
-    local branch="$2"
-    local description="$3"
-    local save_dir="$4"
-
-    local repo_name=$(basename "$repo_url")
-    local clone_dir="${TEMP_DIR}/${repo_name}"
-
-    printf "\n${BLUE}Processing ${BOLD}${repo_name}${RESET}\n"
-    printf "Description: ${YELLOW}${description}${RESET}\n"
-
-    # Clone repository
-    if git clone --depth 1 --branch "$branch" "$repo_url" "$clone_dir" &> "$LOG_FILE"; then
-        local processed=0
-        local skipped=0
-
-        # Extremely comprehensive image search
-        # Uses multiple search strategies to catch all possible image formats
-        local image_patterns=(
-            # Common raster formats
-            "*.jpg" "*.jpeg" "*.png" "*.gif" "*.bmp" "*.tiff" "*.webp" "*.psd"
-            # RAW formats
-            "*.raw" "*.cr2" "*.nef" "*.dng"
-            # Other formats
-            "*.avif" "*.heic" "*.svg" "*.jxr" "*.jp2"
-            # Case-insensitive search
-            "*.JPG" "*.JPEG" "*.PNG" "*.GIF" "*.BMP"
-        )
-
-        # Build find command dynamically
-        local find_cmd=("find" "$clone_dir" "-type" "f")
-        for pattern in "${image_patterns[@]}"; do
-            find_cmd+=("-o" "-name" "$pattern")
-        done
-
-        # Process images
-        while IFS= read -r -d '' img; do
-            if process_image "$img" "$save_dir"; then
-                ((processed++))
-            else
-                ((skipped++))
-            fi
-        done < <("${find_cmd[@]}" -print0)
-
-        printf "${GREEN}✓ Successfully processed ${processed} wallpapers (${skipped} skipped)${RESET}\n"
-        ((SUCCESSFUL_REPOS++))
-        ((TOTAL_PROCESSED+=processed))
-        ((DUPLICATES+=skipped))
-        return 0
-    else
-        printf "${RED}✗ Failed to download repository${RESET}\n"
-        ((FAILED_REPOS++))
-        return 1
-    fi
-}
-
-# Main execution
-main() {
-    # Display banner
-    printf "${BOLD}${BLUE}
-╔═══════════════════════════════════════╗
-║      WallPimp Ver:0.3 STABLE          ║
-║    Wallpaper Download Assistant       ║
-║        by 0xb0rn3 (Bash Port)         ║
-╚═══════════════════════════════════════╝
-${RESET}\n"
-
-    # Check dependencies
-    check_dependencies || exit 1
-
-    # Determine save directory
-    local default_dir="${HOME}/Pictures/Wallpapers"
-    read -p "Where would you like to save wallpapers? [${default_dir}]: " save_dir
-    save_dir=${save_dir:-"$default_dir"}
-    mkdir -p "$save_dir"
-
-    # Wallpaper download process
-    for repo in "${REPOS[@]}"; do
-        IFS=',' read -r url branch description <<< "$repo"
-        download_repo "$url" "$branch" "$description" "$save_dir"
+    for _k in "${_v[@]}"; do
+        _h "$_k"
     done
-
-    # Display summary
-    printf "\n${BOLD}${BLUE}╔════════ Download Summary ════════╗${RESET}\n"
-    printf "${BLUE}║ Successfully downloaded: ${GREEN}${SUCCESSFUL_REPOS} repos${RESET}\n"
-    printf "${BLUE}║ Failed downloads: ${RED}${FAILED_REPOS} repos${RESET}\n"
-    printf "${BLUE}║ Total wallpapers processed: ${GREEN}${TOTAL_PROCESSED}${RESET}\n"
-    printf "${BLUE}║ Duplicates skipped: ${YELLOW}${DUPLICATES}${RESET}\n"
-    printf "${BLUE}║ Wallpapers saved to: ${GREEN}${save_dir}${RESET}\n"
-    printf "${BOLD}${BLUE}╚══════════════════════════════════╝${RESET}\n"
 }
 
-# Execute main function
-main
+_k(){
+    _x "$(_d "XCRCT0xEfVxlWzM0bVxuCuKVoOKVlOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVlOKVoFxuCnwgICAgICBXYWxsUGltcCBWZXI6MC4zIFNUQUJMRSAgICAgICAgfAp8ICAgIFdhbGxwYXBlciBEb3dubG9hZCBBc3Npc3RhbnQgICAgfAp8ICAgICAgICBieSAweGIwcm4zIChCYXNoIFBvcnQpICAgICAgIHwKXeKVoOKVlOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVlOKVoFxuXCRSRVNFVF0iKQ==")"
+    
+    local _l="${HOME}/Pictures/Wallpapers"
+    read -p "$(_d "V2hlcmUgd291bGQgeW91IGxpa2UgdG8gc2F2ZSB3YWxscGFwZXJzPyBbXSk=")" _m
+    _m=${_m:-"$_l"}
+    mkdir -p "$_m"
+    
+    _g "$_m"
+    
+    _x "$(_d "XG5cZVsxbV1cZVszNm3ilqDilpTilpDilpDilpDilpDilpDilpDilpDilpDilpDilpDilpDilpDilpDilpDilpDilpDilpDilpDilqBcbgo=")"
+    _x "$(_d "XGVbMzRtXSBTdWNjZXNzZnVsbHkgZG93bmxvYWRlZDogXGVbMzJtJHtfd31cZVswbVxuIg==")"
+    _x "$(_d "XGVbMzRtXSBGYWlsZWQgZG93bmxvYWRzOiBcZVszMW0ke19sfVxlWzBtXG4i")"
+    _x "$(_d "XGVbMzRtXSBUb3RhbCB3YWxscGFwZXJzIHByb2Nlc3NlZDogXGVbMzJtJHtfeX1cZVswbVxuIg==")"
+    _x "$(_d "XGVbMzRtXSBEdXBsaWNhdGVzIHNraXBwZWQ6IFxlWzMzbSR7X3p9XGVbMG1cbiIp")"
+    _x "$(_d "XGVbMzRtXSBXYWxscGFwZXJzIHNhdmVkIHRvOiBcZVszMm0ke19tfVxlWzBtXG4i")"
+    _x "$(_d "XGVbMW1dXGVbMzRt4pag4paU4paQ4paQ4paQ4paQ4paQ4paQ4paQ4paQ4paQ4paQ4paQ4paQ4paQ4paQ4paQ4paQ4paQ4paQ4pag\xuXGVbMG0i")"
+}
+
+_k
