@@ -1,134 +1,256 @@
-#!/usr/bin/env bash
-_x(){ printf "$1"; }
-_e(){ eval "$1"; }
-_d(){ echo "$1" | base64 -d; }
+#!/usr/bin/env python3
 
-_c(){
-    local _z=("$@")
-    local _b=()
-    for _a in "${_z[@]}"; do
-        [[ "$_a" =~ ^[^:]+:(.+)$ ]] && _b+=("${BASH_REMATCH[1]}")
-    done
-    printf '%s\n' "${_b[@]}"
-}
+import os
+import sys
+import hashlib
+import shutil
+import subprocess
+import tempfile
+import asyncio
+import aiohttp
+import platform
+from pathlib import Path
+from typing import List, Set, Dict
+from dataclasses import dataclass
+from rich.console import Console
+from rich.progress import Progress, SpinnerColumn, TextColumn
+from PIL import Image
+from concurrent.futures import ThreadPoolExecutor
 
-_f(){
-    local _m="$1"
-    local _n="$2"
-    local _o="$3"
-    local _p=()
+@dataclass
+class DownloadStats:
+    """Track statistics for the download operation"""
+    successful_repos: int = 0
+    failed_repos: int = 0
+    total_processed: int = 0
+    duplicates: int = 0
     
-    IFS=':' read -ra _q <<< "$_m"
-    for _r in "${_q[@]}"; do
-        [[ "$_r" =~ ^[^:]+$ ]] && _p+=("$_r")
-    done
-    
-    printf '%s\n' "${_p[@]}" | while read -r _s; do
-        _e "$_n '$_s' '$_o'"
-    done
-}
+class WallpaperDownloader:
+    # Enhanced repository list with metadata
+    REPOS = [
+        {
+            "url": "https://github.com/dharmx/walls",
+            "branch": "main",
+            "description": "Minimal and aesthetic wallpapers"
+        },
+        {
+            "url": "https://github.com/FrenzyExists/wallpapers",
+            "branch": "main",
+            "description": "Nature and abstract art wallpapers"
+        },
+        {
+            "url": "https://github.com/michaelScopic/Wallpapers",
+            "branch": "main",
+            "description": "Scenic and landscape wallpapers"
+        },
+        {
+            "url": "https://github.com/ryan4yin/wallpapers",
+            "branch": "main",
+            "description": "Anime and digital art wallpapers"
+        },
+        {
+            "url": "https://github.com/port19x/Wallpapers",
+            "branch": "main",
+            "description": "Minimalist desktop wallpapers"
+        },
+        {
+            "url": "https://github.com/D3Ext/aesthetic-wallpapers",
+            "branch": "main",
+            "description": "Aesthetic and artistic wallpapers"
+        },
+        {
+            "url": "https://github.com/makccr/wallpapers",
+            "branch": "main",
+            "description": "Mixed collection of high-quality wallpapers"
+        }
+    ]
 
-_g(){
-    local _t=$(mktemp -d)
-    local _u="/tmp/$(tr -dc 'a-zA-Z0-9' < /dev/urandom | fold -w 10 | head -n 1)"
-    trap 'rm -rf "'"$_t"'"' EXIT
-    
-    local _v=(
-        "$(_d "aHR0cHM6Ly9naXRodWIuY29tL2RoYXJteC93YWxscw==,bWFpbixNaW5pbWFsIGFuZCBhZXN0aGV0aWMgd2FsbHBhcGVycw==")"
-        "$(_d "aHR0cHM6Ly9naXRodWIuY29tL0ZyZW56eUV4aXN0cy93YWxscGFwZXJz,bWFpbixOYXR1cmUgYW5kIGFic3RyYWN0IGFydCB3YWxscGFwZXJz")"
-        "$(_d "aHR0cHM6Ly9naXRodWIuY29tL21pY2hhZWxTY29waWMvV2FsbHBhcGVycw==,bWFpbixTY2VuaWMgYW5kIGxhbmRzY2FwZSB3YWxscGFwZXJz")"
-        "$(_d "aHR0cHM6Ly9naXRodWIuY29tL3J5YW40eWluL3dhbGxwYXBlcnM=,bWFpbixBbmltZSBhbmQgZGlnaXRhbCBhcnQgd2FsbHBhcGVycw==")"
-        "$(_d "aHR0cHM6Ly9naXRodWIuY29tL3BvcnQxOXgvV2FsbHBhcGVycw==,bWFpbixNaW5pbWFsaXN0IGRlc2t0b3Agd2FsbHBhcGVycw==")"
-        "$(_d "aHR0cHM6Ly9naXRodWIuY29tL0QzRXh0L2Flc3RoZXRpYy13YWxscGFwZXJz,bWFpbixBZXN0aGV0aWMgYW5kIGFydGlzdGljIHdhbGxwYXBlcnM=")"
-        "$(_d "aHR0cHM6Ly9naXRodWIuY29tL21ha2Njci93YWxscGFwZXJz,bWFpbixNaXhlZCBjb2xsZWN0aW9uIG9mIGhpZ2gtcXVhbGl0eSB3YWxscGFwZXJz")"
-    )
-    
-    local _w=0 _x=0 _y=0 _z=0
-    
-    _h(){ 
-        local _k="$1"
-        local _l=$(basename "$_k")
-        local _m="${_t}/${_l}"
+    def __init__(self):
+        self.console = Console()
+        self.stats = DownloadStats()
+        self.temp_dir = Path(tempfile.mkdtemp())
+        self.processed_hashes: Set[str] = set()
+        self.supported_formats = {'.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.png', '.tiff'}
         
-        _x "$(_d "XCRCTFVFXSBQcm9jZXNzaW5nIFtcJHtCT0xEfSR7X2x9XCRSRVNFVF1cbiIpIHwgdHIgLWQgJ1xuJw==")"
+    async def check_dependencies(self) -> bool:
+        """Check and install required system dependencies"""
+        required_packages = {
+            'git': 'git',
+            'pillow': 'python3-pillow',
+            'rich': 'python3-rich',
+            'aiohttp': 'python3-aiohttp'
+        }
         
-        if git clone --depth 1 --branch "$(_c "$_k")" "$(_c "$_k")" "$_m" &> "$_u"; then
-            local _a=0 _b=0
+        missing_packages = []
+        
+        # Check Python packages
+        for package in required_packages:
+            try:
+                __import__(package)
+            except ImportError:
+                missing_packages.append(required_packages[package])
+        
+        if missing_packages:
+            self.console.print(f"Installing missing dependencies: {', '.join(missing_packages)}")
             
-            local _i=(
-                "*.jpg" "*.jpeg" "*.png" "*.gif" "*.bmp" "*.tiff" "*.webp" "*.psd"
-                "*.raw" "*.cr2" "*.nef" "*.dng"
-                "*.avif" "*.heic" "*.svg" "*.jxr" "*.jp2"
-                "*.JPG" "*.JPEG" "*.PNG" "*.GIF" "*.BMP"
+            # Determine package manager and install command
+            if platform.system() == "Linux":
+                if shutil.which("apt"):
+                    cmd = ["sudo", "apt", "install", "-y"] + missing_packages
+                elif shutil.which("dnf"):
+                    cmd = ["sudo", "dnf", "install", "-y"] + missing_packages
+                elif shutil.which("pacman"):
+                    cmd = ["sudo", "pacman", "-S", "--noconfirm"] + missing_packages
+                else:
+                    self.console.print("No supported package manager found. Please install dependencies manually.")
+                    return False
+                
+                try:
+                    subprocess.run(cmd, check=True)
+                except subprocess.CalledProcessError:
+                    self.console.print("Failed to install dependencies")
+                    return False
+                    
+        return True
+
+    async def download_repo(self, repo: Dict[str, str], save_dir: Path) -> bool:
+        """Download and process a single repository"""
+        repo_name = repo['url'].split('/')[-1]
+        repo_path = self.temp_dir / repo_name
+        
+        try:
+            # Clone repository with depth 1 to save bandwidth
+            process = await asyncio.create_subprocess_exec(
+                'git', 'clone', '--depth', '1', 
+                '--branch', repo['branch'], 
+                repo['url'], str(repo_path),
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
             )
             
-            _j(){ 
-                local _y="$1"
-                local _z="$2"
+            await process.communicate()
+            
+            if process.returncode != 0:
+                return False
                 
-                local _w=$(file -b --mime-type "$_y")
+            # Process all images in the repository
+            await self.process_directory(repo_path, save_dir)
+            return True
+            
+        except Exception as e:
+            self.console.print(f"Error processing {repo_name}: {str(e)}")
+            return False
+            
+    async def process_directory(self, source_dir: Path, dest_dir: Path):
+        """Process all images in a directory"""
+        with ThreadPoolExecutor() as executor:
+            tasks = []
+            for file_path in source_dir.rglob('*'):
+                if file_path.suffix.lower() in self.supported_formats:
+                    tasks.append(
+                        asyncio.get_event_loop().run_in_executor(
+                            executor,
+                            self.process_image,
+                            file_path,
+                            dest_dir
+                        )
+                    )
+            
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            
+            for result in results:
+                if isinstance(result, Exception):
+                    self.stats.failed_repos += 1
+                elif result:
+                    self.stats.total_processed += 1
+                else:
+                    self.stats.duplicates += 1
+
+    def process_image(self, source: Path, dest_dir: Path) -> bool:
+        """Process a single image file"""
+        try:
+            # Calculate file hash
+            with open(source, 'rb') as f:
+                file_hash = hashlib.sha256(f.read()).hexdigest()
+            
+            # Skip if we've seen this hash before
+            if file_hash in self.processed_hashes:
+                return False
                 
-                case "$_w" in 
-                    image/*|*image*)
-                        _w=$(echo "$_w" | cut -d';' -f1)
-                        local _h=$(sha256sum "$_y" | cut -d' ' -f1)
-                        local _n=$(basename "$_y")
-                        local _p="${_z}/${_h}_${_n}"
-                        
-                        cp "$_y" "$_p"
-                        return 0
-                        ;;
-                    *)
-                        return 1
-                        ;;
-                esac
-            }
-            
-            local _d_cmd=("find" "$_m" "-type" "f")
-            for _p in "${_i[@]}"; do
-                _d_cmd+=("-o" "-name" "$_p")
-            done
-            
-            while IFS= read -r -d '' _e; do
-                if _j "$_e" "$(_c "$_k" | cut -d',' -f3)"; then
-                    ((_a++))
-                else
-                    ((_b++))
-                fi
-            done < <("${_d_cmd[@]}" -print0)
-            
-            ((_w++))
-            ((_y+=_a))
-            ((_z+=_b))
-            return 0
-        else
-            ((_x++))
-            return 1
-        fi
-    }
-    
-    for _k in "${_v[@]}"; do
-        _h "$_k"
-    done
-}
+            # Open and verify image
+            with Image.open(source) as img:
+                # Get image dimensions
+                width, height = img.size
+                
+                # Skip if image is too small
+                if width < 1920 or height < 1080:
+                    return False
+                
+                # Convert to PNG if needed and save
+                new_filename = f"{file_hash}_{source.name}"
+                if source.suffix.lower() not in {'.png', '.jpg', '.jpeg'}:
+                    new_filename = f"{file_hash}_{source.stem}.png"
+                
+                output_path = dest_dir / new_filename
+                img.save(output_path, quality=95)
+                
+                self.processed_hashes.add(file_hash)
+                return True
+                
+        except Exception as e:
+            self.console.print(f"Error processing {source}: {str(e)}")
+            return False
 
-_k(){
-    _x "$(_d "XCRCT0xEfVxlWzM0bVxuCuKVoOKVlOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVlOKVoFxuCnwgICAgICBXYWxsUGltcCBWZXI6MC4zIFNUQUJMRSAgICAgICAgfAp8ICAgIFdhbGxwYXBlciBEb3dubG9hZCBBc3Npc3RhbnQgICAgfAp8ICAgICAgICBieSAweGIwcm4zIChCYXNoIFBvcnQpICAgICAgIHwKXeKVoOKVlOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVlOKVoFxuXCRSRVNFVF0iKQ==")"
-    
-    local _l="${HOME}/Pictures/Wallpapers"
-    read -p "$(_d "V2hlcmUgd291bGQgeW91IGxpa2UgdG8gc2F2ZSB3YWxscGFwZXJzPyBbXSk=")" _m
-    _m=${_m:-"$_l"}
-    mkdir -p "$_m"
-    
-    _g "$_m"
-    
-    _x "$(_d "XG5cZVsxbV1cZVszNm3ilqDilpTilpDilpDilpDilpDilpDilpDilpDilpDilpDilpDilpDilpDilpDilpDilpDilpDilpDilpDilqBcbgo=")"
-    _x "$(_d "XGVbMzRtXSBTdWNjZXNzZnVsbHkgZG93bmxvYWRlZDogXGVbMzJtJHtfd31cZVswbVxuIg==")"
-    _x "$(_d "XGVbMzRtXSBGYWlsZWQgZG93bmxvYWRzOiBcZVszMW0ke19sfVxlWzBtXG4i")"
-    _x "$(_d "XGVbMzRtXSBUb3RhbCB3YWxscGFwZXJzIHByb2Nlc3NlZDogXGVbMzJtJHtfeX1cZVswbVxuIg==")"
-    _x "$(_d "XGVbMzRtXSBEdXBsaWNhdGVzIHNraXBwZWQ6IFxlWzMzbSR7X3p9XGVbMG1cbiIp")"
-    _x "$(_d "XGVbMzRtXSBXYWxscGFwZXJzIHNhdmVkIHRvOiBcZVszMm0ke19tfVxlWzBtXG4i")"
-    _x "$(_d "XGVbMW1dXGVbMzRt4pag4paU4paQ4paQ4paQ4paQ4paQ4paQ4paQ4paQ4paQ4paQ4paQ4paQ4paQ4paQ4paQ4paQ4paQ4paQ4pag\xuXGVbMG0i")"
-}
+    async def run(self):
+        """Main execution flow"""
+        # Show welcome message
+        self.console.print("""
+╔═══════════════════════════════════════╗
+║      WallPimp Ver:0.4 Stable          ║
+║    Wallpaper Download Assistant       ║
+║        by github.com/0xb0rn3          ║
+╚═══════════════════════════════════════╝
+        """)
+        
+        # Check dependencies
+        if not await self.check_dependencies():
+            return
+        
+        # Get save directory
+        default_dir = Path.home() / "Pictures" / "Wallpapers"
+        save_dir = Path(input(f"\nWhere would you like to save wallpapers? [{default_dir}]: ").strip() or str(default_dir))
+        save_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Download and process repositories
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            console=self.console
+        ) as progress:
+            for repo in self.REPOS:
+                task_id = progress.add_task(f"Processing {repo['url'].split('/')[-1]}", total=None)
+                
+                if await self.download_repo(repo, save_dir):
+                    self.stats.successful_repos += 1
+                    progress.update(task_id, description=f"✓ Completed {repo['url'].split('/')[-1]}")
+                else:
+                    self.stats.failed_repos += 1
+                    progress.update(task_id, description=f"✗ Failed {repo['url'].split('/')[-1]}")
+        
+        # Show summary
+        self.console.print(f"""
+╔════════ Download Summary ════════╗
+║ Successfully downloaded: {self.stats.successful_repos} repos
+║ Failed downloads: {self.stats.failed_repos} repos
+║ Total wallpapers processed: {self.stats.total_processed}
+║ Duplicates skipped: {self.stats.duplicates}
+║ Wallpapers saved to: {save_dir}
+╚══════════════════════════════════╝
+        """)
+        
+        # Cleanup
+        shutil.rmtree(self.temp_dir)
 
-_k
+if __name__ == "__main__":
+    downloader = WallpaperDownloader()
+    asyncio.run(downloader.run())
