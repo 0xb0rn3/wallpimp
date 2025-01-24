@@ -1,0 +1,204 @@
+#!/usr/bin/env bash
+# Color and formatting definitions
+BOLD="\e[1m"
+GREEN="\e[32m"
+RED="\e[31m"
+YELLOW="\e[33m"
+BLUE="\e[34m"
+RESET="\e[0m"
+
+# Comprehensive repository list with more details
+REPOS=(
+    "https://github.com/dharmx/walls,main,Minimal and aesthetic wallpapers"
+    "https://github.com/FrenzyExists/wallpapers,main,Nature and abstract art wallpapers"
+    "https://github.com/michaelScopic/Wallpapers,main,Scenic and landscape wallpapers"
+    "https://github.com/ryan4yin/wallpapers,main,Anime and digital art wallpapers"
+    "https://github.com/port19x/Wallpapers,main,Minimalist desktop wallpapers"
+    "https://github.com/D3Ext/aesthetic-wallpapers,main,Aesthetic and artistic wallpapers"
+    "https://github.com/makccr/wallpapers,main,Mixed collection of high-quality wallpapers"
+)
+
+# Statistics tracking
+SUCCESSFUL_REPOS=0
+FAILED_REPOS=0
+TOTAL_PROCESSED=0
+DUPLICATES=0
+
+# Logging and temporary directory setup
+LOG_FILE="/tmp/wallpaper_download.log"
+TEMP_DIR=$(mktemp -d)
+trap 'rm -rf "$TEMP_DIR"' EXIT
+
+# Dependency check function
+check_dependencies() {
+    local dependencies=(
+        "git:Git version control"
+        "file:File type detection"
+        "find:File search utility"
+    )
+    local missing_deps=()
+
+    printf "${BOLD}${BLUE}Checking system dependencies...${RESET}\n"
+
+    for dep in "${dependencies[@]}"; do
+        IFS=':' read -r cmd description <<< "$dep"
+        if ! command -v "$cmd" &> /dev/null; then
+            missing_deps+=("$cmd ($description)")
+        fi
+    done
+
+    if [ ${#missing_deps[@]} -ne 0 ]; then
+        printf "${RED}Missing dependencies:${RESET}\n"
+        printf '%s\n' "${missing_deps[@]}"
+        
+        read -p "Would you like to install these dependencies? (y/n): " install_choice
+        if [[ $install_choice =~ ^[Yy]$ ]]; then
+            # Detect package manager
+            if command -v apt &> /dev/null; then
+                sudo apt update && sudo apt install -y git file findutils
+            elif command -v dnf &> /dev/null; then
+                sudo dnf install -y git file findutils
+            elif command -v pacman &> /dev/null; then
+                sudo pacman -Syu --noconfirm git file findutils
+            else
+                printf "${RED}Unsupported package manager. Please install dependencies manually.${RESET}\n"
+                return 1
+            fi
+        else
+            return 1
+        fi
+    fi
+    return 0
+}
+
+# Process a single image
+process_image() {
+    local source_img="$1"
+    local dest_dir="$2"
+    
+    # Comprehensive mime type check and image type validation
+    local mime_type=$(file -b --mime-type "$source_img")
+    local image_type=$(file -b "$source_img")
+    
+    # Comprehensive image type matching
+    case "$mime_type" in 
+        image/*|*image*)
+            # Extract clean mime type (remove any additional info)
+            mime_type=$(echo "$mime_type" | cut -d';' -f1)
+            
+            # Generate unique filename to prevent duplicates
+            local file_hash=$(sha256sum "$source_img" | cut -d' ' -f1)
+            local filename=$(basename "$source_img")
+            local target_file="${dest_dir}/${file_hash}_${filename}"
+            
+            # Verbose logging of processed images
+            printf "${GREEN}Processing:${RESET} ${filename} (${mime_type})\n"
+            
+            # Copy the image
+            cp "$source_img" "$target_file"
+            return 0
+            ;;
+        *)
+            # Log skipped files for debugging
+            printf "${YELLOW}Skipped:${RESET} ${source_img} (Not an image: ${mime_type})\n"
+            return 1
+            ;;
+    esac
+}
+
+# Download and process a repository
+download_repo() {
+    local repo_url="$1"
+    local branch="$2"
+    local description="$3"
+    local save_dir="$4"
+
+    local repo_name=$(basename "$repo_url")
+    local clone_dir="${TEMP_DIR}/${repo_name}"
+
+    printf "\n${BLUE}Processing ${BOLD}${repo_name}${RESET}\n"
+    printf "Description: ${YELLOW}${description}${RESET}\n"
+
+    # Clone repository
+    if git clone --depth 1 --branch "$branch" "$repo_url" "$clone_dir" &> "$LOG_FILE"; then
+        local processed=0
+        local skipped=0
+
+        # Extremely comprehensive image search
+        # Uses multiple search strategies to catch all possible image formats
+        local image_patterns=(
+            # Common raster formats
+            "*.jpg" "*.jpeg" "*.png" "*.gif" "*.bmp" "*.tiff" "*.webp" "*.psd"
+            # RAW formats
+            "*.raw" "*.cr2" "*.nef" "*.dng"
+            # Other formats
+            "*.avif" "*.heic" "*.svg" "*.jxr" "*.jp2"
+            # Case-insensitive search
+            "*.JPG" "*.JPEG" "*.PNG" "*.GIF" "*.BMP"
+        )
+
+        # Build find command dynamically
+        local find_cmd=("find" "$clone_dir" "-type" "f")
+        for pattern in "${image_patterns[@]}"; do
+            find_cmd+=("-o" "-name" "$pattern")
+        done
+
+        # Process images
+        while IFS= read -r -d '' img; do
+            if process_image "$img" "$save_dir"; then
+                ((processed++))
+            else
+                ((skipped++))
+            fi
+        done < <("${find_cmd[@]}" -print0)
+
+        printf "${GREEN}✓ Successfully processed ${processed} wallpapers (${skipped} skipped)${RESET}\n"
+        ((SUCCESSFUL_REPOS++))
+        ((TOTAL_PROCESSED+=processed))
+        ((DUPLICATES+=skipped))
+        return 0
+    else
+        printf "${RED}✗ Failed to download repository${RESET}\n"
+        ((FAILED_REPOS++))
+        return 1
+    fi
+}
+
+# Main execution
+main() {
+    # Display banner
+    printf "${BOLD}${BLUE}
+╔═══════════════════════════════════════╗
+║      WallPimp Ver:0.3 STABLE          ║
+║    Wallpaper Download Assistant       ║
+║        by 0xb0rn3 (Bash Port)         ║
+╚═══════════════════════════════════════╝
+${RESET}\n"
+
+    # Check dependencies
+    check_dependencies || exit 1
+
+    # Determine save directory
+    local default_dir="${HOME}/Pictures/Wallpapers"
+    read -p "Where would you like to save wallpapers? [${default_dir}]: " save_dir
+    save_dir=${save_dir:-"$default_dir"}
+    mkdir -p "$save_dir"
+
+    # Wallpaper download process
+    for repo in "${REPOS[@]}"; do
+        IFS=',' read -r url branch description <<< "$repo"
+        download_repo "$url" "$branch" "$description" "$save_dir"
+    done
+
+    # Display summary
+    printf "\n${BOLD}${BLUE}╔════════ Download Summary ════════╗${RESET}\n"
+    printf "${BLUE}║ Successfully downloaded: ${GREEN}${SUCCESSFUL_REPOS} repos${RESET}\n"
+    printf "${BLUE}║ Failed downloads: ${RED}${FAILED_REPOS} repos${RESET}\n"
+    printf "${BLUE}║ Total wallpapers processed: ${GREEN}${TOTAL_PROCESSED}${RESET}\n"
+    printf "${BLUE}║ Duplicates skipped: ${YELLOW}${DUPLICATES}${RESET}\n"
+    printf "${BLUE}║ Wallpapers saved to: ${GREEN}${save_dir}${RESET}\n"
+    printf "${BOLD}${BLUE}╚══════════════════════════════════╝${RESET}\n"
+}
+
+# Execute main function
+main
