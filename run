@@ -34,6 +34,11 @@ class WallpaperDownloader:
             "description": "Minimal and aesthetic wallpapers"
         },
         {
+            "url": "https://github.com/HENTAI-CODER/Anime-Wallpaper",
+            "branch": "main",
+            "description": " - "
+        },
+        {
             "url": "https://github.com/FrenzyExists/wallpapers",
             "branch": "main",
             "description": "Nature and abstract art wallpapers"
@@ -59,6 +64,16 @@ class WallpaperDownloader:
             "description": "Aesthetic and artistic wallpapers"
         },
         {
+            "url": "https://github.com/Dreamer-Paul/Anime-Wallpaper",
+            "branch": "main",
+            "description": "Anime"
+         },
+         {
+            "url": "https://github.com/polluxau/linuxnext-wallpapers",
+            "branch": "main",
+            "description": "Anime"
+         },
+         {
             "url": "https://github.com/makccr/wallpapers",
             "branch": "main",
             "description": "Mixed collection of high-quality wallpapers"
