@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from PIL import Image
 from concurrent.futures import ThreadPoolExecutor
 
-# Dependency check and install
+# Dependency check and installation
 QtWidgets = importlib.util.find_spec("PySide6.QtWidgets")
 
 def install_dependencies():
@@ -134,11 +134,18 @@ class WallpaperWorker(QRunnable):
 
 class WallpaperGUI(QMainWindow):
     REPOSITORIES = [
-        {'name': 'Minimalist', 'url': 'https://github.com/dharmx/walls', 'branch': 'main', 'icon': '🖼️'},
-        {'name': 'Anime', 'url': 'https://github.com/HENTAI-CODER/Anime-Wallpaper', 'branch': 'main', 'icon': '🌸'},
-        {'name': 'Nature', 'url': 'https://github.com/FrenzyExists/wallpapers', 'branch': 'main', 'icon': '🌿'},
-        {'name': 'Scenic', 'url': 'https://github.com/michaelScopic/Wallpapers', 'branch': 'main', 'icon': '🏞️'},
-        {'name': 'Artistic', 'url': 'https://github.com/D3Ext/aesthetic-wallpapers', 'branch': 'main', 'icon': '🎨'},
+        {'name': 'Minimalist', 'url': 'https://github.com/dharmx/walls', 'branch': 'main', 'icon': '🖼️', 'desc': 'Clean minimalist designs'},
+        {'name': 'Anime', 'url': 'https://github.com/HENTAI-CODER/Anime-Wallpaper', 'branch': 'main', 'icon': '🌸', 'desc': 'Anime & manga artwork'},
+        {'name': 'Nature', 'url': 'https://github.com/FrenzyExists/wallpapers', 'branch': 'main', 'icon': '🌿', 'desc': 'Nature landscapes'},
+        {'name': 'Scenic', 'url': 'https://github.com/michaelScopic/Wallpapers', 'branch': 'main', 'icon': '🏞️', 'desc': 'Scenic vistas'},
+        {'name': 'Artistic', 'url': 'https://github.com/D3Ext/aesthetic-wallpapers', 'branch': 'main', 'icon': '🎨', 'desc': 'Artistic styles'},
+        {'name': 'Anime Pack', 'url': 'https://github.com/Dreamer-Paul/Anime-Wallpaper', 'branch': 'main', 'icon': '🎎', 'desc': 'Curated anime art'},
+        {'name': 'Linux', 'url': 'https://github.com/polluxau/linuxnext-wallpapers', 'branch': 'main', 'icon': '🐧', 'desc': 'Linux desktop art'},
+        {'name': 'Mixed', 'url': 'https://github.com/makccr/wallpapers', 'branch': 'main', 'icon': '🌟', 'desc': 'Diverse styles'},
+        {'name': 'Desktop', 'url': 'https://github.com/port19x/Wallpapers', 'branch': 'main', 'icon': '💻', 'desc': 'Minimalist desktop'},
+        {'name': 'Gaming', 'url': 'https://github.com/ryan4yin/wallpapers', 'branch': 'main', 'icon': '🎮', 'desc': 'Gaming-inspired art'},
+        {'name': 'Photos', 'url': 'https://github.com/linuxdotexe/wallpapers', 'branch': 'main', 'icon': '📷', 'desc': 'Professional photography'},
+        {'name': 'Digital', 'url': 'https://github.com/0xb0rn3/wallpapers', 'branch': 'main', 'icon': '🖥️', 'desc': 'Digital creations'}
     ]
 
     def __init__(self):
@@ -147,29 +154,38 @@ class WallpaperGUI(QMainWindow):
         self.thread_pool = QThreadPool()
         self.init_ui()
         self.setWindowTitle("WallPimp v0.4 Alpha Stable")
-        self.setMinimumSize(600, 400)
+        self.setMinimumSize(800, 600)
         self.setStyleSheet("""
-            QMainWindow { background-color: #f5f6f7; }
+            QMainWindow { background-color: #f8f9fa; }
             QGroupBox { 
-                border: 1px solid #ccd0d5;
-                border-radius: 4px;
+                border: 1px solid #dee2e6;
+                border-radius: 6px;
                 margin-top: 1ex;
-                font-weight: bold;
+                font-size: 13px;
+                color: #2d3436;
             }
-            QGroupBox::title { subcontrol-origin: margin; padding: 0 3px; }
             QProgressBar { 
-                height: 18px;
+                height: 20px;
                 border-radius: 4px;
-                text-align: center;
+                border: 1px solid #ced4da;
             }
-            QProgressBar::chunk { background-color: #4CAF50; border-radius: 4px; }
-            QPushButton { 
-                padding: 6px 12px;
+            QProgressBar::chunk { 
+                background-color: #4dabf7;
+                border-radius: 3px;
+            }
+            QCheckBox { 
+                spacing: 8px; 
+                font-size: 13px;
+            }
+            QPushButton {
+                padding: 8px 16px;
                 border-radius: 4px;
-                background-color: #e7e7e7;
-                border: 1px solid #d7d7d7;
+                background-color: #e9ecef;
+                border: 1px solid #dee2e6;
             }
-            QPushButton:hover { background-color: #d7d7d7; }
+            QPushButton:hover {
+                background-color: #dee2e6;
+            }
         """)
 
     def init_ui(self):
@@ -178,59 +194,65 @@ class WallpaperGUI(QMainWindow):
         
         # Menu Bar
         menu_bar = QMenuBar()
-        help_menu = QMenu("Help", self)
-        about_action = QAction("About", self)
+        help_menu = QMenu("&Help", self)
+        about_action = QAction("&About", self)
         about_action.triggered.connect(self.show_about)
         help_menu.addAction(about_action)
         menu_bar.addMenu(help_menu)
         self.setMenuBar(menu_bar)
 
         # Header
-        header = QLabel("WallPimp")
-        header.setFont(QFont("Arial", 18, QFont.Bold))
+        header = QLabel("WallPimp - Intelligent Wallpaper Collector")
+        header.setFont(QFont("Segoe UI", 16, QFont.Bold))
+        header.setStyleSheet("color: #2c3e50; margin: 15px 0;")
         header.setAlignment(Qt.AlignCenter)
-        header.setStyleSheet("color: #2c3e50; margin-bottom: 15px;")
         main_layout.addWidget(header)
 
-        # Repository Selection
-        repo_group = QGroupBox("Select Sources")
-        repo_layout = QVBoxLayout()
+        # Repository Grid
+        repo_group = QGroupBox("Select Collections")
+        repo_layout = QGridLayout()
         
-        self.repo_checkboxes = [
-            QCheckBox(f"{repo['icon']} {repo['name']}") for repo in self.REPOSITORIES
-        ]
-        for cb in self.repo_checkboxes:
+        self.repo_checkboxes = []
+        for i, repo in enumerate(self.REPOSITORIES):
+            cb = QCheckBox(f"{repo['icon']} {repo['name']}")
+            cb.setToolTip(repo['desc'])
             cb.setChecked(True)
-            repo_layout.addWidget(cb)
+            repo_layout.addWidget(cb, i//3, i%3)
+            self.repo_checkboxes.append(cb)
         
         repo_group.setLayout(repo_layout)
         main_layout.addWidget(repo_group)
 
         # Progress Section
-        self.progress_bars = {}
-        progress_group = QGroupBox("Progress")
+        progress_group = QGroupBox("Download Progress")
         progress_layout = QVBoxLayout()
         
+        self.progress_bars = {}
         for repo in self.REPOSITORIES:
             pb = QProgressBar()
             pb.setRange(0, 100)
-            pb.setFormat(f"{repo['icon']} {repo['name']}")
+            pb.setFormat(f" {repo['icon']} {repo['name']}...")
+            pb.setStyleSheet("font-size: 12px; color: #495057;")
             self.progress_bars[repo['name']] = pb
             progress_layout.addWidget(pb)
         
         progress_group.setLayout(progress_layout)
         main_layout.addWidget(progress_group)
 
-        # Controls
+        # Control Panel
         control_layout = QHBoxLayout()
         self.btn_dir = QPushButton("📁 Choose Folder")
         self.btn_dir.clicked.connect(self.choose_directory)
-        self.dir_label = QLabel("No folder selected")
-        self.dir_label.setStyleSheet("color: #7f8c8d;")
         
-        self.btn_start = QPushButton("▶ Start")
+        self.dir_label = QLabel("No folder selected")
+        self.dir_label.setStyleSheet("color: #6c757d; font-size: 12px;")
+        
+        self.btn_start = QPushButton("▶ Start Collection")
+        self.btn_start.setStyleSheet("background-color: #4dabf7; color: white;")
         self.btn_start.clicked.connect(self.start_download)
+        
         self.btn_stop = QPushButton("⏹ Stop")
+        self.btn_stop.setStyleSheet("background-color: #ff6b6b; color: white;")
         self.btn_stop.clicked.connect(self.stop_download)
         self.btn_stop.setEnabled(False)
 
@@ -245,17 +267,26 @@ class WallpaperGUI(QMainWindow):
         self.setCentralWidget(main_widget)
 
     def show_about(self):
-        about_text = """<b>WallPimp v0.4 Alpha Stable</b><br><br>
-        Intelligent Wallpaper Collector<br>
-        Developed by 0xB0RN3<br>
-        GitHub: <a href='https://github.com/0xb0rn3'>github.com/0xb0rn3</a><br><br>
-        © 2023 All rights reserved"""
+        about_text = """<div style='text-align: center'>
+            <h3 style='color: #2c3e50;'>WallPimp v0.4 Alpha Stable</h3>
+            <p>Developed by <b>0xB0RN3</b></p>
+            <p>GitHub: <a href='https://github.com/0xb0rn3' style='color: #4dabf7;'>github.com/0xb0rn3</a></p>
+            <hr>
+            <p style='color: #6c757d;'>
+                Features:<br>
+                • 12+ curated collections<br>
+                • Auto-deduplication<br>
+                • Quality filtering (1920x1080+ only)<br>
+                • Parallel processing<br>
+                • Cross-platform support
+            </p>
+        </div>"""
         
         msg = QMessageBox(self)
         msg.setWindowTitle("About WallPimp")
         msg.setTextFormat(Qt.TextFormat.RichText)
         msg.setText(about_text)
-        msg.setIconPixmap(QPixmap(":icons/appicon.png").scaled(64, 64))
+        msg.setStandardButtons(QMessageBox.StandardButton.Ok)
         msg.exec()
 
     def choose_directory(self):
@@ -263,7 +294,7 @@ class WallpaperGUI(QMainWindow):
         if path:
             self.save_dir = Path(path)
             self.dir_label.setText(path)
-            self.dir_label.setStyleSheet("color: #2c3e50;")
+            self.dir_label.setStyleSheet("color: #2c3e50; font-size: 12px;")
 
     def start_download(self):
         if not hasattr(self, 'save_dir'):
@@ -272,7 +303,7 @@ class WallpaperGUI(QMainWindow):
 
         selected_repos = [repo for repo, cb in zip(self.REPOSITORIES, self.repo_checkboxes) if cb.isChecked()]
         if not selected_repos:
-            QMessageBox.warning(self, "Error", "Please select at least one source!")
+            QMessageBox.warning(self, "Error", "Please select at least one collection!")
             return
 
         self.worker = WallpaperWorker(selected_repos, self.save_dir)
@@ -295,7 +326,8 @@ class WallpaperGUI(QMainWindow):
                         ("#4CAF50" if success else "#e74c3c"))
 
     def stop_download(self):
-        if self.worker: self.worker.stop()
+        if self.worker: 
+            self.worker.stop()
         self.btn_start.setEnabled(True)
         self.btn_stop.setEnabled(False)
 
