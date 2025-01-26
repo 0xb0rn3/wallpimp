@@ -34,20 +34,17 @@ Set-ExecutionPolicy RemoteSigned -Scope CurrentUser
    Flexible Command-Line Parameters
 
 - # Standard usage
-.\WallPimp.ps1
+# Default execution
+irm https://raw.githubusercontent.com/0xb0rn3/WallPimp/main/wallpimp.ps1 | iex
 
-# Skip downloads
-.\WallPimp.ps1 -NoDownload
-
-# Filter by high-resolution images (4K)
-.\WallPimp.ps1 -FilterByResolution -MinResolutionWidth 3840 -MinResolutionHeight 2160
-
-# Custom configuration
-.\WallPimp.ps1 -SavePath "D:\Wallpapers" -MaxParallelRepos 5 -ExcludeRepositories "https://github.com/dharmx/walls"
+# Custom save path
+irm ... | iex -SavePath "D:\MyWallpapers"
 
 # Exclude specific repositories
-.\WallPimp.ps1 -ExcludeRepositories "https://github.com/dharmx/walls"
+irm ... | iex -ExcludeRepositories "https://github.com/HENTAI-CODER/Anime-Wallpaper"
 
+# Silent mode
+irm ... | iex -LogLevel Silent
 ### 🛠️ Windows System Requirements
 - Windows 10 or 11
 - PowerShell 5.1+
