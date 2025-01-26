@@ -1,6 +1,6 @@
 # WallPimp - Ultimate Wallpaper Collection Script
-# Version 2.2
-# Complete Repository Integration
+# Version 2.3
+# Now with Speed Optimization
 
 param (
     [string]$SavePath = "$env:USERPROFILE\Pictures\Wallpapers",
@@ -14,13 +14,6 @@ param (
     [string]$LogLevel = 'Normal'
 )
 
-# Environment Configuration
-$ErrorActionPreference = 'Stop'
-$env:GIT_TERMINAL_PROMPT = 0
-$env:GCM_INTERACTIVE = 'Never'
-Add-Type -AssemblyName System.Drawing
-
-# ASCII Banner
 $banner = @"
 ╔══════════════════════════════════════════╗
 ║ ██╗    ██╗ █████╗ ██╗     ██╗  ██╗██████╗ ║
@@ -30,29 +23,26 @@ $banner = @"
 ║ ╚███╔███╔╝██║  ██║███████╗██║  ██╗██║     ║
 ║  ╚══╝╚══╝ ╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝╚═╝     ║
 ╠══════════════════════════════════════════╣
-║          Version 2.2 | 0xB0RN3           ║
+║          Version 2.3 | 0xB0RN3           ║
 ╚══════════════════════════════════════════╝
 "@
 
-# Comprehensive Repository List
 $Repositories = @(
-    @{ Url = "https://github.com/dharmx/walls"; Branch = "main"; Description = "Minimalist designs" },
-    @{ Url = "https://github.com/HENTAI-CODER/Anime-Wallpaper"; Branch = "main"; Description = "Anime collection" },
-    @{ Url = "https://github.com/FrenzyExists/wallpapers"; Branch = "main"; Description = "Nature/abstract" },
-    @{ Url = "https://github.com/michaelScopic/Wallpapers"; Branch = "main"; Description = "Scenic landscapes" },
-    @{ Url = "https://github.com/ryan4yin/wallpapers"; Branch = "main"; Description = "Digital art" },
-    @{ Url = "https://github.com/port19x/Wallpapers"; Branch = "main"; Description = "Clean minimalism" },
-    @{ Url = "https://github.com/D3Ext/aesthetic-wallpapers"; Branch = "main"; Description = "Artistic styles" },
-    @{ Url = "https://github.com/Dreamer-Paul/Anime-Wallpaper"; Branch = "main"; Description = "Anime focus" },
-    @{ Url = "https://github.com/polluxau/linuxnext-wallpapers"; Branch = "main"; Description = "Linux themes" },
-    @{ Url = "https://github.com/makccr/wallpapers"; Branch = "main"; Description = "Mixed collection" },
-    @{ Url = "https://github.com/linuxdotexe/wallpapers"; Branch = "main"; Description = "Photography" },
-    @{ Url = "https://github.com/satyawrat/WallPapers"; Branch = "main"; Description = "Diverse styles" },
-    @{ Url = "https://github.com/lxndrblz/animeWallpapers"; Branch = "main"; Description = "Anime archive" },
-    @{ Url = "https://github.com/notlmn/wallpapers"; Branch = "main"; Description = "Modern art" },
-    @{ Url = "https://github.com/minhonna/background-collection"; Branch = "main"; Description = "Abstract art" },
-    @{ Url = "https://github.com/Axlefublr/wallpapers"; Branch = "main"; Description = "Curated selection" },
-    @{ Url = "https://github.com/wallpaperhub-app/wallpapers"; Branch = "main"; Description = "Premium collection" }
+    @{ Url = "https://github.com/dharmx/walls"; Description = "Minimalist designs" },
+    @{ Url = "https://github.com/HENTAI-CODER/Anime-Wallpaper"; Description = "Anime collection" },
+    @{ Url = "https://github.com/FrenzyExists/wallpapers"; Description = "Nature/abstract" },
+    @{ Url = "https://github.com/michaelScopic/Wallpapers"; Description = "Scenic landscapes" },
+    @{ Url = "https://github.com/ryan4yin/wallpapers"; Description = "Digital art" },
+    @{ Url = "https://github.com/port19x/Wallpapers"; Description = "Clean minimalism" },
+    @{ Url = "https://github.com/D3Ext/aesthetic-wallpapers"; Description = "Artistic styles" },
+    @{ Url = "https://github.com/Dreamer-Paul/Anime-Wallpaper"; Description = "Anime focus" },
+    @{ Url = "https://github.com/polluxau/linuxnext-wallpapers"; Description = "Linux themes" },
+    @{ Url = "https://github.com/makccr/wallpapers"; Description = "Mixed collection" },
+    @{ Url = "https://github.com/linuxdotexe/wallpapers"; Description = "Photography" },
+    @{ Url = "https://github.com/satyawrat/WallPapers"; Description = "Diverse styles" },
+    @{ Url = "https://github.com/lxndrblz/animeWallpapers"; Description = "Anime archive" },
+    @{ Url = "https://github.com/notlmn/wallpapers"; Description = "Modern art" },
+    @{ Url = "https://github.com/minhonna/background-collection"; Description = "Abstract art" }
 )
 
 function Write-EnhancedLog {
@@ -60,131 +50,129 @@ function Write-EnhancedLog {
         [Parameter(Mandatory=$true)][string]$Message,
         [ConsoleColor]$Color = 'White',
         [ValidateSet('Silent', 'Normal', 'Verbose')]
-        [string]$Level = 'Normal',
-        [switch]$Important
+        [string]$Level = 'Normal'
     )
     
-    if ($LogLevel -eq 'Silent' -and $Level -ne 'Silent') { return }
+    if ($LogLevel -eq 'Silent') { return }
     if ($LogLevel -eq 'Normal' -and $Level -eq 'Verbose') { return }
     
     $timestamp = Get-Date -Format "HH:mm:ss"
-    $logPrefix = if ($Important) { "✨ " } else { "▷ " }
-    
-    Write-Host "[$timestamp] $logPrefix$Message" -ForegroundColor $Color
+    Write-Host "[$timestamp] $Message" -ForegroundColor $Color
     "$(Get-Date -Format o) - $Message" | Out-File -Append -FilePath (Join-Path $SavePath "wallpimp.log")
 }
 
-function Test-NetworkConnection {
-    try {
-        $testUrl = "https://github.com"
-        $request = [System.Net.WebRequest]::Create($testUrl)
-        $request.Timeout = 5000
-        $response = $request.GetResponse()
-        $response.Close()
-        return $true
-    }
-    catch {
-        Write-EnhancedLog "Network connection failed" -Color Red -Important
-        return $false
+function Get-UserSpeedPreference {
+    if ($MaxParallelRepos -ne 3) { return $MaxParallelRepos } # Respect parameter
+    
+    Write-Host "`n⚡ Download Speed Optimization ⚡" -ForegroundColor Cyan
+    Write-Host "1. Normal Mode (3 parallel downloads) [Recommended]"
+    Write-Host "2. Turbo Mode (6 parallel downloads) - Fast but resource-heavy"
+    Write-Host "3. Extreme Mode (10 parallel downloads) - Unstable connections not recommended"
+    
+    do {
+        $choice = Read-Host "`nChoose download speed (1-3)"
+    } while ($choice -notmatch '^[1-3]$')
+
+    switch ($choice) {
+        '1' { return 3 }
+        '2' { return 6 }
+        '3' { return 10 }
     }
 }
 
-function Install-WallpimpDependencies {
-    if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
-        Write-EnhancedLog "Git not found. Installing..." -Color Yellow -Important
-        try {
-            winget install --id Git.Git -e --accept-package-agreements --accept-source-agreements
-            $env:Path += ";C:\Program Files\Git\cmd"
-            Write-EnhancedLog "Git installed successfully" -Color Green
-        }
-        catch {
-            Write-EnhancedLog "Git installation failed: $_" -Color Red -Important
-            exit 1
-        }
-    }
-}
-
-function Test-ImageQuality {
+function Invoke-TurboDownload {
     param(
-        [string]$ImagePath,
-        [int]$MinWidth = 1920,
-        [int]$MinHeight = 1080
+        [string]$repoUrl,
+        [string]$tempDir,
+        [hashtable]$uniqueWallpapers
     )
-
+    
     try {
-        $image = [System.Drawing.Image]::FromFile($ImagePath)
-        $isValid = $image.Width -ge $MinWidth -and $image.Height -ge $MinHeight
-        $image.Dispose()
-        return $isValid
-    }
-    catch {
-        Write-EnhancedLog "Invalid image file: $ImagePath" -Color Yellow -Level Verbose
-        return $false
-    }
-}
+        git clone --depth 1 --quiet $repoUrl $tempDir 2>$null
+        $wallpapers = Get-ChildItem $tempDir -Recurse -Include *.jpg, *.jpeg, *.png
 
-function Invoke-WallpaperDownload {
-    $totalRepos = $Repositories.Count
-    $processed = 0
-    $uniqueWallpapers = @{}
-    $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
-
-    foreach ($repo in $Repositories | Where-Object { $_.Url -notin $ExcludeRepositories }) {
-        $processed++
-        try {
-            Write-EnhancedLog "Processing ($processed/$totalRepos): $($repo.Description)" -Color Cyan
-            
-            $tempDir = Join-Path $env:TEMP "wallpimp-$(New-Guid)"
-            $null = New-Item -Path $tempDir -ItemType Directory -Force
-
-            git clone --depth 1 --quiet $repo.Url $tempDir 2>$null
-
-            Get-ChildItem $tempDir -Recurse -Include *.jpg, *.jpeg, *.png | ForEach-Object {
-                if (Test-ImageQuality $_.FullName $MinResolutionWidth $MinResolutionHeight) {
-                    $hash = (Get-FileHash $_.FullName -Algorithm SHA256).Hash
-                    if (-not $uniqueWallpapers.ContainsKey($hash)) {
+        $wallpapers | ForEach-Object {
+            if (Test-ImageQuality $_.FullName) {
+                $hash = (Get-FileHash $_.FullName -Algorithm SHA256).Hash
+                if (-not $uniqueWallpapers.ContainsKey($hash)) {
+                    $lock = [System.Threading.Mutex]::new($false, "WallpaperLock")
+                    $lock.WaitOne() | Out-Null
+                    try {
                         $targetPath = Join-Path $SavePath "$hash$($_.Extension)"
                         Copy-Item $_.FullName $targetPath -Force
                         $uniqueWallpapers[$hash] = $targetPath
                     }
+                    finally {
+                        $lock.ReleaseMutex()
+                        $lock.Dispose()
+                    }
                 }
             }
         }
-        catch {
-            Write-EnhancedLog "Error processing $($repo.Url): $_" -Color Red -Level Verbose
-        }
-        finally {
-            Remove-Item $tempDir -Recurse -Force -ErrorAction SilentlyContinue
-        }
     }
-
-    $stopwatch.Stop()
-    Write-EnhancedLog "Operation completed in $($stopwatch.Elapsed.ToString('hh\:mm\:ss'))" -Color Green -Important
-    Write-EnhancedLog "Collected $($uniqueWallpapers.Count) unique wallpapers" -Color Green -Important
+    catch {
+        Write-EnhancedLog "Error processing $repoUrl : $_" -Color Red -Level Verbose
+    }
 }
 
 function Start-WallPimp {
     Write-Host $banner -ForegroundColor Magenta
 
-    if (-not (Test-NetworkConnection)) {
-        Write-EnhancedLog "No internet connection available" -Color Red -Important
-        exit 1
-    }
-
-    Install-WallpimpDependencies
-
+    # Interactive setup
     if (-not $NoDownload) {
+        $defaultPath = "$env:USERPROFILE\Pictures\Wallpapers"
+        $userPath = Read-Host "Enter save directory [Default: $defaultPath]"
+        $SavePath = if ($userPath) { $userPath } else { $defaultPath }
+        
         if (-not (Test-Path $SavePath)) {
-            $null = New-Item -Path $SavePath -ItemType Directory -Force
+            New-Item -Path $SavePath -ItemType Directory -Force | Out-Null
+            Write-EnhancedLog "Created directory: $SavePath" -Color Green
         }
 
-        Invoke-WallpaperDownload
-        Invoke-Item $SavePath
+        $MaxParallelRepos = Get-UserSpeedPreference
+        Write-EnhancedLog "Parallel downloads set to: $MaxParallelRepos" -Color Cyan
     }
-    else {
-        Write-EnhancedLog "No-download mode activated" -Color Yellow
+
+    # Core functionality
+    $uniqueWallpapers = @{}
+    $repoCount = $Repositories.Count
+    $processed = 0
+    $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+
+    $Repositories | Where-Object { $_.Url -notin $ExcludeRepositories } | ForEach-Object -Parallel {
+        $tempDir = Join-Path $env:TEMP "wallpimp-$(New-Guid)"
+        New-Item -Path $tempDir -ItemType Directory -Force | Out-Null
+        
+        try {
+            $using:processed++
+            Write-EnhancedLog "[$($using:processed)/$($using:repoCount)] Downloading $($_.Description)" -Color Yellow
+            
+            Invoke-TurboDownload $_.Url $tempDir $using:uniqueWallpapers
+        }
+        finally {
+            Remove-Item $tempDir -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    } -ThrottleLimit $MaxParallelRepos
+
+    $stopwatch.Stop()
+    
+    # Final report
+    Write-EnhancedLog "`n✅ Operation completed in $($stopwatch.Elapsed.ToString('mm\:ss'))" -Color Green
+    Write-EnhancedLog "💾 Saved $($uniqueWallpapers.Count) unique wallpapers" -Color Green
+    Write-EnhancedLog "📁 Location: $SavePath" -Color Cyan
+    
+    if (-not $NoDownload) {
+        Invoke-Item $SavePath
     }
 }
 
 # Main execution
-Start-WallPimp
+if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
+    Write-Host "Git is required. Installing..." -ForegroundColor Yellow
+    winget install --id Git.Git -e
+    $env:Path += ";C:\Program Files\Git\cmd"
+}
+
+if (-not $NoDownload) {
+    Start-WallPimp
+}
