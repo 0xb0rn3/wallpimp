@@ -44,13 +44,14 @@ chmod +x run
 
 # Exclude specific repositories
 ./run --exclude dharmx/walls FrenzyExists/wallpapers
-Windows (PowerShell)
+```
+### Windows (PowerShell)
 # Basic usage
 .\wallpimp.ps1
 
 # Advanced options
 .\wallpimp.ps1 -SavePath "D:\Wallpapers" -MinResolutionWidth 2560 -MaxParallelRepos 5
-
+```
 Parameter	Description	Default Value
 -SavePath	Custom save directory	$env:USERPROFILE\Pictures\Wallpapers
 -MinResolutionWidth	Minimum width requirement	1920
@@ -69,7 +70,8 @@ Parallel Processing	Async I/O with asyncio	PowerShell 7 parallel jobs
 Image Handling	PIL (Python Imaging Library)	.NET System.Drawing
 Dependency Management	Automatic package installation	Manual Git installation
 Temp Files	Automatic cleanup	GUID-named temp directories
-Troubleshooting 🔧
+```
+### Troubleshooting 🔧
 Common Issues:
 
 Git not found:
@@ -84,7 +86,7 @@ Adjust minimum resolution parameters:
 PS7 parallel issues:
 Reduce -MaxParallelRepos or use -ThrottleLimit
 
-Contributing 🤝
+### Contributing 🤝
 Fork the repository
 
 Add new wallpaper repositories to REPOS lists
@@ -94,7 +96,7 @@ Maintain cross-platform compatibility
 Submit a pull request
 
 
-Acknowledgments 🙏
+### Acknowledgments 🙏
 All included wallpaper repository maintainers
 
 Python and PowerShell communities
