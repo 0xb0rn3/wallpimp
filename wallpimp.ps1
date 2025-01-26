@@ -80,37 +80,45 @@ function Start-WallPimp {
 
     # Core Download Logic
     $uniqueWallpapers = @{}
-    $repoCount = $Repositories.Count
-    $processed = 0
+    $filteredRepos = $Repositories | Where-Object { $_.Url -notin $ExcludeRepositories }
+    $repoCount = $filteredRepos.Count
+
+    # Assign index to each repository
+    $indexedRepos = $filteredRepos | ForEach-Object -Begin { $i = 1 } -Process {
+        $_ | Add-Member -NotePropertyName 'Index' -NotePropertyValue $i++
+        $_
+    }
 
     if ($isPwsh7) {
         # PowerShell 7 Optimized Parallel Download
-        $Repositories | Where-Object { $_.Url -notin $ExcludeRepositories } | ForEach-Object -Parallel {
+        $indexedRepos | ForEach-Object -Parallel {
+            $repo = $_
+            Write-EnhancedLog "[$($repo.Index)/$($using:repoCount)] Downloading $($repo.Description)" -Color Yellow
+
             $tempDir = Join-Path $env:TEMP "wallpimp-$(New-Guid)"
             New-Item -Path $tempDir -ItemType Directory -Force | Out-Null
             
             try {
-                $using:processed++
-                Write-EnhancedLog "[$($using:processed)/$($using:repoCount)] Downloading $($_.Description)" -Color Yellow
-                
-                git clone --depth 1 --quiet $_.Url $tempDir 2>$null
+                git clone --depth 1 --quiet $repo.Url $tempDir 2>$null
                 Get-ChildItem $tempDir -Recurse -Include *.jpg, *.jpeg, *.png | ForEach-Object {
                     try {
                         $image = [System.Drawing.Image]::FromFile($_.FullName)
                         if ($image.Width -ge $using:MinResolutionWidth -and $image.Height -ge $using:MinResolutionHeight) {
                             $hash = (Get-FileHash $_.FullName -Algorithm SHA256).Hash
-                            if (-not $using:uniqueWallpapers.ContainsKey($hash)) {
-                                $lock = [System.Threading.Mutex]::new($false, "WallpaperLock")
-                                $lock.WaitOne() | Out-Null
-                                try {
+                            $uniqueWallpapers = $using:uniqueWallpapers
+
+                            $lock = [System.Threading.Mutex]::new($false, "WallpaperLock")
+                            $lock.WaitOne() | Out-Null
+                            try {
+                                if (-not $uniqueWallpapers.ContainsKey($hash)) {
                                     $targetPath = Join-Path $using:SavePath "$hash$($_.Extension)"
                                     Copy-Item $_.FullName $targetPath -Force
-                                    $using:uniqueWallpapers[$hash] = $targetPath
+                                    $uniqueWallpapers[$hash] = $targetPath
                                 }
-                                finally {
-                                    $lock.ReleaseMutex()
-                                    $lock.Dispose()
-                                }
+                            }
+                            finally {
+                                $lock.ReleaseMutex()
+                                $lock.Dispose()
                             }
                         }
                         $image.Dispose()
@@ -118,16 +126,15 @@ function Start-WallPimp {
                     catch { Write-EnhancedLog "Error processing $($_.Name)" -Color Red }
                 }
             }
-            catch { Write-EnhancedLog "Error processing $($_.Url) : $_" -Color Red }
+            catch { Write-EnhancedLog "Error processing $($repo.Url) : $_" -Color Red }
             finally { Remove-Item $tempDir -Recurse -Force }
-        } -ThrottleLimit $MaxParallelRepos
+        } -ThrottleLimit $using:MaxParallelRepos
     }
     else {
         # Windows PowerShell Sequential Download
-        foreach ($repo in $Repositories | Where-Object { $_.Url -notin $ExcludeRepositories }) {
-            $processed++
+        foreach ($repo in $filteredRepos) {
             try {
-                Write-EnhancedLog "[$processed/$repoCount] Downloading $($repo.Description)" -Color Yellow
+                Write-EnhancedLog "[$($repo.Index)/$repoCount] Downloading $($repo.Description)" -Color Yellow
                 
                 $tempDir = Join-Path $env:TEMP "wallpimp-$(New-Guid)"
                 New-Item -Path $tempDir -ItemType Directory -Force | Out-Null
