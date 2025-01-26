@@ -1,193 +1,103 @@
-# WallPimp: Ultimate Wallpaper Downloader 🖼️
+# Wallpimp 🖼️
 
-## 🖥️ Windows Users: Getting Started (Recommended First Read)
+A cross-platform wallpaper manager that automatically collects high-quality wallpapers from curated GitHub repositories. Features intelligent duplicate detection and resolution filtering.
 
-### 🛡️ Understanding Windows Security & Execution Policies
+## Features ✨
 
-#### What is an Execution Policy?
-Think of an execution policy like a security guard for your computer. It decides which scripts can run and helps protect you from potentially harmful code. WallPimp needs you to slightly adjust these settings to work smoothly.
+- **Multi-Platform Support**
+  - Linux (Python 3.8+)
+  - Windows (PowerShell 5.1+/7+)
+- **Smart Collection**
+  - Automated repository cloning
+  - SHA-256 duplicate detection
+  - Resolution filtering (default 1920x1080+)
+- **Performance Optimized**
+  - Parallel processing (PowerShell 7)
+  - Async I/O (Python implementation)
+  - Temp file cleanup
+- **Customizable**
+  - Multiple repository sources
+  - Custom save paths
+  - Repository exclusion list
 
-### 🚀 Quick Installation Methods for Windows
+## Installation ⚙️
 
-#### Method 1: One-Click Magical Installation (Recommended)
-1. Open PowerShell as Administrator
-   - Press Windows Key
-   - Type "PowerShell"
-   - Right-click and choose "Run as Administrator"
+### Linux
+```bash
+git clone https://github.com/0xb0rn3/wallpimp.git
+cd wallpimp
+pip install -r requirements.txt
+Windows
+Install PowerShell 7+
 
-2. Paste ENTIRE command (copy carefully):
-```powershell
-irm https://raw.githubusercontent.com/0xb0rn3/WallPimp/main/wallpimp.ps1 | iex
-```
-
-#### Method 2: Execution Policy Configuration
-```powershell
-# Run this in Administrator PowerShell
+Install dependencies:
+winget install Git.Git
 Set-ExecutionPolicy RemoteSigned -Scope CurrentUser
-```
+Usage 🚀
+Linux (Python)
+# Basic usage
+chmod +x run 
+./run
 
-#### Method 3: Manual Download
-1. Visit [WallPimp GitHub Releases](https://github.com/0xb0rn3/WallPimp/releases)
-2. Download `wallpimp.ps1`
-3. Right-click → Run with PowerShell
-
-   Flexible Command-Line Parameters
-
-- # Standard usage
-# Default execution
-irm https://raw.githubusercontent.com/0xb0rn3/WallPimp/main/wallpimp.ps1 | iex
-
-# Custom save path
-irm ... | iex -SavePath "D:\MyWallpapers"
+# Custom save location
+./run --path ~/my_wallpapers
 
 # Exclude specific repositories
-irm ... | iex -ExcludeRepositories "https://github.com/HENTAI-CODER/Anime-Wallpaper"
+./run --exclude dharmx/walls FrenzyExists/wallpapers
+Windows (PowerShell)
+# Basic usage
+.\wallpimp.ps1
 
-# Silent mode
-irm ... | iex -LogLevel Silent
-### 🛠️ Windows System Requirements
-- Windows 10 or 11
-- PowerShell 5.1+
-- Minimum 2GB free disk space
-- Stable internet connection
+# Advanced options
+.\wallpimp.ps1 -SavePath "D:\Wallpapers" -MinResolutionWidth 2560 -MaxParallelRepos 5
 
-## 🐧 Linux Users: Comprehensive Installation Guide
+Parameter	Description	Default Value
+-SavePath	Custom save directory	$env:USERPROFILE\Pictures\Wallpapers
+-MinResolutionWidth	Minimum width requirement	1920
+-MaxParallelRepos	Maximum parallel downloads (PS7+)	3
+-ExcludeRepositories	Repositories to skip	Empty array
+Supported Repositories 📚
+Repository	Description
+dharmx/walls	Minimalist designs
+HENTAI-CODER/Anime-Wallpaper	Anime collection
+FrenzyExists/wallpapers	Nature/abstract art
+D3Ext/aesthetic-wallpapers	Artistic styles
+[See full list in code]	Additional curated sources
+Platform Differences 🖥️
+Feature	Linux (Python)	Windows (PowerShell)
+Parallel Processing	Async I/O with asyncio	PowerShell 7 parallel jobs
+Image Handling	PIL (Python Imaging Library)	.NET System.Drawing
+Dependency Management	Automatic package installation	Manual Git installation
+Temp Files	Automatic cleanup	GUID-named temp directories
+Troubleshooting 🔧
+Common Issues:
 
-### Dependency Preparation
-```bash
-# Ubuntu/Debian
-sudo apt-get update
-sudo apt-get install -y python3 python3-pip git
+Git not found:
+winget install Git.Git (Windows)
+sudo apt install git (Linux)
 
-# Fedora
-sudo dnf install python3 python3-pip git
+Low-resolution images collected:
+Adjust minimum resolution parameters:
+-MinResolutionWidth 2560 (Windows)
+--min-width 2560 (Linux)
 
-# Arch Linux
-sudo pacman -S python python-pip git
-```
+PS7 parallel issues:
+Reduce -MaxParallelRepos or use -ThrottleLimit
 
-### Installation Methods
+Contributing 🤝
+Fork the repository
 
-#### Method 1: Direct Repository Clone
-```bash
-# Clone WallPimp Repository
-git clone https://github.com/0xb0rn3/WallPimp.git
-cd WallPimp
+Add new wallpaper repositories to REPOS lists
 
-# Install Python Dependencies
-pip3 install --user pillow rich aiohttp
+Maintain cross-platform compatibility
 
-# Make Script Executable
-chmod +x run.py
+Submit a pull request
 
-# Run WallPimp
-./run.py
-```
 
-#### Method 2: Quick Installation Script
-```bash
-# Download and Execute (Advanced Users)
-curl -sSL https://raw.githubusercontent.com/0xb0rn3/WallPimp/main/install.sh | bash
-```
+Acknowledgments 🙏
+All included wallpaper repository maintainers
 
-### 🐧 Linux System Requirements
-- Python 3.7+
-- Supported Distributions:
-  - Ubuntu
-  - Debian
-  - Fedora
-  - Arch Linux
-  - Most modern Linux distributions
+Python and PowerShell communities
 
-## 🖼️ What WallPimp Does
+GitHub for repository hosting
 
-### Intelligent Wallpaper Curation
-- Downloads from 18+ curated GitHub repositories
-- Supports multiple themes:
-  - Minimalist Designs
-  - Nature Landscapes
-  - Digital Art
-  - Anime Aesthetics
-  - Urban Photography
-  - Space & Sci-Fi Concepts
-
-### Image Quality Filtering
-- Minimum resolution: 1920x1080
-- Duplicate image detection
-- Supports formats:
-  - JPEG
-  - PNG
-  - WebP
-  - GIF
-  - BMP
-
-## 🔒 Security & Privacy
-
-### Safety Principles
-- Open-source project
-- No personal data collection
-- Minimal system modifications
-- Transparent dependency management
-
-### Recommended Precautions
-- Review script contents
-- Use updated antivirus
-- Install in controlled environments
-
-## 🛠️ Customization Options
-
-### Adding Custom Repositories
-- Edit `REPOS` list in script
-- Ensure repository contains image files
-- Verify repository accessibility
-
-## 🐛 Troubleshooting
-
-### Windows Common Issues
-- Execution policy restrictions
-- Antivirus interference
-- Connectivity problems
-
-### Linux Common Challenges
-- Python package conflicts
-- Permission issues
-- Repository access problems
-
-## 🤝 Contribution Guidelines
-
-### How to Contribute
-1. Fork the repository
-2. Create feature branch
-3. Implement changes
-4. Submit pull request
-
-### Contribution Areas
-- Repository source expansion
-- Image processing enhancements
-- Cross-platform compatibility
-- Bug fixes and optimization
-
-## 📊 Project Metadata
-
-### Versions
-- **Windows Version**: 1.2
-- **Linux Version**: 0.4 Stable
-- **Last Updated**: January 2024
-
-### Licensing
-- MIT License
-- Free for personal and commercial use
-
-## 📞 Support Channels
-
-### Community Support
-- [GitHub Issues Tracker](https://github.com/0xb0rn3/WallPimp/issues)
-- Developer: [0xb0rn3 on GitHub](https://github.com/0xb0rn3)
-
-## 🌟 Final Thoughts
-
-WallPimp isn't just a wallpaper downloader—it's a gateway to digital aesthetic exploration. Whether you're a design enthusiast, photography lover, or art collector, WallPimp brings the world's most captivating visuals to your desktop.
-
-### 🎨 Happy Wallpaper Hunting! 🖥️
-
-**Remember**: Great digital spaces begin with inspiring wallpapers. Enjoy your visual journey!
