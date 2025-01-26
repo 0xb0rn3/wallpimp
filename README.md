@@ -27,32 +27,40 @@ A cross-platform wallpaper manager that automatically collects high-quality wall
 git clone https://github.com/0xb0rn3/wallpimp.git
 cd wallpimp
 pip install -r requirements.txt
-Windows
+```
+### Windows
 Install PowerShell 7+
 
 Install dependencies:
 winget install Git.Git
 Set-ExecutionPolicy RemoteSigned -Scope CurrentUser
-Usage 🚀
+
+### Usage 🚀
 Linux (Python)
 # Basic usage
 chmod +x run 
 ./run
 
 # Custom save location
+```
 ./run --path ~/my_wallpapers
-
+```
 # Exclude specific repositories
+```
 ./run --exclude dharmx/walls FrenzyExists/wallpapers
 ```
 ### Windows (PowerShell)
 # Basic usage
+```
 .\wallpimp.ps1
-
+```
 # Advanced options
+```
 .\wallpimp.ps1 -SavePath "D:\Wallpapers" -MinResolutionWidth 2560 -MaxParallelRepos 5
 ```
-Parameter	Description	Default Value
+
+### Parameter	Description	Default Value
+```
 -SavePath	Custom save directory	$env:USERPROFILE\Pictures\Wallpapers
 -MinResolutionWidth	Minimum width requirement	1920
 -MaxParallelRepos	Maximum parallel downloads (PS7+)	3
