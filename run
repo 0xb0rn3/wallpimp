@@ -45,9 +45,9 @@ if not QtWidgets:
 
 # GUI imports
 from PySide6.QtWidgets import (
-    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
-    QLabel, QProgressBar, QPushButton, QFileDialog, QCheckBox,
-    QGroupBox, QScrollArea, QMessageBox, QSizePolicy, QMenuBar, QMenu
+    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
+    QLabel, QProgressBar, QPushButton, QFileDialog, QCheckBox, QGroupBox,
+    QScrollArea, QMessageBox, QSizePolicy, QMenuBar, QMenu
 )
 from PySide6.QtCore import Qt, QThreadPool, QRunnable, Signal, QObject
 from PySide6.QtGui import QAction, QFont, QPalette, QColor
