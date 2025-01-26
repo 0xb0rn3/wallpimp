@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# WallPimp v0.4 Alpha Stable
+# Developer: 0xB0RN3 (github.com/0xb0rn3)
+
 import sys
 import hashlib
 import shutil
@@ -13,8 +16,41 @@ from dataclasses import dataclass
 from PIL import Image
 from concurrent.futures import ThreadPoolExecutor
 
-# GUI imports (will be checked later)
+# Dependency check and install
 QtWidgets = importlib.util.find_spec("PySide6.QtWidgets")
+
+def install_dependencies():
+    required = {'PySide6': 'pyside6', 'PIL': 'pillow'}
+    missing = [pkg for imp, pkg in required.items() if importlib.util.find_spec(imp) is None]
+    
+    if missing:
+        from PySide6.QtWidgets import QApplication, QMessageBox
+        app = QApplication(sys.argv)
+        msg = QMessageBox()
+        msg.setIcon(QMessageBox.Icon.Critical)
+        msg.setWindowTitle("Missing Dependencies")
+        msg.setText("Required packages missing. Install now?")
+        msg.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        
+        if msg.exec() == QMessageBox.StandardButton.Yes:
+            try:
+                subprocess.run([sys.executable, "-m", "pip", "install", "--user", *missing], check=True)
+                QMessageBox.information(None, "Success", "Installation complete!\nPlease restart the application.")
+            except subprocess.CalledProcessError as e:
+                QMessageBox.critical(None, "Error", f"Install failed:\n{e.stderr or e}")
+        sys.exit()
+
+if not QtWidgets:
+    install_dependencies()
+
+# GUI imports
+from PySide6.QtWidgets import (
+    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
+    QLabel, QProgressBar, QPushButton, QFileDialog, QCheckBox,
+    QGroupBox, QScrollArea, QMessageBox, QSizePolicy, QMenuBar, QMenu
+)
+from PySide6.QtCore import Qt, QThreadPool, QRunnable, Signal, QObject
+from PySide6.QtGui import QAction, QFont, QPalette, QColor
 
 @dataclass
 class DownloadStats:
@@ -23,73 +59,9 @@ class DownloadStats:
     total_processed: int = 0
     duplicates: int = 0
 
-# Check and install missing dependencies before GUI loads
-def install_dependencies():
-    required = {
-        'PySide6': 'pyside6',
-        'PIL': 'pillow'
-    }
-    
-    missing = []
-    for imp, pkg in required.items():
-        if importlib.util.find_spec(imp) is None:
-            missing.append(pkg)
-    
-    if missing:
-        from PySide6.QtWidgets import QApplication, QMessageBox
-        
-        app = QApplication(sys.argv)
-        msg = QMessageBox()
-        msg.setIcon(QMessageBox.Icon.Critical)
-        msg.setWindowTitle("Missing Dependencies")
-        msg.setText("Required packages are missing:")
-        msg.setInformativeText("\n".join(missing))
-        msg.setStandardButtons(
-            QMessageBox.StandardButton.Yes | 
-            QMessageBox.StandardButton.No
-        )
-        msg.setDetailedText("Would you like to install them?")
-        msg.button(QMessageBox.StandardButton.Yes).setText("Install")
-        msg.button(QMessageBox.StandardButton.No).setText("Exit")
-        
-        response = msg.exec()
-        if response == QMessageBox.StandardButton.Yes:
-            try:
-                subprocess.run([
-                    sys.executable, "-m", "pip", "install",
-                    "--user", *missing
-                ], check=True)
-                QMessageBox.information(
-                    None, "Success", 
-                    "Dependencies installed successfully!\nPlease restart the application."
-                )
-            except subprocess.CalledProcessError as e:
-                QMessageBox.critical(
-                    None, "Error",
-                    f"Failed to install dependencies:\n{e.stderr or e}"
-                )
-            sys.exit(0)
-        else:
-            sys.exit(1)
-
-# Run dependency check before anything else
-if not QtWidgets:
-    install_dependencies()
-
-# Now import GUI components
-from PySide6.QtWidgets import (
-    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
-    QLabel, QProgressBar, QPushButton, QFileDialog, QCheckBox, QGridLayout,
-    QGroupBox, QScrollArea, QMessageBox
-)
-from PySide6.QtCore import Qt, QThreadPool, QRunnable, Signal, QObject
-from PySide6.QtGui import QPixmap, QIcon, QFont
-
 class WorkerSignals(QObject):
-    progress = Signal(int)
     repo_started = Signal(dict)
     repo_finished = Signal(dict, bool)
-    image_processed = Signal()
     error = Signal(str)
     finished = Signal()
 
@@ -108,22 +80,12 @@ class WallpaperWorker(QRunnable):
 
     async def _run(self):
         temp_dir = Path(tempfile.mkdtemp())
-        stats = DownloadStats()
-
         try:
             for repo in self.repos:
-                if not self._is_running:
-                    break
-                
+                if not self._is_running: break
                 self.signals.repo_started.emit(repo)
                 success = await self.download_repo(repo, temp_dir)
                 self.signals.repo_finished.emit(repo, success)
-                
-                if success:
-                    stats.successful_repos += 1
-                else:
-                    stats.failed_repos += 1
-
             self.signals.finished.emit()
         except Exception as e:
             self.signals.error.emit(str(e))
@@ -133,55 +95,34 @@ class WallpaperWorker(QRunnable):
     async def download_repo(self, repo, temp_dir):
         repo_name = repo['url'].split('/')[-1]
         repo_path = temp_dir / repo_name
-        
         try:
             process = await asyncio.create_subprocess_exec(
-                'git', 'clone', '--depth', '1', 
-                '--branch', repo['branch'], 
-                repo['url'], str(repo_path)
+                'git', 'clone', '--depth', '1', '--branch', repo['branch'], repo['url'], str(repo_path)
             )
-            
             await process.wait()
-            if process.returncode != 0:
-                return False
-                
-            await self.process_directory(repo_path)
-            return True
+            return process.returncode == 0 and await self.process_directory(repo_path)
         except Exception:
             return False
 
     async def process_directory(self, source_dir):
         with ThreadPoolExecutor() as executor:
-            tasks = []
-            for file_path in source_dir.rglob('*'):
-                if file_path.suffix.lower() in self.supported_formats:
-                    tasks.append(
-                        asyncio.get_event_loop().run_in_executor(
-                            executor,
-                            self.process_image,
-                            file_path
-                        )
-                    )
-            
-            for task in asyncio.as_completed(tasks):
-                await task
-                self.signals.image_processed.emit()
+            tasks = [
+                asyncio.get_event_loop().run_in_executor(executor, self.process_image, file_path)
+                for file_path in source_dir.rglob('*') 
+                if file_path.suffix.lower() in self.supported_formats
+            ]
+            await asyncio.gather(*tasks)
 
     def process_image(self, source):
         try:
             with open(source, 'rb') as f:
                 file_hash = hashlib.sha256(f.read()).hexdigest()
-            
             if file_hash in self.processed_hashes:
                 return False
-                
             with Image.open(source) as img:
-                width, height = img.size
-                if width < 1920 or height < 1080:
+                if img.size < (1920, 1080):
                     return False
-                
-                new_filename = f"{file_hash}{source.suffix}"
-                output_path = self.save_dir / new_filename
+                output_path = self.save_dir / f"{file_hash}{source.suffix}"
                 img.save(output_path, quality=95)
                 self.processed_hashes.add(file_hash)
                 return True
@@ -193,19 +134,11 @@ class WallpaperWorker(QRunnable):
 
 class WallpaperGUI(QMainWindow):
     REPOSITORIES = [
-        {
-            'name': 'Minimalist Walls',
-            'url': 'https://github.com/dharmx/walls',
-            'branch': 'main',
-            'icon': '🎨'
-        },
-        {
-            'name': 'Anime Collection',
-            'url': 'https://github.com/HENTAI-CODER/Anime-Wallpaper',
-            'branch': 'main',
-            'icon': '🌸'
-        },
-        # ... add other repositories
+        {'name': 'Minimalist', 'url': 'https://github.com/dharmx/walls', 'branch': 'main', 'icon': '🖼️'},
+        {'name': 'Anime', 'url': 'https://github.com/HENTAI-CODER/Anime-Wallpaper', 'branch': 'main', 'icon': '🌸'},
+        {'name': 'Nature', 'url': 'https://github.com/FrenzyExists/wallpapers', 'branch': 'main', 'icon': '🌿'},
+        {'name': 'Scenic', 'url': 'https://github.com/michaelScopic/Wallpapers', 'branch': 'main', 'icon': '🏞️'},
+        {'name': 'Artistic', 'url': 'https://github.com/D3Ext/aesthetic-wallpapers', 'branch': 'main', 'icon': '🎨'},
     ]
 
     def __init__(self):
@@ -213,43 +146,75 @@ class WallpaperGUI(QMainWindow):
         self.worker = None
         self.thread_pool = QThreadPool()
         self.init_ui()
-        self.setWindowTitle("WallPimp GUI")
-        self.setMinimumSize(800, 600)
+        self.setWindowTitle("WallPimp v0.4 Alpha Stable")
+        self.setMinimumSize(600, 400)
+        self.setStyleSheet("""
+            QMainWindow { background-color: #f5f6f7; }
+            QGroupBox { 
+                border: 1px solid #ccd0d5;
+                border-radius: 4px;
+                margin-top: 1ex;
+                font-weight: bold;
+            }
+            QGroupBox::title { subcontrol-origin: margin; padding: 0 3px; }
+            QProgressBar { 
+                height: 18px;
+                border-radius: 4px;
+                text-align: center;
+            }
+            QProgressBar::chunk { background-color: #4CAF50; border-radius: 4px; }
+            QPushButton { 
+                padding: 6px 12px;
+                border-radius: 4px;
+                background-color: #e7e7e7;
+                border: 1px solid #d7d7d7;
+            }
+            QPushButton:hover { background-color: #d7d7d7; }
+        """)
 
     def init_ui(self):
         main_widget = QWidget()
         main_layout = QVBoxLayout()
+        
+        # Menu Bar
+        menu_bar = QMenuBar()
+        help_menu = QMenu("Help", self)
+        about_action = QAction("About", self)
+        about_action.triggered.connect(self.show_about)
+        help_menu.addAction(about_action)
+        menu_bar.addMenu(help_menu)
+        self.setMenuBar(menu_bar)
 
         # Header
-        header = QLabel("WallPimp - Intelligent Wallpaper Collector")
-        header.setFont(QFont("Arial", 16, QFont.Bold))
+        header = QLabel("WallPimp")
+        header.setFont(QFont("Arial", 18, QFont.Bold))
         header.setAlignment(Qt.AlignCenter)
+        header.setStyleSheet("color: #2c3e50; margin-bottom: 15px;")
         main_layout.addWidget(header)
 
         # Repository Selection
-        repo_group = QGroupBox("Select Repositories")
-        repo_layout = QGridLayout()
+        repo_group = QGroupBox("Select Sources")
+        repo_layout = QVBoxLayout()
         
-        self.repo_checkboxes = []
-        for i, repo in enumerate(self.REPOSITORIES):
-            cb = QCheckBox(f"{repo['icon']} {repo['name']}")
+        self.repo_checkboxes = [
+            QCheckBox(f"{repo['icon']} {repo['name']}") for repo in self.REPOSITORIES
+        ]
+        for cb in self.repo_checkboxes:
             cb.setChecked(True)
-            repo_layout.addWidget(cb, i//2, i%2)
-            self.repo_checkboxes.append(cb)
+            repo_layout.addWidget(cb)
         
         repo_group.setLayout(repo_layout)
         main_layout.addWidget(repo_group)
 
         # Progress Section
         self.progress_bars = {}
-        progress_group = QGroupBox("Download Progress")
+        progress_group = QGroupBox("Progress")
         progress_layout = QVBoxLayout()
         
         for repo in self.REPOSITORIES:
             pb = QProgressBar()
             pb.setRange(0, 100)
-            pb.setValue(0)
-            pb.setFormat(f"{repo['icon']} {repo['name']} : %p%")
+            pb.setFormat(f"{repo['icon']} {repo['name']}")
             self.progress_bars[repo['name']] = pb
             progress_layout.addWidget(pb)
         
@@ -258,80 +223,81 @@ class WallpaperGUI(QMainWindow):
 
         # Controls
         control_layout = QHBoxLayout()
+        self.btn_dir = QPushButton("📁 Choose Folder")
+        self.btn_dir.clicked.connect(self.choose_directory)
+        self.dir_label = QLabel("No folder selected")
+        self.dir_label.setStyleSheet("color: #7f8c8d;")
         
-        self.btn_start = QPushButton("Start Download")
+        self.btn_start = QPushButton("▶ Start")
         self.btn_start.clicked.connect(self.start_download)
-        self.btn_stop = QPushButton("Stop")
+        self.btn_stop = QPushButton("⏹ Stop")
         self.btn_stop.clicked.connect(self.stop_download)
         self.btn_stop.setEnabled(False)
-        
-        self.btn_dir = QPushButton("Choose Folder")
-        self.btn_dir.clicked.connect(self.choose_directory)
-        self.dir_label = QLabel("Save location: Not selected")
-        
+
         control_layout.addWidget(self.btn_dir)
         control_layout.addWidget(self.dir_label)
         control_layout.addStretch()
         control_layout.addWidget(self.btn_start)
         control_layout.addWidget(self.btn_stop)
-        
         main_layout.addLayout(control_layout)
 
         main_widget.setLayout(main_layout)
         self.setCentralWidget(main_widget)
 
+    def show_about(self):
+        about_text = """<b>WallPimp v0.4 Alpha Stable</b><br><br>
+        Intelligent Wallpaper Collector<br>
+        Developed by 0xB0RN3<br>
+        GitHub: <a href='https://github.com/0xb0rn3'>github.com/0xb0rn3</a><br><br>
+        © 2023 All rights reserved"""
+        
+        msg = QMessageBox(self)
+        msg.setWindowTitle("About WallPimp")
+        msg.setTextFormat(Qt.TextFormat.RichText)
+        msg.setText(about_text)
+        msg.setIconPixmap(QPixmap(":icons/appicon.png").scaled(64, 64))
+        msg.exec()
+
     def choose_directory(self):
         path = QFileDialog.getExistingDirectory(self, "Select Save Directory")
         if path:
             self.save_dir = Path(path)
-            self.dir_label.setText(f"Save location: {path}")
+            self.dir_label.setText(path)
+            self.dir_label.setStyleSheet("color: #2c3e50;")
 
     def start_download(self):
         if not hasattr(self, 'save_dir'):
             QMessageBox.warning(self, "Error", "Please select a save directory first!")
             return
 
-        selected_repos = [
-            repo for repo, cb in zip(self.REPOSITORIES, self.repo_checkboxes)
-            if cb.isChecked()
-        ]
-        
+        selected_repos = [repo for repo, cb in zip(self.REPOSITORIES, self.repo_checkboxes) if cb.isChecked()]
         if not selected_repos:
-            QMessageBox.warning(self, "Error", "Please select at least one repository!")
+            QMessageBox.warning(self, "Error", "Please select at least one source!")
             return
 
         self.worker = WallpaperWorker(selected_repos, self.save_dir)
         self.worker.signals.repo_started.connect(self.repo_started)
         self.worker.signals.repo_finished.connect(self.repo_finished)
-        self.worker.signals.image_processed.connect(self.image_processed)
-        self.worker.signals.error.connect(self.show_error)
+        self.worker.signals.error.connect(lambda e: QMessageBox.critical(self, "Error", e))
         self.worker.signals.finished.connect(self.download_finished)
         
         self.btn_start.setEnabled(False)
         self.btn_stop.setEnabled(True)
         self.thread_pool.start(self.worker)
 
-    def stop_download(self):
-        if self.worker:
-            self.worker.stop()
-        self.btn_start.setEnabled(True)
-        self.btn_stop.setEnabled(False)
-
     def repo_started(self, repo):
-        name = repo['name']
-        self.progress_bars[name].setValue(0)
+        self.progress_bars[repo['name']].setValue(0)
 
     def repo_finished(self, repo, success):
-        name = repo['name']
-        self.progress_bars[name].setValue(100)
-        color = "green" if success else "red"
-        self.progress_bars[name].setStyleSheet(f"QProgressBar::chunk {{ background-color: {color}; }}")
+        pb = self.progress_bars[repo['name']]
+        pb.setValue(100)
+        pb.setStyleSheet("QProgressBar::chunk { background-color: %s; }" % 
+                        ("#4CAF50" if success else "#e74c3c"))
 
-    def image_processed(self):
-        pass  # Update per-image progress if needed
-
-    def show_error(self, message):
-        QMessageBox.critical(self, "Error", message)
+    def stop_download(self):
+        if self.worker: self.worker.stop()
+        self.btn_start.setEnabled(True)
+        self.btn_stop.setEnabled(False)
 
     def download_finished(self):
         self.btn_start.setEnabled(True)
