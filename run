@@ -5,19 +5,16 @@ import shutil
 import tempfile
 import asyncio
 import platform
+import subprocess
+import importlib
 from pathlib import Path
 from typing import Set, Dict
 from dataclasses import dataclass
 from PIL import Image
 from concurrent.futures import ThreadPoolExecutor
 
-from PySide6.QtWidgets import (
-    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
-    QLabel, QProgressBar, QPushButton, QFileDialog, QCheckBox, QGridLayout,
-    QGroupBox, QScrollArea, QMessageBox
-)
-from PySide6.QtCore import Qt, QThreadPool, QRunnable, Signal, QObject
-from PySide6.QtGui import QPixmap, QIcon, QFont
+# GUI imports (will be checked later)
+QtWidgets = importlib.util.find_spec("PySide6.QtWidgets")
 
 @dataclass
 class DownloadStats:
@@ -25,6 +22,68 @@ class DownloadStats:
     failed_repos: int = 0
     total_processed: int = 0
     duplicates: int = 0
+
+# Check and install missing dependencies before GUI loads
+def install_dependencies():
+    required = {
+        'PySide6': 'pyside6',
+        'PIL': 'pillow'
+    }
+    
+    missing = []
+    for imp, pkg in required.items():
+        if importlib.util.find_spec(imp) is None:
+            missing.append(pkg)
+    
+    if missing:
+        from PySide6.QtWidgets import QApplication, QMessageBox
+        
+        app = QApplication(sys.argv)
+        msg = QMessageBox()
+        msg.setIcon(QMessageBox.Icon.Critical)
+        msg.setWindowTitle("Missing Dependencies")
+        msg.setText("Required packages are missing:")
+        msg.setInformativeText("\n".join(missing))
+        msg.setStandardButtons(
+            QMessageBox.StandardButton.Yes | 
+            QMessageBox.StandardButton.No
+        )
+        msg.setDetailedText("Would you like to install them?")
+        msg.button(QMessageBox.StandardButton.Yes).setText("Install")
+        msg.button(QMessageBox.StandardButton.No).setText("Exit")
+        
+        response = msg.exec()
+        if response == QMessageBox.StandardButton.Yes:
+            try:
+                subprocess.run([
+                    sys.executable, "-m", "pip", "install",
+                    "--user", *missing
+                ], check=True)
+                QMessageBox.information(
+                    None, "Success", 
+                    "Dependencies installed successfully!\nPlease restart the application."
+                )
+            except subprocess.CalledProcessError as e:
+                QMessageBox.critical(
+                    None, "Error",
+                    f"Failed to install dependencies:\n{e.stderr or e}"
+                )
+            sys.exit(0)
+        else:
+            sys.exit(1)
+
+# Run dependency check before anything else
+if not QtWidgets:
+    install_dependencies()
+
+# Now import GUI components
+from PySide6.QtWidgets import (
+    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
+    QLabel, QProgressBar, QPushButton, QFileDialog, QCheckBox, QGridLayout,
+    QGroupBox, QScrollArea, QMessageBox
+)
+from PySide6.QtCore import Qt, QThreadPool, QRunnable, Signal, QObject
+from PySide6.QtGui import QPixmap, QIcon, QFont
 
 class WorkerSignals(QObject):
     progress = Signal(int)
