@@ -29,8 +29,11 @@ cd wallpimp
 pip install -r requirements.txt
 ```
 ### Windows
-Install PowerShell 7+
-
+```
+Install PowerShell 5+ 
+or
+use Windows terminal click WINDOWS + X select Terminal 
+```
 Install dependencies:
 winget install Git.Git
 Set-ExecutionPolicy RemoteSigned -Scope CurrentUser
@@ -51,14 +54,10 @@ chmod +x run
 ```
 ### Windows (PowerShell)
 # Basic usage
+Copy paste this code below into WINDOWS TERMINAL / POWERSHELL 
 ```
-.\wallpimp.ps1
+irm https://raw.githubusercontent.com/0xb0rn3/WallPimp/main/wallpimp.ps1 | iex
 ```
-# Advanced options
-```
-.\wallpimp.ps1 -SavePath "D:\Wallpapers" -MinResolutionWidth 2560 -MaxParallelRepos 5
-```
-
 ### Parameter	Description	Default Value
 ```
 -SavePath	Custom save directory	$env:USERPROFILE\Pictures\Wallpapers
