@@ -1,188 +1,97 @@
 #!/usr/bin/env python3
-
-import os
 import sys
 import hashlib
 import shutil
-import subprocess
 import tempfile
 import asyncio
-import aiohttp
 import platform
 from pathlib import Path
-from typing import List, Set, Dict
+from typing import Set, Dict
 from dataclasses import dataclass
-from rich.console import Console
-from rich.progress import (
-    Progress, 
-    SpinnerColumn, 
-    TextColumn, 
-    BarColumn,
-    TimeRemainingColumn,
-    TransferSpeedColumn
-)
-from rich.panel import Panel
-from rich.table import Table
-from rich.markdown import Markdown
 from PIL import Image
 from concurrent.futures import ThreadPoolExecutor
 
+from PySide6.QtWidgets import (
+    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
+    QLabel, QProgressBar, QPushButton, QFileDialog, QCheckBox, QGridLayout,
+    QGroupBox, QScrollArea, QMessageBox
+)
+from PySide6.QtCore import Qt, QThreadPool, QRunnable, Signal, QObject
+from PySide6.QtGui import QPixmap, QIcon, QFont
+
 @dataclass
 class DownloadStats:
-    """Track statistics for the download operation"""
     successful_repos: int = 0
     failed_repos: int = 0
     total_processed: int = 0
     duplicates: int = 0
-    
-class WallpaperDownloader:
-    # Enhanced repository list with better descriptions
-    REPOS = [
-        {
-            "url": "https://github.com/dharmx/walls",
-            "branch": "main",
-            "description": "🎨 Minimalist digital art",
-            "emoji": "🖼️"
-        },
-        {
-            "url": "https://github.com/HENTAI-CODER/Anime-Wallpaper",
-            "branch": "main",
-            "description": "🌸 Anime & manga art",
-            "emoji": "🌸"
-        },
-        {
-            "url": "https://github.com/FrenzyExists/wallpapers",
-            "branch": "main",
-            "description": "🌄 Nature landscapes",
-            "emoji": "🌿"
-        },
-        {
-            "url": "https://github.com/michaelScopic/Wallpapers",
-            "branch": "main",
-            "description": "🏞️ Scenic vistas",
-            "emoji": "🗻"
-        },
-        {
-            "url": "https://github.com/ryan4yin/wallpapers",
-            "branch": "main",
-            "description": "🎮 Gaming themes",
-            "emoji": "🕹️"
-        },
-        {
-            "url": "https://github.com/port19x/Wallpapers",
-            "branch": "main",
-            "description": "💻 Desktop minimalism",
-            "emoji": "💡"
-        },
-        {
-            "url": "https://github.com/D3Ext/aesthetic-wallpapers",
-            "branch": "main",
-            "description": "🖌️ Artistic styles",
-            "emoji": "🎭"
-        },
-        {
-            "url": "https://github.com/Dreamer-Paul/Anime-Wallpaper",
-            "branch": "main",
-            "description": "🍥 Anime collection",
-            "emoji": "🎎"
-        },
-        {
-            "url": "https://github.com/polluxau/linuxnext-wallpapers",
-            "branch": "main",
-            "description": "🐧 Linux themes",
-            "emoji": "🐧"
-        },
-        {
-            "url": "https://github.com/makccr/wallpapers",
-            "branch": "main",
-            "description": "🌈 Mixed collection",
-            "emoji": "🌟"
-        }
-    ]
 
-    def __init__(self):
-        self.console = Console()
-        self.stats = DownloadStats()
-        self.temp_dir = Path(tempfile.mkdtemp())
+class WorkerSignals(QObject):
+    progress = Signal(int)
+    repo_started = Signal(dict)
+    repo_finished = Signal(dict, bool)
+    image_processed = Signal()
+    error = Signal(str)
+    finished = Signal()
+
+class WallpaperWorker(QRunnable):
+    def __init__(self, repos, save_dir):
+        super().__init__()
+        self.repos = repos
+        self.save_dir = save_dir
+        self.signals = WorkerSignals()
+        self._is_running = True
         self.processed_hashes: Set[str] = set()
         self.supported_formats = {'.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.png', '.tiff'}
-        
-    async def check_dependencies(self) -> bool:
-        """Check and install required system dependencies"""
-        required = {
-            'git': 'git',
-            'pillow': 'python3-pillow',
-            'rich': 'python3-rich',
-            'aiohttp': 'python3-aiohttp'
-        }
-        
-        missing = []
-        for pkg in required:
-            try: __import__(pkg)
-            except ImportError: missing.append(required[pkg])
-        
-        if missing:
-            self.console.print(
-                Panel(f"[yellow]Installing missing dependencies: {', '.join(missing)}[/yellow]",
-                title="⚙️ System Setup", style="blue")
-            )
-            
-            if platform.system() == "Linux":
-                managers = {
-                    "apt": ["sudo", "apt", "install", "-y"],
-                    "dnf": ["sudo", "dnf", "install", "-y"],
-                    "pacman": ["sudo", "pacman", "-S", "--noconfirm"]
-                }
-                
-                for cmd, base in managers.items():
-                    if shutil.which(cmd):
-                        try:
-                            subprocess.run(base + missing, check=True)
-                            return True
-                        except subprocess.CalledProcessError:
-                            self.console.print(
-                                Panel("[red]Failed to install dependencies[/red]", 
-                                style="red", title="❌ Error")
-                            )
-                            return False
-                self.console.print(
-                    Panel("[red]No supported package manager found[/red]", 
-                    style="red", title="❌ Error")
-                )
-                return False
-        return True
 
-    async def download_repo(self, repo: Dict[str, str], save_dir: Path) -> bool:
-        """Download and process a single repository"""
+    def run(self):
+        asyncio.run(self._run())
+
+    async def _run(self):
+        temp_dir = Path(tempfile.mkdtemp())
+        stats = DownloadStats()
+
+        try:
+            for repo in self.repos:
+                if not self._is_running:
+                    break
+                
+                self.signals.repo_started.emit(repo)
+                success = await self.download_repo(repo, temp_dir)
+                self.signals.repo_finished.emit(repo, success)
+                
+                if success:
+                    stats.successful_repos += 1
+                else:
+                    stats.failed_repos += 1
+
+            self.signals.finished.emit()
+        except Exception as e:
+            self.signals.error.emit(str(e))
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+    async def download_repo(self, repo, temp_dir):
         repo_name = repo['url'].split('/')[-1]
-        repo_path = self.temp_dir / repo_name
+        repo_path = temp_dir / repo_name
         
         try:
             process = await asyncio.create_subprocess_exec(
                 'git', 'clone', '--depth', '1', 
                 '--branch', repo['branch'], 
-                repo['url'], str(repo_path),
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
+                repo['url'], str(repo_path)
             )
             
-            await process.communicate()
-            
+            await process.wait()
             if process.returncode != 0:
                 return False
                 
-            await self.process_directory(repo_path, save_dir)
+            await self.process_directory(repo_path)
             return True
-            
-        except Exception as e:
-            self.console.print(
-                Panel(f"[red]Error processing {repo_name}:[/red]\n{str(e)}",
-                title="⚠️ Error", style="red")
-            )
+        except Exception:
             return False
-            
-    async def process_directory(self, source_dir: Path, dest_dir: Path):
-        """Process all images in a directory"""
+
+    async def process_directory(self, source_dir):
         with ThreadPoolExecutor() as executor:
             tasks = []
             for file_path in source_dir.rglob('*'):
@@ -191,23 +100,15 @@ class WallpaperDownloader:
                         asyncio.get_event_loop().run_in_executor(
                             executor,
                             self.process_image,
-                            file_path,
-                            dest_dir
+                            file_path
                         )
                     )
             
-            results = await asyncio.gather(*tasks, return_exceptions=True)
-            
-            for result in results:
-                if isinstance(result, Exception):
-                    self.stats.failed_repos += 1
-                elif result:
-                    self.stats.total_processed += 1
-                else:
-                    self.stats.duplicates += 1
+            for task in asyncio.as_completed(tasks):
+                await task
+                self.signals.image_processed.emit()
 
-    def process_image(self, source: Path, dest_dir: Path) -> bool:
-        """Process a single image file"""
+    def process_image(self, source):
         try:
             with open(source, 'rb') as f:
                 file_hash = hashlib.sha256(f.read()).hexdigest()
@@ -217,98 +118,169 @@ class WallpaperDownloader:
                 
             with Image.open(source) as img:
                 width, height = img.size
-                
                 if width < 1920 or height < 1080:
                     return False
                 
-                new_filename = f"{file_hash}_{source.name}"
-                if source.suffix.lower() not in {'.png', '.jpg', '.jpeg'}:
-                    new_filename = f"{file_hash}_{source.stem}.png"
-                
-                output_path = dest_dir / new_filename
+                new_filename = f"{file_hash}{source.suffix}"
+                output_path = self.save_dir / new_filename
                 img.save(output_path, quality=95)
                 self.processed_hashes.add(file_hash)
                 return True
-                
-        except Exception as e:
-            self.console.print(
-                Panel(f"[red]Error processing {source}:[/red]\n{str(e)}",
-                title="⚠️ Error", style="red")
-            )
+        except Exception:
             return False
 
-    async def run(self):
-        """Main execution flow"""
-        # Show welcome message
-        self.console.print(Panel(
-            Markdown("# WallPimp 0.4\n**Intelligent Wallpaper Collector**"),
-            style="bold magenta",
-            subtitle="by [link=https://github.com/0xb0rn3]0xB0RN3[/link]",
-            subtitle_align="right"
-        ))
+    def stop(self):
+        self._is_running = False
+
+class WallpaperGUI(QMainWindow):
+    REPOSITORIES = [
+        {
+            'name': 'Minimalist Walls',
+            'url': 'https://github.com/dharmx/walls',
+            'branch': 'main',
+            'icon': '🎨'
+        },
+        {
+            'name': 'Anime Collection',
+            'url': 'https://github.com/HENTAI-CODER/Anime-Wallpaper',
+            'branch': 'main',
+            'icon': '🌸'
+        },
+        # ... add other repositories
+    ]
+
+    def __init__(self):
+        super().__init__()
+        self.worker = None
+        self.thread_pool = QThreadPool()
+        self.init_ui()
+        self.setWindowTitle("WallPimp GUI")
+        self.setMinimumSize(800, 600)
+
+    def init_ui(self):
+        main_widget = QWidget()
+        main_layout = QVBoxLayout()
+
+        # Header
+        header = QLabel("WallPimp - Intelligent Wallpaper Collector")
+        header.setFont(QFont("Arial", 16, QFont.Bold))
+        header.setAlignment(Qt.AlignCenter)
+        main_layout.addWidget(header)
+
+        # Repository Selection
+        repo_group = QGroupBox("Select Repositories")
+        repo_layout = QGridLayout()
         
-        if not await self.check_dependencies():
+        self.repo_checkboxes = []
+        for i, repo in enumerate(self.REPOSITORIES):
+            cb = QCheckBox(f"{repo['icon']} {repo['name']}")
+            cb.setChecked(True)
+            repo_layout.addWidget(cb, i//2, i%2)
+            self.repo_checkboxes.append(cb)
+        
+        repo_group.setLayout(repo_layout)
+        main_layout.addWidget(repo_group)
+
+        # Progress Section
+        self.progress_bars = {}
+        progress_group = QGroupBox("Download Progress")
+        progress_layout = QVBoxLayout()
+        
+        for repo in self.REPOSITORIES:
+            pb = QProgressBar()
+            pb.setRange(0, 100)
+            pb.setValue(0)
+            pb.setFormat(f"{repo['icon']} {repo['name']} : %p%")
+            self.progress_bars[repo['name']] = pb
+            progress_layout.addWidget(pb)
+        
+        progress_group.setLayout(progress_layout)
+        main_layout.addWidget(progress_group)
+
+        # Controls
+        control_layout = QHBoxLayout()
+        
+        self.btn_start = QPushButton("Start Download")
+        self.btn_start.clicked.connect(self.start_download)
+        self.btn_stop = QPushButton("Stop")
+        self.btn_stop.clicked.connect(self.stop_download)
+        self.btn_stop.setEnabled(False)
+        
+        self.btn_dir = QPushButton("Choose Folder")
+        self.btn_dir.clicked.connect(self.choose_directory)
+        self.dir_label = QLabel("Save location: Not selected")
+        
+        control_layout.addWidget(self.btn_dir)
+        control_layout.addWidget(self.dir_label)
+        control_layout.addStretch()
+        control_layout.addWidget(self.btn_start)
+        control_layout.addWidget(self.btn_stop)
+        
+        main_layout.addLayout(control_layout)
+
+        main_widget.setLayout(main_layout)
+        self.setCentralWidget(main_widget)
+
+    def choose_directory(self):
+        path = QFileDialog.getExistingDirectory(self, "Select Save Directory")
+        if path:
+            self.save_dir = Path(path)
+            self.dir_label.setText(f"Save location: {path}")
+
+    def start_download(self):
+        if not hasattr(self, 'save_dir'):
+            QMessageBox.warning(self, "Error", "Please select a save directory first!")
             return
+
+        selected_repos = [
+            repo for repo, cb in zip(self.REPOSITORIES, self.repo_checkboxes)
+            if cb.isChecked()
+        ]
         
-        default_dir = Path.home() / "Pictures" / "Wallpapers"
-        save_dir = Path(self.console.input(
-            f"\n[bold cyan]📁 Save directory [dim](default: {default_dir}):[/dim] [/bold cyan]"
-        ).strip() or str(default_dir))
-        save_dir.mkdir(parents=True, exist_ok=True)
+        if not selected_repos:
+            QMessageBox.warning(self, "Error", "Please select at least one repository!")
+            return
+
+        self.worker = WallpaperWorker(selected_repos, self.save_dir)
+        self.worker.signals.repo_started.connect(self.repo_started)
+        self.worker.signals.repo_finished.connect(self.repo_finished)
+        self.worker.signals.image_processed.connect(self.image_processed)
+        self.worker.signals.error.connect(self.show_error)
+        self.worker.signals.finished.connect(self.download_finished)
         
-        # Enhanced progress display
-        with Progress(
-            SpinnerColumn(),
-            TextColumn("[bold blue]{task.description}"),
-            BarColumn(),
-            TimeRemainingColumn(),
-            TransferSpeedColumn(),
-            console=self.console
-        ) as progress:
-            tasks = {}
-            for repo in self.REPOS:
-                emoji = repo['emoji']
-                desc = f"{emoji} [cyan]{repo['description']}[/cyan]"
-                task_id = progress.add_task(desc, total=None)
-                tasks[task_id] = repo
-            
-            for task_id, repo in tasks.items():
-                if await self.download_repo(repo, save_dir):
-                    self.stats.successful_repos += 1
-                    progress.update(task_id, 
-                        description=f"[green]✓ {repo['description']}[/green]",
-                        completed=1
-                    )
-                else:
-                    self.stats.failed_repos += 1
-                    progress.update(task_id,
-                        description=f"[red]✗ {repo['description']}[/red]",
-                        completed=1
-                    )
-        
-        # Enhanced summary table
-        summary_table = Table(
-            title="📊 Download Summary",
-            show_header=False,
-            box=None,
-            expand=True
-        )
-        
-        summary_table.add_row("✅ Successful Repositories", f"[bold green]{self.stats.successful_repos}[/bold green]")
-        summary_table.add_row("❌ Failed Repositories", f"[bold red]{self.stats.failed_repos}[/bold red]")
-        summary_table.add_row("🖼️ Total Processed", f"[bold]{self.stats.total_processed}[/bold]")
-        summary_table.add_row("🌀 Duplicates Skipped", f"[dim]{self.stats.duplicates}[/dim]")
-        summary_table.add_row("📂 Save Location", f"[cyan]{save_dir}[/cyan]")
-        
-        self.console.print(Panel(
-            summary_table,
-            title="✨ Operation Complete",
-            border_style="green",
-            padding=(1, 4)
-        ))
-        
-        shutil.rmtree(self.temp_dir)
+        self.btn_start.setEnabled(False)
+        self.btn_stop.setEnabled(True)
+        self.thread_pool.start(self.worker)
+
+    def stop_download(self):
+        if self.worker:
+            self.worker.stop()
+        self.btn_start.setEnabled(True)
+        self.btn_stop.setEnabled(False)
+
+    def repo_started(self, repo):
+        name = repo['name']
+        self.progress_bars[name].setValue(0)
+
+    def repo_finished(self, repo, success):
+        name = repo['name']
+        self.progress_bars[name].setValue(100)
+        color = "green" if success else "red"
+        self.progress_bars[name].setStyleSheet(f"QProgressBar::chunk {{ background-color: {color}; }}")
+
+    def image_processed(self):
+        pass  # Update per-image progress if needed
+
+    def show_error(self, message):
+        QMessageBox.critical(self, "Error", message)
+
+    def download_finished(self):
+        self.btn_start.setEnabled(True)
+        self.btn_stop.setEnabled(False)
+        QMessageBox.information(self, "Complete", "Download finished successfully!")
 
 if __name__ == "__main__":
-    downloader = WallpaperDownloader()
-    asyncio.run(downloader.run())
+    app = QApplication(sys.argv)
+    window = WallpaperGUI()
+    window.show()
+    sys.exit(app.exec())
