@@ -13,7 +13,17 @@ from pathlib import Path
 from typing import List, Set, Dict
 from dataclasses import dataclass
 from rich.console import Console
-from rich.progress import Progress, SpinnerColumn, TextColumn
+from rich.progress import (
+    Progress, 
+    SpinnerColumn, 
+    TextColumn, 
+    BarColumn,
+    TimeRemainingColumn,
+    TransferSpeedColumn
+)
+from rich.panel import Panel
+from rich.table import Table
+from rich.markdown import Markdown
 from PIL import Image
 from concurrent.futures import ThreadPoolExecutor
 
@@ -26,57 +36,67 @@ class DownloadStats:
     duplicates: int = 0
     
 class WallpaperDownloader:
-    # Enhanced repository list with metadata
+    # Enhanced repository list with better descriptions
     REPOS = [
         {
             "url": "https://github.com/dharmx/walls",
             "branch": "main",
-            "description": "Minimal and aesthetic wallpapers"
+            "description": "🎨 Minimalist digital art",
+            "emoji": "🖼️"
         },
         {
             "url": "https://github.com/HENTAI-CODER/Anime-Wallpaper",
             "branch": "main",
-            "description": " - "
+            "description": "🌸 Anime & manga art",
+            "emoji": "🌸"
         },
         {
             "url": "https://github.com/FrenzyExists/wallpapers",
             "branch": "main",
-            "description": "Nature and abstract art wallpapers"
+            "description": "🌄 Nature landscapes",
+            "emoji": "🌿"
         },
         {
             "url": "https://github.com/michaelScopic/Wallpapers",
             "branch": "main",
-            "description": "Scenic and landscape wallpapers"
+            "description": "🏞️ Scenic vistas",
+            "emoji": "🗻"
         },
         {
             "url": "https://github.com/ryan4yin/wallpapers",
             "branch": "main",
-            "description": "Anime and digital art wallpapers"
+            "description": "🎮 Gaming themes",
+            "emoji": "🕹️"
         },
         {
             "url": "https://github.com/port19x/Wallpapers",
             "branch": "main",
-            "description": "Minimalist desktop wallpapers"
+            "description": "💻 Desktop minimalism",
+            "emoji": "💡"
         },
         {
             "url": "https://github.com/D3Ext/aesthetic-wallpapers",
             "branch": "main",
-            "description": "Aesthetic and artistic wallpapers"
+            "description": "🖌️ Artistic styles",
+            "emoji": "🎭"
         },
         {
             "url": "https://github.com/Dreamer-Paul/Anime-Wallpaper",
             "branch": "main",
-            "description": "Anime"
-         },
-         {
+            "description": "🍥 Anime collection",
+            "emoji": "🎎"
+        },
+        {
             "url": "https://github.com/polluxau/linuxnext-wallpapers",
             "branch": "main",
-            "description": "Anime"
-         },
-         {
+            "description": "🐧 Linux themes",
+            "emoji": "🐧"
+        },
+        {
             "url": "https://github.com/makccr/wallpapers",
             "branch": "main",
-            "description": "Mixed collection of high-quality wallpapers"
+            "description": "🌈 Mixed collection",
+            "emoji": "🌟"
         }
     ]
 
@@ -89,43 +109,47 @@ class WallpaperDownloader:
         
     async def check_dependencies(self) -> bool:
         """Check and install required system dependencies"""
-        required_packages = {
+        required = {
             'git': 'git',
             'pillow': 'python3-pillow',
             'rich': 'python3-rich',
             'aiohttp': 'python3-aiohttp'
         }
         
-        missing_packages = []
+        missing = []
+        for pkg in required:
+            try: __import__(pkg)
+            except ImportError: missing.append(required[pkg])
         
-        # Check Python packages
-        for package in required_packages:
-            try:
-                __import__(package)
-            except ImportError:
-                missing_packages.append(required_packages[package])
-        
-        if missing_packages:
-            self.console.print(f"Installing missing dependencies: {', '.join(missing_packages)}")
+        if missing:
+            self.console.print(
+                Panel(f"[yellow]Installing missing dependencies: {', '.join(missing)}[/yellow]",
+                title="⚙️ System Setup", style="blue")
+            )
             
-            # Determine package manager and install command
             if platform.system() == "Linux":
-                if shutil.which("apt"):
-                    cmd = ["sudo", "apt", "install", "-y"] + missing_packages
-                elif shutil.which("dnf"):
-                    cmd = ["sudo", "dnf", "install", "-y"] + missing_packages
-                elif shutil.which("pacman"):
-                    cmd = ["sudo", "pacman", "-S", "--noconfirm"] + missing_packages
-                else:
-                    self.console.print("No supported package manager found. Please install dependencies manually.")
-                    return False
+                managers = {
+                    "apt": ["sudo", "apt", "install", "-y"],
+                    "dnf": ["sudo", "dnf", "install", "-y"],
+                    "pacman": ["sudo", "pacman", "-S", "--noconfirm"]
+                }
                 
-                try:
-                    subprocess.run(cmd, check=True)
-                except subprocess.CalledProcessError:
-                    self.console.print("Failed to install dependencies")
-                    return False
-                    
+                for cmd, base in managers.items():
+                    if shutil.which(cmd):
+                        try:
+                            subprocess.run(base + missing, check=True)
+                            return True
+                        except subprocess.CalledProcessError:
+                            self.console.print(
+                                Panel("[red]Failed to install dependencies[/red]", 
+                                style="red", title="❌ Error")
+                            )
+                            return False
+                self.console.print(
+                    Panel("[red]No supported package manager found[/red]", 
+                    style="red", title="❌ Error")
+                )
+                return False
         return True
 
     async def download_repo(self, repo: Dict[str, str], save_dir: Path) -> bool:
@@ -134,7 +158,6 @@ class WallpaperDownloader:
         repo_path = self.temp_dir / repo_name
         
         try:
-            # Clone repository with depth 1 to save bandwidth
             process = await asyncio.create_subprocess_exec(
                 'git', 'clone', '--depth', '1', 
                 '--branch', repo['branch'], 
@@ -148,12 +171,14 @@ class WallpaperDownloader:
             if process.returncode != 0:
                 return False
                 
-            # Process all images in the repository
             await self.process_directory(repo_path, save_dir)
             return True
             
         except Exception as e:
-            self.console.print(f"Error processing {repo_name}: {str(e)}")
+            self.console.print(
+                Panel(f"[red]Error processing {repo_name}:[/red]\n{str(e)}",
+                title="⚠️ Error", style="red")
+            )
             return False
             
     async def process_directory(self, source_dir: Path, dest_dir: Path):
@@ -184,86 +209,104 @@ class WallpaperDownloader:
     def process_image(self, source: Path, dest_dir: Path) -> bool:
         """Process a single image file"""
         try:
-            # Calculate file hash
             with open(source, 'rb') as f:
                 file_hash = hashlib.sha256(f.read()).hexdigest()
             
-            # Skip if we've seen this hash before
             if file_hash in self.processed_hashes:
                 return False
                 
-            # Open and verify image
             with Image.open(source) as img:
-                # Get image dimensions
                 width, height = img.size
                 
-                # Skip if image is too small
                 if width < 1920 or height < 1080:
                     return False
                 
-                # Convert to PNG if needed and save
                 new_filename = f"{file_hash}_{source.name}"
                 if source.suffix.lower() not in {'.png', '.jpg', '.jpeg'}:
                     new_filename = f"{file_hash}_{source.stem}.png"
                 
                 output_path = dest_dir / new_filename
                 img.save(output_path, quality=95)
-                
                 self.processed_hashes.add(file_hash)
                 return True
                 
         except Exception as e:
-            self.console.print(f"Error processing {source}: {str(e)}")
+            self.console.print(
+                Panel(f"[red]Error processing {source}:[/red]\n{str(e)}",
+                title="⚠️ Error", style="red")
+            )
             return False
 
     async def run(self):
         """Main execution flow"""
         # Show welcome message
-        self.console.print("""
-╔═══════════════════════════════════════╗
-║      WallPimp Ver:0.4 Stable          ║
-║    Wallpaper Download Assistant       ║
-║        by github.com/0xb0rn3          ║
-╚═══════════════════════════════════════╝
-        """)
+        self.console.print(Panel(
+            Markdown("# WallPimp 0.4\n**Intelligent Wallpaper Collector**"),
+            style="bold magenta",
+            subtitle="by [link=https://github.com/0xb0rn3]0xB0RN3[/link]",
+            subtitle_align="right"
+        ))
         
-        # Check dependencies
         if not await self.check_dependencies():
             return
         
-        # Get save directory
         default_dir = Path.home() / "Pictures" / "Wallpapers"
-        save_dir = Path(input(f"\nWhere would you like to save wallpapers? [{default_dir}]: ").strip() or str(default_dir))
+        save_dir = Path(self.console.input(
+            f"\n[bold cyan]📁 Save directory [dim](default: {default_dir}):[/dim] [/bold cyan]"
+        ).strip() or str(default_dir))
         save_dir.mkdir(parents=True, exist_ok=True)
         
-        # Download and process repositories
+        # Enhanced progress display
         with Progress(
             SpinnerColumn(),
-            TextColumn("[progress.description]{task.description}"),
+            TextColumn("[bold blue]{task.description}"),
+            BarColumn(),
+            TimeRemainingColumn(),
+            TransferSpeedColumn(),
             console=self.console
         ) as progress:
+            tasks = {}
             for repo in self.REPOS:
-                task_id = progress.add_task(f"Processing {repo['url'].split('/')[-1]}", total=None)
-                
+                emoji = repo['emoji']
+                desc = f"{emoji} [cyan]{repo['description']}[/cyan]"
+                task_id = progress.add_task(desc, total=None)
+                tasks[task_id] = repo
+            
+            for task_id, repo in tasks.items():
                 if await self.download_repo(repo, save_dir):
                     self.stats.successful_repos += 1
-                    progress.update(task_id, description=f"✓ Completed {repo['url'].split('/')[-1]}")
+                    progress.update(task_id, 
+                        description=f"[green]✓ {repo['description']}[/green]",
+                        completed=1
+                    )
                 else:
                     self.stats.failed_repos += 1
-                    progress.update(task_id, description=f"✗ Failed {repo['url'].split('/')[-1]}")
+                    progress.update(task_id,
+                        description=f"[red]✗ {repo['description']}[/red]",
+                        completed=1
+                    )
         
-        # Show summary
-        self.console.print(f"""
-╔════════ Download Summary ════════╗
-║ Successfully downloaded: {self.stats.successful_repos} repos
-║ Failed downloads: {self.stats.failed_repos} repos
-║ Total wallpapers processed: {self.stats.total_processed}
-║ Duplicates skipped: {self.stats.duplicates}
-║ Wallpapers saved to: {save_dir}
-╚══════════════════════════════════╝
-        """)
+        # Enhanced summary table
+        summary_table = Table(
+            title="📊 Download Summary",
+            show_header=False,
+            box=None,
+            expand=True
+        )
         
-        # Cleanup
+        summary_table.add_row("✅ Successful Repositories", f"[bold green]{self.stats.successful_repos}[/bold green]")
+        summary_table.add_row("❌ Failed Repositories", f"[bold red]{self.stats.failed_repos}[/bold red]")
+        summary_table.add_row("🖼️ Total Processed", f"[bold]{self.stats.total_processed}[/bold]")
+        summary_table.add_row("🌀 Duplicates Skipped", f"[dim]{self.stats.duplicates}[/dim]")
+        summary_table.add_row("📂 Save Location", f"[cyan]{save_dir}[/cyan]")
+        
+        self.console.print(Panel(
+            summary_table,
+            title="✨ Operation Complete",
+            border_style="green",
+            padding=(1, 4)
+        ))
+        
         shutil.rmtree(self.temp_dir)
 
 if __name__ == "__main__":
