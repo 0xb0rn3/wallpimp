@@ -46,14 +46,16 @@ PowerShell 7+ (recommended for PowerShell script)
 Git
 pip
 
-Installation Methods
-Method 1: One-Line PowerShell Execution
+###  Installation Methods
+## Method 1: One-Line PowerShell Execution
 iwr https://raw.githubusercontent.com/0xb0rn3/wallpimp/main/wallpimp.ps1 -useb | iex
-Method 2: Python GUI
+## Method 2: Python GUI
 git clone https://github.com/0xb0rn3/wallpimp
 cd wallpimp
-./run.sh  # Linux/macOS
-.\run.ps1 # Windows
+ # Linux/macOS
+./run.sh
+# Windows
+.\run.ps1
 
 ## 📦 Configuration
 Repository Definition
