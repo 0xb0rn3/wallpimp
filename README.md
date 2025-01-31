@@ -1,112 +1,161 @@
-# Wallpimp 🖼️
+WallPimp: Intelligent Wallpaper Collection Toolkit
+🖼️ Overview
+WallPimp is a cross-platform wallpaper collection tool designed to intelligently gather, filter, and manage high-quality wallpapers from various GitHub repositories. Developed by 0xB0RN3, this toolkit provides a seamless experience for wallpaper enthusiasts across multiple operating systems.
+🌟 Features
+Intelligent Collection
 
-A cross-platform wallpaper manager that automatically collects high-quality wallpapers from curated GitHub repositories. Features intelligent duplicate detection and resolution filtering.
+Multi-repository wallpaper gathering
+Resolution-based filtering
+Duplicate prevention
+Cross-platform support (Windows, Linux, macOS)
 
-## Features ✨
+Flexible Implementations
 
-- **Multi-Platform Support**
-  - Linux (Python 3.8+)
-  - Windows (PowerShell 5.1+/7+)
-- **Smart Collection**
-  - Automated repository cloning
-  - SHA-256 duplicate detection
-  - Resolution filtering (default 1920x1080+)
-- **Performance Optimized**
-  - Parallel processing (PowerShell 7)
-  - Async I/O (Python implementation)
-  - Temp file cleanup
-- **Customizable**
-  - Multiple repository sources
-  - Custom save paths
-  - Repository exclusion list
+Python GUI (PySide6) Implementation
+PowerShell Universal Downloader
+Configuration-driven architecture
 
-## Installation ⚙️
+🛠️ Components
+1. Python WallPimp (wallpimp.py)
 
-### Linux
-```bash
-git clone https://github.com/0xb0rn3/wallpimp.git
+Graphical User Interface
+Async repository processing
+Intelligent image filtering
+Customizable sources
+Dependency auto-installation
+
+2. PowerShell Downloader (wallpimp.ps1)
+
+One-line execution
+Remote configuration support
+Parallel download capabilities
+Cross-platform dependency management
+
+3. Configuration (config.ini)
+
+Repository definition
+Customizable wallpaper sources
+Flexible metadata management
+
+🚀 Quick Start
+Prerequisites
+
+Python 3.8+ (for Python implementation)
+PowerShell 7+ (recommended for PowerShell script)
+Git
+pip
+
+Installation Methods
+Method 1: One-Line PowerShell Execution
+iwr https://raw.githubusercontent.com/0xb0rn3/wallpimp/main/wallpimp.ps1 -useb | iex
+Method 2: Python GUI
+git clone https://github.com/0xb0rn3/wallpimp
 cd wallpimp
-pip install -r requirements.txt
-```
-### Windows
-```
-Install PowerShell 5+ 
-or
-use Windows terminal click WINDOWS + X select Terminal 
-```
-Install dependencies:
-winget install Git.Git
-Set-ExecutionPolicy RemoteSigned -Scope CurrentUser
+./run.sh  # Linux/macOS
+.\run.ps1 # Windows
+📦 Configuration
+Repository Definition
+The config.ini allows custom repository specification:
+[Repositories]
+wallpaper1 = 🌆 | https://github.com/example/wallpapers1 | main | City landscapes
+wallpaper2 = 🏞 | https://github.com/example/wallpapers2 | master | Nature themes
+Format: Icon | URL | Branch | Description
+🔧 Customization Options
+PowerShell Parameters
 
-### Usage 🚀
-Linux (Python)
-# Basic usage
-chmod +x run 
-./run
+-SavePath: Custom save directory
+-NoDownload: Dry run mode
+-MinResolutionWidth: Minimum image width
+-MinResolutionHeight: Minimum image height
+-MaxParallelRepos: Concurrent repository processing limit
 
-# Custom save location
-```
-./run --path ~/my_wallpapers
-```
-# Exclude specific repositories
-```
-./run --exclude dharmx/walls FrenzyExists/wallpapers
-```
-### Windows (PowerShell)
-# Basic usage
-Copy paste this code below into WINDOWS TERMINAL / POWERSHELL 
-```
-irm https://raw.githubusercontent.com/0xb0rn3/WallPimp/main/wallpimp.ps1 | iex
-```
-### Parameter	Description	Default Value
-```
--SavePath	Custom save directory	$env:USERPROFILE\Pictures\Wallpapers
--MinResolutionWidth	Minimum width requirement	1920
--MaxParallelRepos	Maximum parallel downloads (PS7+)	3
--ExcludeRepositories	Repositories to skip	Empty array
-Supported Repositories 📚
-Repository	Description
-dharmx/walls	Minimalist designs
-HENTAI-CODER/Anime-Wallpaper	Anime collection
-FrenzyExists/wallpapers	Nature/abstract art
-D3Ext/aesthetic-wallpapers	Artistic styles
-[See full list in code]	Additional curated sources
-Platform Differences 🖥️
-Feature	Linux (Python)	Windows (PowerShell)
-Parallel Processing	Async I/O with asyncio	PowerShell 7 parallel jobs
-Image Handling	PIL (Python Imaging Library)	.NET System.Drawing
-Dependency Management	Automatic package installation	Manual Git installation
-Temp Files	Automatic cleanup	GUID-named temp directories
-```
-### Troubleshooting 🔧
-Common Issues:
+Python GUI Options
 
-Git not found:
-winget install Git.Git (Windows)
-sudo apt install git (Linux)
+Repository selection
+Save directory customization
+Parallel processing control
 
-Low-resolution images collected:
-Adjust minimum resolution parameters:
--MinResolutionWidth 2560 (Windows)
---min-width 2560 (Linux)
+💻 Supported Platforms
 
-PS7 parallel issues:
-Reduce -MaxParallelRepos or use -ThrottleLimit
+Windows 10/11
+macOS
+Linux (Debian, Ubuntu, Fedora)
 
-### Contributing 🤝
-Fork the repository
+🤝 Contributing
+Reporting Issues
 
-Add new wallpaper repositories to REPOS lists
+Check existing issues
+Provide detailed description
+Include system information
+Attach logs if possible
 
-Maintain cross-platform compatibility
+Feature Requests
 
-Submit a pull request
+Open a GitHub issue
+Describe proposed feature
+Provide use case context
 
+Pull Requests
 
-### Acknowledgments 🙏
-All included wallpaper repository maintainers
+Fork repository
+Create feature branch
+Implement changes
+Submit pull request
 
-Python and PowerShell communities
+📋 Roadmap
 
-GitHub for repository hosting
+ Add more wallpaper repositories
+ Implement advanced filtering
+ Create platform-specific installers
+ Develop web interface
+ Add machine learning-based curation
+
+🔒 Security
+
+Validates image resolution
+Prevents duplicate downloads
+Uses secure cloning methods
+Minimal system interaction
+
+📊 Performance Metrics
+
+Parallel processing
+Low resource consumption
+Fast repository scanning
+Efficient storage management
+
+🆘 Troubleshooting
+Common Issues
+
+Ensure Git is installed
+Check Python/PowerShell versions
+Verify network connectivity
+Inspect configuration file
+
+Dependency Problems
+# Install dependencies manually
+pip install pyside6 pillow
+# or
+python3 -m pip install pyside6 pillow
+
+🌐 Author
+0xB0RN3 - GitHub Profile
+
+🎨 Wallpaper Repositories
+WallPimp currently supports:
+
+Minimalist designs
+Anime collections
+Nature/abstract themes
+Scenic landscapes
+Artistic styles
+Photography collections
+
+Contributions and repository suggestions welcome!
+📞 Support
+For issues, suggestions, or contributions:
+
+Open GitHub Issues
+Submit Pull Requests
+Contact Developer
 
