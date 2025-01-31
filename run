@@ -1,65 +1,57 @@
 #!/usr/bin/env python3
-# WallPimp v0.4.1 Optimized
+# WallPimp v0.5.0 - Config-Driven Wallpaper Collector
 # Developer: 0xB0RN3 (github.com/0xb0rn3)
-
 import sys
 import os
 import hashlib
 import shutil
 import tempfile
 import asyncio
-import platform
-import subprocess
+import configparser
 import importlib
 from pathlib import Path
-from typing import Set, Dict
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
-from PIL import Image
-from concurrent.futures import ThreadPoolExecutor
 
-# Dependency check and installation
-QtWidgets = importlib.util.find_spec("PySide6.QtWidgets")
-
+# Dependency Check and Installation
 def install_dependencies():
-    required = {'PySide6': 'pyside6', 'PIL': 'pillow'}
-    missing = [pkg for imp, pkg in required.items() if importlib.util.find_spec(imp) is None]
+    required = {
+        'PySide6': 'pyside6', 
+        'Pillow': 'pillow'
+    }
+    missing = [
+        pkg for pkg, _ in required.items() 
+        if importlib.util.find_spec(pkg.lower()) is None
+    ]
     
     if missing:
-        from PySide6.QtWidgets import QApplication, QMessageBox
-        app = QApplication(sys.argv)
-        msg = QMessageBox()
-        msg.setIcon(QMessageBox.Icon.Critical)
-        msg.setWindowTitle("Missing Dependencies")
-        msg.setText("Required packages missing. Install now?")
-        msg.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
-        
-        if msg.exec() == QMessageBox.StandardButton.Yes:
-            try:
-                subprocess.run([sys.executable, "-m", "pip", "install", "--user", *missing], 
-                              check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                QMessageBox.information(None, "Success", "Installation complete!\nPlease restart the application.")
-            except subprocess.CalledProcessError:
-                QMessageBox.critical(None, "Error", "Installation failed silently")
-        sys.exit()
+        print(f"Missing dependencies: {', '.join(missing)}")
+        try:
+            import subprocess
+            subprocess.run([
+                sys.executable, 
+                "-m", "pip", 
+                "install", 
+                "--user", 
+                *[required[pkg] for pkg in missing]
+            ], check=True)
+            print("Dependencies installed successfully!")
+        except Exception as e:
+            print(f"Installation failed: {e}")
+            sys.exit(1)
 
-if not QtWidgets:
-    install_dependencies()
+# Ensure all dependencies are installed
+install_dependencies()
 
-# GUI imports
+# Imports After Dependencies
 from PySide6.QtWidgets import (
-    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
-    QLabel, QProgressBar, QPushButton, QFileDialog, QCheckBox, QGroupBox,
-    QScrollArea, QMessageBox, QSizePolicy, QMenuBar, QMenu
+    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
+    QGridLayout, QLabel, QProgressBar, QPushButton, QFileDialog, 
+    QCheckBox, QGroupBox, QMessageBox, QMenuBar, QMenu
 )
 from PySide6.QtCore import Qt, QThreadPool, QRunnable, Signal, QObject, QTimer
 from PySide6.QtGui import QAction, QFont
-
-@dataclass
-class DownloadStats:
-    successful_repos: int = 0
-    failed_repos: int = 0
-    total_processed: int = 0
-    duplicates: int = 0
+from PIL import Image
 
 class WorkerSignals(QObject):
     repo_started = Signal(dict)
@@ -78,19 +70,28 @@ class WallpaperWorker(QRunnable):
         self.processed_hashes = set()
         self.batch_counter = 0
         self.BATCH_SIZE = 100
-        self.supported_formats = {'.jpg', '.jpeg', '.png'}
+        self.supported_formats = {'.jpg', '.jpeg', '.png', '.webp'}
         self.executor = ThreadPoolExecutor(max_workers=os.cpu_count() or 4)
 
+    def stop(self):
+        self._is_running = False
+        self.executor.shutdown(wait=True)
+
     def run(self):
-        asyncio.run(self._run())
+        try:
+            import asyncio
+            asyncio.run(self._run())
+        except Exception as e:
+            self.signals.error.emit(str(e))
 
     async def _run(self):
         try:
-            total_files = sum([self.estimate_file_count(repo) for repo in self.repos])
+            total_files = sum([150 for _ in self.repos])  # Rough estimation
             self.signals.progress_updated.emit(0)
             
             for repo in self.repos:
-                if not self._is_running: break
+                if not self._is_running: 
+                    break
                 await self.process_repository(repo)
                 
             self.signals.finished.emit()
@@ -98,10 +99,6 @@ class WallpaperWorker(QRunnable):
             self.signals.error.emit(str(e))
         finally:
             self.executor.shutdown(wait=False)
-
-    def estimate_file_count(self, repo):
-        # Conservative estimate for progress calculation
-        return 150  # Average per repo
 
     async def process_repository(self, repo):
         self.signals.repo_started.emit(repo)
@@ -118,25 +115,31 @@ class WallpaperWorker(QRunnable):
             )
             
             if await process.wait() != 0:
-                return
+                return False
 
             futures = []
             for root, _, files in os.walk(temp_dir):
                 for file in files:
-                    if Path(file).suffix.lower() in self.supported_formats:
+                    file_path = Path(root) / file
+                    if file_path.suffix.lower() in self.supported_formats:
                         futures.append(
-                            self.executor.submit(self.process_image, Path(root)/file)
+                            self.executor.submit(self.process_image, file_path)
                         )
-
-            for future in asyncio.as_completed(futures):
+            
+            for future in as_completed(futures):
+                if not self._is_running:
+                    break
                 await future
                 self.batch_counter += 1
                 if self.batch_counter % self.BATCH_SIZE == 0:
                     self.signals.progress_updated.emit(self.BATCH_SIZE)
                     
             self.signals.repo_finished.emit(repo, True)
-        except Exception:
+            return True
+        except Exception as e:
+            print(f"Repository processing error: {e}")
             self.signals.repo_finished.emit(repo, False)
+            return False
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
 
@@ -145,16 +148,13 @@ class WallpaperWorker(QRunnable):
             with Image.open(source) as img:
                 if img.size[0] < 1920 or img.size[1] < 1080:
                     return
-
                 with open(source, 'rb') as f:
                     file_hash = hashlib.sha256(f.read()).hexdigest()
-
                 if file_hash in self.processed_hashes:
                     return
-
                 output_path = self.save_dir / f"{file_hash}{source.suffix}"
                 img.save(output_path, 
-                        quality=100 if source.suffix.lower() == '.png' else 95,
+                        quality=95,
                         optimize=True,
                         compress_level=3)
                 self.processed_hashes.add(file_hash)
@@ -162,31 +162,35 @@ class WallpaperWorker(QRunnable):
             pass
 
 class WallpaperGUI(QMainWindow):
-    REPOSITORIES = [
-        {'name': 'Minimalist', 'url': 'https://github.com/dharmx/walls', 'branch': 'main', 'icon': '🖼️', 'desc': 'Clean minimalist designs'},
-        {'name': 'Anime', 'url': 'https://github.com/HENTAI-CODER/Anime-Wallpaper', 'branch': 'main', 'icon': '🌸', 'desc': 'Anime & manga artwork'},
-        {'name': 'Nature', 'url': 'https://github.com/FrenzyExists/wallpapers', 'branch': 'main', 'icon': '🌿', 'desc': 'Nature landscapes'},
-        {'name': 'Scenic', 'url': 'https://github.com/michaelScopic/Wallpapers', 'branch': 'main', 'icon': '🏞️', 'desc': 'Scenic vistas'},
-        {'name': 'Artistic', 'url': 'https://github.com/D3Ext/aesthetic-wallpapers', 'branch': 'main', 'icon': '🎨', 'desc': 'Artistic styles'},
-        {'name': 'Anime Pack', 'url': 'https://github.com/Dreamer-Paul/Anime-Wallpaper', 'branch': 'main', 'icon': '🎎', 'desc': 'Curated anime art'},
-        {'name': 'Linux', 'url': 'https://github.com/polluxau/linuxnext-wallpapers', 'branch': 'main', 'icon': '🐧', 'desc': 'Linux desktop art'},
-        {'name': 'Mixed', 'url': 'https://github.com/makccr/wallpapers', 'branch': 'main', 'icon': '🌟', 'desc': 'Diverse styles'},
-        {'name': 'Desktop', 'url': 'https://github.com/port19x/Wallpapers', 'branch': 'main', 'icon': '💻', 'desc': 'Minimalist desktop'},
-        {'name': 'Gaming', 'url': 'https://github.com/ryan4yin/wallpapers', 'branch': 'main', 'icon': '🎮', 'desc': 'Gaming-inspired art'},
-        {'name': 'Photos', 'url': 'https://github.com/linuxdotexe/wallpapers', 'branch': 'main', 'icon': '📷', 'desc': 'Professional photography'},
-        {'name': 'Digital', 'url': 'https://github.com/0xb0rn3/wallpapers', 'branch': 'main', 'icon': '🖥️', 'desc': 'Digital creations'}
-    ]
-
     def __init__(self):
         super().__init__()
+        self.load_repositories()
         self.worker = None
         self.thread_pool = QThreadPool.globalInstance()
         self.update_timer = QTimer()
         self.pending_updates = 0
         self.total_files = 0
         self.init_ui()
-        self.setWindowTitle("WallPimp v0.4.1 Optimized")
+        self.setup_styles()
+        self.setWindowTitle("WallPimp v0.5.0 - Wallpaper Collector")
         self.setMinimumSize(800, 600)
+
+    def load_repositories(self):
+        config = configparser.ConfigParser()
+        config.read('config.ini')
+        
+        self.REPOSITORIES = []
+        for name, value in config['Repositories'].items():
+            icon, url, branch, desc = value.split('|')
+            self.REPOSITORIES.append({
+                'name': name.strip(),
+                'url': url.strip(),
+                'branch': branch.strip(),
+                'icon': icon.strip(),
+                'desc': desc.strip()
+            })
+
+    def setup_styles(self):
         self.setStyleSheet("""
             QMainWindow { 
                 background-color: #f8f9fa;
@@ -303,29 +307,6 @@ class WallpaperGUI(QMainWindow):
         self.update_timer.setInterval(200)
         self.update_timer.timeout.connect(self.update_display)
 
-    def show_about(self):
-        about_text = """<div style='text-align: center'>
-            <h3 style='color: #2c3e50;'>WallPimp v0.4.1 Optimized</h3>
-            <p>Developed by <b>0xB0RN3</b></p>
-            <p>GitHub: <a href='https://github.com/0xb0rn3' style='color: #4dabf7;'>github.com/0xb0rn3</a></p>
-            <hr>
-            <p style='color: #6c757d;'>
-                Features:<br>
-                • 12 curated collections<br>
-                • Original quality preservation<br>
-                • Smart duplicate detection<br>
-                • Background processing<br>
-                • Cross-platform support
-            </p>
-        </div>"""
-        
-        msg = QMessageBox(self)
-        msg.setWindowTitle("About WallPimp")
-        msg.setTextFormat(Qt.TextFormat.RichText)
-        msg.setText(about_text)
-        msg.setStandardButtons(QMessageBox.StandardButton.Ok)
-        msg.exec()
-
     def choose_directory(self):
         path = QFileDialog.getExistingDirectory(self, "Select Save Directory")
         if path:
@@ -383,9 +364,53 @@ class WallpaperGUI(QMainWindow):
         QMessageBox.critical(self, "Error", message)
         self.stop_download()
 
-if __name__ == "__main__":
+    def show_about(self):
+        about_text = """
+        <div style='text-align: center'>
+            <h3>WallPimp v0.5.0 Config-Driven</h3>
+            <p>Developed by <b>0xB0RN3</b></p>
+            <p>GitHub: <a href='https://github.com/0xb0rn3'>github.com/0xb0rn3</a></p>
+            <hr>
+            <p style='color: #6c757d;'>
+                Features:<br>
+                • Dynamic repository configuration<br>
+                • Intelligent wallpaper collection<br>
+                • Duplicate prevention<br>
+                • Cross-platform support<br>
+                • Customizable sources
+            </p>
+        </div>"""
+        
+        msg = QMessageBox(self)
+        msg.setWindowTitle("About WallPimp")
+        msg.setTextFormat(Qt.TextFormat.RichText)
+        msg.setText(about_text)
+        msg.setStandardButtons(QMessageBox.StandardButton.Ok)
+        msg.exec()
+
+def main():
+    # Ensure git is available
+    try:
+        import subprocess
+        subprocess.run(['git', '--version'], 
+                       stdout=subprocess.DEVNULL, 
+                       stderr=subprocess.DEVNULL, 
+                       check=True)
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        print("Git is required. Please install Git and ensure it's in your system PATH.")
+        sys.exit(1)
+
+    # Check config file exists
+    if not os.path.exists('config.ini'):
+        print("Error: config.ini not found. Please ensure the configuration file is present.")
+        sys.exit(1)
+
+    # Create application and run
     app = QApplication(sys.argv)
     app.setStyle('Fusion')
     window = WallpaperGUI()
     window.show()
     sys.exit(app.exec())
+
+if __name__ == "__main__":
+    main()
