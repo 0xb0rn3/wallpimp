@@ -25,9 +25,15 @@ fi
 # Function to check and install dependencies
 install_dependencies() {
     echo "Checking and installing dependencies..."
-    $PYTHON_CMD -m pip install --user pyside6 pillow --break-system-packages|| {
-        echo "Dependency installation failed. Please manually install pyside6 and pillow."
-        exit 1
+    
+    # Try multiple installation methods
+    $PYTHON_CMD -m pip install --user pyside6 pillow --break-system-packages || \
+    $PYTHON_CMD -m pip install --user pyside6 pillow || \
+    pip3 install --user pyside6 pillow || \
+    pip install --user pyside6 pillow || {
+        echo "Dependency installation failed. Trying system package method..."
+        sudo apt-get update
+        sudo apt-get install -y python3-pyside6 python3-pil
     }
 }
 
