@@ -16,17 +16,14 @@ from dataclasses import dataclass
 # Dependency Check and Installation
 def install_dependencies():
     try:
+        import importlib.util
         import subprocess
         import sys
         
-        # Detect package manager
-        if shutil.which('pip3'):
-            pip_command = [sys.executable, '-m', 'pip', 'install', '--user']
-        elif shutil.which('pip'):
-            pip_command = ['pip', 'install', '--user']
-        else:
-            print("No pip installation found. Please install pip.")
-            sys.exit(1)
+        def is_module_installed(module_name):
+            """Check if a module is installed using importlib."""
+            spec = importlib.util.find_spec(module_name.lower())
+            return spec is not None
 
         required = {
             'PySide6': 'pyside6', 
@@ -34,36 +31,44 @@ def install_dependencies():
         }
         
         # Check for missing dependencies
-        missing = []
-        for module, package in required.items():
-            try:
-                __import__(module.lower())
-            except ImportError:
-                missing.append(package)
+        missing = [
+            package for module, package in required.items()
+            if not is_module_installed(module)
+        ]
 
         # Install missing dependencies
         if missing:
             print(f"Missing dependencies: {', '.join(missing)}")
             try:
-                subprocess.run(
+                # Use python's -m pip to ensure correct Python environment
+                pip_command = [sys.executable, '-m', 'pip', 'install', '--user']
+                
+                # Add --break-system-packages to allow installation for root
+                if subprocess.check_output([sys.executable, '-m', 'pip', 'config', 'list']).strip():
+                    pip_command.append('--break-system-packages')
+                
+                result = subprocess.run(
                     pip_command + missing, 
                     check=True, 
-                    stdout=subprocess.DEVNULL, 
-                    stderr=subprocess.DEVNULL
+                    capture_output=True, 
+                    text=True
                 )
                 print("Dependencies installed successfully!")
-            except subprocess.CalledProcessError:
-                print("Automatic installation failed. Please install manually:")
-                print(f"Run: pip3 install {' '.join(missing)}")
-                sys.exit(1)
+                print(result.stdout)
+            except subprocess.CalledProcessError as e:
+                print(f"Automatic installation failed: {e}")
+                print(f"Error output: {e.stderr}")
+                print(f"Please manually install: pip3 install {' '.join(missing)}")
+                return False
+        return True
 
     except Exception as e:
         print(f"Dependency installation error: {e}")
-        sys.exit(1)
+        return False
 
-# Ensure all dependencies are installed
-install_dependencies()
-
+# Call this function before importing any dependencies
+if not install_dependencies():
+    sys.exit(1)
 # Imports After Dependencies
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
