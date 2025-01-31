@@ -19,6 +19,7 @@ def install_dependencies():
         import importlib.util
         import subprocess
         import sys
+        import venv
         
         def is_module_installed(module_name):
             """Check if a module is installed using importlib."""
@@ -40,12 +41,14 @@ def install_dependencies():
         if missing:
             print(f"Missing dependencies: {', '.join(missing)}")
             try:
-                # Use python's -m pip to ensure correct Python environment
-                pip_command = [sys.executable, '-m', 'pip', 'install', '--user']
+                # Detect if running in a virtual environment
+                in_virtualenv = hasattr(sys, 'real_prefix') or (hasattr(sys, 'base_prefix') and sys.base_prefix != sys.prefix)
                 
-                # Add --break-system-packages to allow installation for root
-                if subprocess.check_output([sys.executable, '-m', 'pip', 'config', 'list']).strip():
-                    pip_command.append('--break-system-packages')
+                # Choose appropriate pip installation method
+                pip_command = [sys.executable, '-m', 'pip', 'install']
+                
+                if not in_virtualenv:
+                    pip_command.append('--user')
                 
                 result = subprocess.run(
                     pip_command + missing, 
@@ -58,14 +61,13 @@ def install_dependencies():
             except subprocess.CalledProcessError as e:
                 print(f"Automatic installation failed: {e}")
                 print(f"Error output: {e.stderr}")
-                print(f"Please manually install: pip3 install {' '.join(missing)}")
+                print(f"Please manually install: pip install {' '.join(missing)}")
                 return False
         return True
 
     except Exception as e:
         print(f"Dependency installation error: {e}")
         return False
-
 # Call this function before importing any dependencies
 if not install_dependencies():
     sys.exit(1)
