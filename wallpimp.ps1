@@ -3,6 +3,7 @@
 # Developer: 0xB0RN3
 
 param (
+    [string]$ConfigUrl = "https://raw.githubusercontent.com/0xb0rn3/wallpimp/main/config.ini",
     [string]$SavePath = "$env:USERPROFILE\Pictures\Wallpapers",
     [switch]$NoDownload = $false,
     [switch]$FilterByResolution = $true,
@@ -14,9 +15,80 @@ param (
     [string]$LogLevel = 'Normal'
 )
 
-# Version Detection
-$isPwsh7 = $PSVersionTable.PSVersion.Major -ge 7
-$banner = @"
+# Enhanced Configuration Loader
+function Load-Configuration {
+    [CmdletBinding()]
+    param(
+        [string]$ConfigUrl
+    )
+
+    try {
+        # Attempt to download configuration
+        $configContent = Invoke-WebRequest -Uri $ConfigUrl -ErrorAction Stop
+        $repositories = @()
+
+        # Parse INI-like configuration
+        $configContent.Content -split '\r?\n' | Where-Object { $_ -match '^\s*([^=\s]+)\s*=\s*(.+)$' } | ForEach-Object {
+            $parts = $matches[2] -split '\|'
+            if ($parts.Length -ge 3) {
+                $repositories += @{
+                    Url = $parts[1].Trim()
+                    Description = $parts[2].Trim()
+                    Icon = $parts[0].Trim()
+                }
+            }
+        }
+
+        return $repositories
+    }
+    catch {
+        Write-Warning "Failed to load remote configuration. Falling back to default repositories."
+        return @(
+            @{ Url = "https://github.com/dharmx/walls"; Description = "Minimalist designs" },
+            @{ Url = "https://github.com/HENTAI-CODER/Anime-Wallpaper"; Description = "Anime collection" },
+            @{ Url = "https://github.com/FrenzyExists/wallpapers"; Description = "Nature/abstract" }
+        )
+    }
+}
+
+# Security and Dependency Check
+function Confirm-Dependencies {
+    # Check for Git
+    if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
+        Write-Host "🔧 Git not found. Attempting installation..." -ForegroundColor Yellow
+        try {
+            # Cross-platform Git installation attempt
+            if ($IsWindows -or $env:OS) {
+                winget install --id Git.Git -e
+            }
+            elseif ($IsLinux) {
+                sudo apt-get update
+                sudo apt-get install -y git
+            }
+            elseif ($IsMacOS) {
+                brew install git
+            }
+            else {
+                throw "Unsupported platform"
+            }
+        }
+        catch {
+            Write-Host "❌ Automatic Git installation failed. Please install Git manually." -ForegroundColor Red
+            exit 1
+        }
+    }
+
+    # Recommend PowerShell 7
+    if ($PSVersionTable.PSVersion.Major -lt 7) {
+        Write-Host "⚠️ Recommended: Upgrade to PowerShell 7 for enhanced performance" -ForegroundColor Yellow
+        Write-Host "   Install via: winget install Microsoft.PowerShell" -ForegroundColor Cyan
+    }
+}
+
+# Primary Execution Function
+function Start-WallPimp {
+    # Banner and Initialization
+    $banner = @"
 ╔══════════════════════════════════════════╗
 ║ ██╗    ██╗ █████╗ ██╗     ██╗  ██╗██████╗ ║
 ║ ██║    ██║██╔══██╗██║     ██║ ██╔╝██╔══██╗║
@@ -28,18 +100,10 @@ $banner = @"
 ║          WallPimp v2.4 | 0xb0rn3         ║
 ╚══════════════════════════════════════════╝
 "@
+    Write-Host $banner -ForegroundColor Magenta
 
-# Version Warning System
-if (-not $isPwsh7) {
-    Write-Host "`n⚠️ WARNING: Running in Windows PowerShell" -ForegroundColor Yellow
-    Write-Host "  - Performance will be limited" -ForegroundColor Yellow
-    Write-Host "  - Parallel downloads disabled" -ForegroundColor Yellow
-    Write-Host "  - Recommended: Install PowerShell 7" -ForegroundColor Cyan
-    Write-Host "    winget install Microsoft.PowerShell`n" -ForegroundColor White
-}
-
-# Repository List
-$Repositories = @(
+    # Repository Loading
+    $Repositories = Load-Configuration -ConfigUrl $ConfigUrl
     @{ Url = "https://github.com/dharmx/walls"; Description = "Minimalist designs" },
     @{ Url = "https://github.com/HENTAI-CODER/Anime-Wallpaper"; Description = "Anime collection" },
     @{ Url = "https://github.com/FrenzyExists/wallpapers"; Description = "Nature/abstract" },
@@ -171,12 +235,7 @@ function Start-WallPimp {
 
 # Main Execution
 try {
-    if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
-        Write-Host "Git is required. Installing..." -ForegroundColor Yellow
-        winget install --id Git.Git -e
-        $env:Path += ";C:\Program Files\Git\cmd"
-    }
-
+    Confirm-Dependencies
     if (-not $NoDownload) { Start-WallPimp }
 }
 catch {
