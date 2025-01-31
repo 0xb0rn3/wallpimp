@@ -15,30 +15,51 @@ from dataclasses import dataclass
 
 # Dependency Check and Installation
 def install_dependencies():
-    required = {
-        'PySide6': 'pyside6', 
-        'Pillow': 'pillow'
-    }
-    missing = [
-        pkg for pkg, _ in required.items() 
-        if importlib.util.find_spec(pkg.lower()) is None
-    ]
-    
-    if missing:
-        print(f"Missing dependencies: {', '.join(missing)}")
-        try:
-            import subprocess
-            subprocess.run([
-                sys.executable, 
-                "-m", "pip", 
-                "install", 
-                "--user", 
-                *[required[pkg] for pkg in missing]
-            ], check=True)
-            print("Dependencies installed successfully!")
-        except Exception as e:
-            print(f"Installation failed: {e}")
+    try:
+        import subprocess
+        import sys
+        
+        # Detect package manager
+        if shutil.which('pip3'):
+            pip_command = [sys.executable, '-m', 'pip', 'install', '--user']
+        elif shutil.which('pip'):
+            pip_command = ['pip', 'install', '--user']
+        else:
+            print("No pip installation found. Please install pip.")
             sys.exit(1)
+
+        required = {
+            'PySide6': 'pyside6', 
+            'Pillow': 'pillow'
+        }
+        
+        # Check for missing dependencies
+        missing = []
+        for module, package in required.items():
+            try:
+                __import__(module.lower())
+            except ImportError:
+                missing.append(package)
+
+        # Install missing dependencies
+        if missing:
+            print(f"Missing dependencies: {', '.join(missing)}")
+            try:
+                subprocess.run(
+                    pip_command + missing, 
+                    check=True, 
+                    stdout=subprocess.DEVNULL, 
+                    stderr=subprocess.DEVNULL
+                )
+                print("Dependencies installed successfully!")
+            except subprocess.CalledProcessError:
+                print("Automatic installation failed. Please install manually:")
+                print(f"Run: pip3 install {' '.join(missing)}")
+                sys.exit(1)
+
+    except Exception as e:
+        print(f"Dependency installation error: {e}")
+        sys.exit(1)
 
 # Ensure all dependencies are installed
 install_dependencies()
