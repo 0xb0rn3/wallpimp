@@ -1,166 +1,149 @@
-### WallPimp: Intelligent Wallpaper Collection Toolkit
-## 🖼️ Overview
-WallPimp is a cross-platform wallpaper collection tool designed to intelligently gather, filter, and manage high-quality wallpapers from various GitHub repositories. Developed by 0xB0RN3, this toolkit provides a seamless experience for wallpaper enthusiasts across multiple operating systems.
+# WallPimp - Ultimate Wallpaper Collector
 
-## 🌟 Features
-Intelligent Collection
+WallPimp is an elegant, automated wallpaper collection tool that seamlessly gathers high-quality wallpapers from curated repositories. With its beautiful visual interface and intelligent processing capabilities, WallPimp transforms the experience of building your wallpaper collection.
 
-Multi-repository wallpaper gathering
-Resolution-based filtering
-Duplicate prevention
-Cross-platform support (Windows, Linux, macOS)
+## Features
 
-Flexible Implementations
+WallPimp combines powerful functionality with a delightful user experience:
 
-Python GUI (PySide6) Implementation
-PowerShell Universal Downloader
-Configuration-driven architecture
+### Core Features
+- Automatic dependency management across major Linux distributions
+- Smart duplicate detection using SHA-256 hashing
+- Parallel download processing for optimal performance
+- Intelligent image optimization with quality preservation
+- Cross-platform compatibility across Linux environments
 
-## 🛠️ Components
-1. Python WallPimp (wallpimp.py)
+### Visual Experience
+- Beautiful ASCII art interface
+- Smooth progress animations
+- Clean, color-coded status indicators
+- Elegant loading animations
+- Minimalist design philosophy
 
-Graphical User Interface
-Async repository processing
-Intelligent image filtering
-Customizable sources
-Dependency auto-installation
+### Collection Sources
+WallPimp curates wallpapers from carefully selected repositories:
 
-2. PowerShell Downloader (wallpimp.ps1)
+- 🖼️ Minimalist Collection: Clean, minimal designs
+- 🌸 Anime Collection: Curated anime and manga artwork
+- 🌿 Nature Collection: Stunning natural landscapes
+- 🏞️ Scenic Collection: Beautiful vista photographs
+- 🎨 Artistic Collection: Creative artistic styles
+- 🎎 Anime Pack: Premium anime artworks
+- 🐧 Linux Collection: Linux-themed desktop art
+- 🌟 Mixed Collection: Diverse wallpaper styles
+- 💻 Desktop Collection: Minimalist desktop designs
+- 🎮 Gaming Collection: Gaming-inspired artwork
+- 📷 Photography Collection: Professional photographs
+- 🖥️ Digital Collection: Digital art creations
 
-One-line execution
-Remote configuration support
-Parallel download capabilities
-Cross-platform dependency management
+## Installation
 
-3. Configuration (config.ini)
+WallPimp is designed for seamless setup. Simply download and make the script executable:
 
-Repository definition
-Customizable wallpaper sources
-Flexible metadata management
+```bash
+# Download the script
+curl -O https://raw.githubusercontent.com/0xb0rn3/wallpimp/main/run
+# Make it executable
+chmod +x run
+```
 
-## 🚀 Quick Start
-Prerequisites
+## Usage
 
-Python 3.8+ (for Python implementation)
-PowerShell 7+ (recommended for PowerShell script)
-Git
-pip
+Running WallPimp is straightforward:
 
-###  Installation Methods
-## Method 1: One-Line PowerShell Execution
-iwr https://raw.githubusercontent.com/0xb0rn3/wallpimp/main/wallpimp.ps1 -useb | iex
-## Method 2: Python GUI
-git clone https://github.com/0xb0rn3/wallpimp
-cd wallpimp
- # Linux/macOS
-./run.sh
-# Windows
-.\run.ps1
+```bash
+./run
+```
 
-## 📦 Configuration
-Repository Definition
-The config.ini allows custom repository specification:
-[Repositories]
-wallpaper1 = 🌆 | https://github.com/example/wallpapers1 | main | City landscapes
-wallpaper2 = 🏞 | https://github.com/example/wallpapers2 | master | Nature themes
-Format: Icon | URL | Branch | Description
+The script will:
+1. Automatically detect your Linux distribution
+2. Install any missing dependencies silently
+3. Create a Wallpapers directory in your Pictures folder
+4. Download and process wallpapers from all repositories
+5. Remove duplicates automatically
+6. Optimize all images for quality and size
 
-## 🔧 Customization Options
-PowerShell Parameters
+### Output Location
 
--SavePath: Custom save directory
--NoDownload: Dry run mode
--MinResolutionWidth: Minimum image width
--MinResolutionHeight: Minimum image height
--MaxParallelRepos: Concurrent repository processing limit
+Processed wallpapers are saved to:
+```
+~/Pictures/Wallpapers/
+```
 
-Python GUI Options
+Each wallpaper is:
+- Optimized for quality and file size
+- Named using a unique hash to prevent duplicates
+- Saved in high-quality JPEG format
 
-Repository selection
-Save directory customization
-Parallel processing control
+## System Requirements
 
-## 💻 Supported Platforms
+WallPimp is compatible with major Linux distributions including:
+- Ubuntu/Debian
+- Fedora
+- Arch Linux
+- Other major distributions with package managers
 
-Windows 10/11
-macOS
-Linux (Debian, Ubuntu, Fedora)
+The script automatically handles dependencies including:
+- Git (for repository cloning)
+- ImageMagick (for image processing)
 
-## 🤝 Contributing
-Reporting Issues
+## Technical Details
 
-Check existing issues
-Provide detailed description
-Include system information
-Attach logs if possible
+### Image Processing
 
-Feature Requests
+WallPimp processes images with specific criteria:
+- Minimum resolution: 1920x1080
+- Quality optimization: 85% JPEG quality
+- Automatic format conversion to JPEG
+- Metadata stripping for smaller file sizes
 
-Open a GitHub issue
-Describe proposed feature
-Provide use case context
+### Performance Optimization
 
-Pull Requests
+The script implements several performance features:
+- Parallel download processing
+- Efficient hash-based deduplication
+- Minimal disk usage through temporary directories
+- Automatic cleanup of processing artifacts
 
-Fork repository
-Create feature branch
-Implement changes
-Submit pull request
+## Troubleshooting
 
-## 📋 Roadmap
+If you encounter issues:
 
- Add more wallpaper repositories
- Implement advanced filtering
- Create platform-specific installers
- Develop web interface
- Add machine learning-based curation
+1. Ensure you have internet connectivity
+2. Verify you have sufficient disk space
+3. Check if your system's package manager is functioning
+4. Ensure you have proper permissions in the Pictures directory
 
-## 🔒 Security
+For specific error messages, the script provides clear indicators of what went wrong and how to resolve it.
 
-Validates image resolution
-Prevents duplicate downloads
-Uses secure cloning methods
-Minimal system interaction
+## Contributing
 
-## 📊 Performance Metrics
+WallPimp welcomes contributions! If you'd like to:
+- Add new wallpaper repositories
+- Improve image processing
+- Enhance the visual interface
+- Fix bugs or add features
 
-Parallel processing
-Low resource consumption
-Fast repository scanning
-Efficient storage management
+Please feel free to submit pull requests to the repository.
 
-## 🆘 Troubleshooting
-Common Issues
+## Credits
 
-Ensure Git is installed
-Check Python/PowerShell versions
-Verify network connectivity
-Inspect configuration file
+WallPimp is developed by 0xB0RN3 and inspired by the wallpaper enthusiast community. Special thanks to all repository maintainers who curate the wonderful wallpaper collections.
 
-Dependency Problems
-# Install dependencies manually
-pip install pyside6 pillow
-# or
-python3 -m pip install pyside6 pillow
+## License
 
-## 🌐 Author
-0xB0RN3 - GitHub Profile
+WallPimp is open-source software, available under the MIT license. Feel free to use, modify, and distribute it according to the license terms.
 
-## 🎨 Wallpaper Repositories
-WallPimp currently supports:
+## Version History
 
-Minimalist designs
-Anime collections
-Nature/abstract themes
-Scenic landscapes
-Artistic styles
-Photography collections
+- v0.5.0: Current release with full visual interface and automated dependency management
+- Previous versions focused on core functionality development
 
-## Contributions and repository suggestions welcome!
-📞 Support
-For issues, suggestions, or contributions:
+## Support
 
-Open GitHub Issues
-Submit Pull Requests
-Contact Developer
+For support, please:
+1. Check the troubleshooting section
+2. Review existing GitHub issues
+3. Create a new issue if needed
 
+We aim to respond to all issues and continue improving WallPimp for the community.
