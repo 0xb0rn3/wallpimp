@@ -12,18 +12,18 @@ readonly BOLD='\033[1m'
 
 # Repository configuration with icons
 declare -A REPOS=(
-    ["Minimalist"]="https://github.com/dharmx/walls|main|🖼️"
-    ["Anime"]="https://github.com/HENTAI-CODER/Anime-Wallpaper|main|🌸"
-    ["Nature"]="https://github.com/FrenzyExists/wallpapers|main|🌿"
-    ["Scenic"]="https://github.com/michaelScopic/Wallpapers|main|🏞️"
-    ["Artistic"]="https://github.com/D3Ext/aesthetic-wallpapers|main|🎨"
-    ["Anime Pack"]="https://github.com/Dreamer-Paul/Anime-Wallpaper|main|🎎"
-    ["Linux"]="https://github.com/polluxau/linuxnext-wallpapers|main|🐧"
-    ["Mixed"]="https://github.com/makccr/wallpapers|main|🌟"
-    ["Desktop"]="https://github.com/port19x/Wallpapers|main|💻"
-    ["Gaming"]="https://github.com/ryan4yin/wallpapers|main|🎮"
-    ["Photos"]="https://github.com/linuxdotexe/wallpapers|main|📷"
-    ["Digital"]="https://github.com/0xb0rn3/wallpapers|main|🖥️"
+    ["Minimalist"]="https://github.com/dharmx/walls"
+    ["Anime"]="https://github.com/HENTAI-CODER/Anime-Wallpaper"
+    ["Nature"]="https://github.com/FrenzyExists/wallpapers"
+    ["Scenic"]="https://github.com/michaelScopic/Wallpapers"
+    ["Artistic"]="https://github.com/D3Ext/aesthetic-wallpapers"
+    ["Anime Pack"]="https://github.com/Dreamer-Paul/Anime-Wallpaper"
+    ["Linux"]="https://github.com/polluxau/linuxnext-wallpapers"
+    ["Mixed"]="https://github.com/makccr/wallpapers"
+    ["Desktop"]="https://github.com/port19x/Wallpapers"
+    ["Gaming"]="https://github.com/ryan4yin/wallpapers"
+    ["Photos"]="https://github.com/linuxdotexe/wallpapers"
+    ["Digital"]="https://github.com/0xb0rn3/wallpapers"
 )
 
 # Elegant loading animation
