@@ -1,36 +1,162 @@
 #!/usr/bin/env bash
 
-# WallPimp Launcher Script with Virtual Environment Support
+# Terminal styling and colors for visual appeal
+readonly RED='\033[0;31m'
+readonly GREEN='\033[0;32m'
+readonly BLUE='\033[0;34m'
+readonly PURPLE='\033[0;35m'
+readonly CYAN='\033[0;36m'
+readonly YELLOW='\033[1;33m'
+readonly NC='\033[0m'
+readonly BOLD='\033[1m'
 
-# Determine script's absolute directory
-SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+# Repository configuration with icons
+declare -A REPOS=(
+    ["Minimalist"]="https://github.com/dharmx/walls|main|🖼️"
+    ["Anime"]="https://github.com/HENTAI-CODER/Anime-Wallpaper|main|🌸"
+    ["Nature"]="https://github.com/FrenzyExists/wallpapers|main|🌿"
+    ["Scenic"]="https://github.com/michaelScopic/Wallpapers|main|🏞️"
+    ["Artistic"]="https://github.com/D3Ext/aesthetic-wallpapers|main|🎨"
+    ["Anime Pack"]="https://github.com/Dreamer-Paul/Anime-Wallpaper|main|🎎"
+    ["Linux"]="https://github.com/polluxau/linuxnext-wallpapers|main|🐧"
+    ["Mixed"]="https://github.com/makccr/wallpapers|main|🌟"
+    ["Desktop"]="https://github.com/port19x/Wallpapers|main|💻"
+    ["Gaming"]="https://github.com/ryan4yin/wallpapers|main|🎮"
+    ["Photos"]="https://github.com/linuxdotexe/wallpapers|main|📷"
+    ["Digital"]="https://github.com/0xb0rn3/wallpapers|main|🖥️"
+)
 
-# Virtual Environment Path
-VENV_PATH="${SCRIPT_DIR}/wallpimp_env"
+# Elegant loading animation
+show_loader() {
+    local pid=$1
+    local message=$2
+    local spinstr='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
+    
+    while kill -0 $pid 2>/dev/null; do
+        local temp=${spinstr#?}
+        printf "\r${CYAN}${BOLD}[%c] %s${NC}" "$spinstr" "$message"
+        local spinstr=$temp${spinstr%"$temp"}
+        sleep 0.1
+    done
+    printf "\r${GREEN}${BOLD}[✓] %s${NC}\n" "$message"
+}
 
-# Hidden execution directory
-HIDDEN_DIR="${SCRIPT_DIR}/.pmp"
+# Smooth progress bar
+show_progress() {
+    local current=$1
+    local total=$2
+    local width=50
+    local percentage=$((current * 100 / total))
+    local filled=$((percentage * width / 100))
+    local empty=$((width - filled))
+    
+    printf "\r${PURPLE}${BOLD}Progress: ["
+    printf "%${filled}s" '' | tr ' ' '█'
+    printf "%${empty}s" '' | tr ' ' '░'
+    printf "] %3d%%${NC}" $percentage
+}
 
-# Create virtual environment if not exists
-if [ ! -d "$VENV_PATH" ]; then
-    python3 -m venv "$VENV_PATH"
-fi
+# Silent dependency installation
+install_dependencies() {
+    local os_type
+    if [ -f /etc/os-release ]; then
+        . /etc/os-release
+        os_type=$ID
+    elif [ -f /etc/debian_version ]; then
+        os_type="debian"
+    elif [ -f /etc/redhat-release ]; then
+        os_type="fedora"
+    else
+        os_type="unknown"
+    fi
 
-# Activate virtual environment
-source "${VENV_PATH}/bin/activate"
+    declare -A pkg_managers=(
+        ["debian"]="apt-get -qq -y"
+        ["ubuntu"]="apt-get -qq -y"
+        ["fedora"]="dnf -q -y"
+        ["arch"]="pacman -S --noconfirm"
+    )
 
-# Ensure hidden directory exists
-mkdir -p "${HIDDEN_DIR}"
+    declare -A packages=(
+        ["debian"]="git imagemagick"
+        ["ubuntu"]="git imagemagick"
+        ["fedora"]="git ImageMagick"
+        ["arch"]="git imagemagick"
+    )
 
-# Copy necessary files to hidden directory
-cp wallpimp.py config.ini "${HIDDEN_DIR}/"
+    local pkg_manager=${pkg_managers[$os_type]}
+    local pkg_list=${packages[$os_type]}
 
-# Install dependencies in virtual environment
-pip install pyside6 pillow
+    if [ -n "$pkg_manager" ] && [ -n "$pkg_list" ]; then
+        (sudo $pkg_manager update >/dev/null 2>&1 && \
+         sudo $pkg_manager install $pkg_list >/dev/null 2>&1) &
+        show_loader $! "Installing required components..."
+    fi
+}
 
-# Change to hidden directory and run script
-cd "${HIDDEN_DIR}"
-python wallpimp.py
+# Display welcome banner
+show_banner() {
+    clear
+    cat << "EOF"
+    
+    ██╗    ██╗ █████╗ ██╗     ██╗     ██████╗ ██╗███╗   ███╗██████╗ 
+    ██║    ██║██╔══██╗██║     ██║     ██╔══██╗██║████╗ ████║██╔══██╗
+    ██║ █╗ ██║███████║██║     ██║     ██████╔╝██║██╔████╔██║██████╔╝
+    ██║███╗██║██╔══██║██║     ██║     ██╔═══╝ ██║██║╚██╔╝██║██╔═══╝ 
+    ╚███╔███╔╝██║  ██║███████╗███████╗██║     ██║██║ ╚═╝ ██║██║     
+     ╚══╝╚══╝ ╚═╝  ╚═╝╚══════╝╚══════╝╚═╝     ╚═╝╚═╝     ╚═╝╚═╝     
+EOF
+    printf "\n${BOLD}${BLUE}%s${NC}\n" "                    Ultimate Wallpaper Collector v0.5.0"
+    printf "${BOLD}${CYAN}%s${NC}\n\n" "                        Created by 0xB0RN3"
+}
 
-# Deactivate virtual environment
-deactivate
+# Process wallpapers
+process_wallpapers() {
+    local temp_dir=$(mktemp -d)
+    local wallpaper_dir="$HOME/Pictures/Wallpapers"
+    mkdir -p "$wallpaper_dir"
+    
+    declare -A processed_hashes
+    local total_repos=${#REPOS[@]}
+    local current_repo=0
+    
+    for repo_name in "${!REPOS[@]}"; do
+        ((current_repo++))
+        IFS='|' read -r url branch icon <<< "${REPOS[$repo_name]}"
+        
+        printf "\n${YELLOW}${BOLD}%s %s${NC}" "$icon" "$repo_name"
+        
+        (git clone --depth 1 --quiet --branch "$branch" "$url" "$temp_dir/$repo_name") &
+        show_loader $! "Downloading wallpapers..."
+        
+        find "$temp_dir/$repo_name" -type f \( -iname "*.jpg" -o -iname "*.jpeg" -o -iname "*.png" -o -iname "*.webp" \) -print0 | 
+        while IFS= read -r -d '' img; do
+            hash=$(sha256sum "$img" | cut -d' ' -f1)
+            if [[ -z ${processed_hashes[$hash]} ]]; then
+                processed_hashes[$hash]=1
+                convert "$img" -strip -quality 85 "$wallpaper_dir/${hash:0:16}.jpg" 2>/dev/null
+            fi
+        done
+        
+        show_progress $current_repo $total_repos
+        rm -rf "$temp_dir/$repo_name"
+    done
+    
+    printf "\n\n${GREEN}${BOLD}✨ Collection Complete! Wallpapers saved to: %s${NC}\n" "$wallpaper_dir"
+    rm -rf "$temp_dir"
+}
+
+# Main execution flow
+main() {
+    show_banner
+    install_dependencies
+    process_wallpapers
+}
+
+# Error handling wrapper
+{
+    main
+} || {
+    printf "\n${RED}${BOLD}An error occurred. Please check your internet connection and try again.${NC}\n"
+    exit 1
+}
