@@ -8,7 +8,6 @@ import shutil
 import tempfile
 import asyncio
 import configparser
-import importlib
 import subprocess
 import logging
 from pathlib import Path
@@ -17,11 +16,7 @@ from dataclasses import dataclass
 from typing import List, Dict, Optional
 
 # Setup logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s",
-    handlers=[logging.StreamHandler(sys.stdout)]
-)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
 # Dependency Check and Installation
@@ -31,7 +26,11 @@ def install_dependencies() -> bool:
     
     def is_module_installed(module_name: str) -> bool:
         """Check if a module is installed."""
-        return importlib.util.find_spec(module_name.lower()) is not None
+        try:
+            __import__(module_name.lower())
+            return True
+        except ImportError:
+            return False
 
     missing = [pkg for mod, pkg in required.items() if not is_module_installed(mod)]
     if not missing:
@@ -40,19 +39,11 @@ def install_dependencies() -> bool:
     logger.info(f"Missing dependencies: {', '.join(missing)}")
     try:
         pip_cmd = [sys.executable, '-m', 'pip', 'install']
-        if not (hasattr(sys, 'real_prefix') or (hasattr(sys, 'base_prefix') and sys.base_prefix != sys.prefix)):
-            pip_cmd.append('--user')
-        
-        result = subprocess.run(pip_cmd + missing, check=True, capture_output=True, text=True)
+        subprocess.run(pip_cmd + missing, check=True)
         logger.info("Dependencies installed successfully!")
-        logger.debug(result.stdout)
         return True
     except subprocess.CalledProcessError as e:
         logger.error(f"Failed to install dependencies: {e.stderr}")
-        logger.info(f"Please install manually: pip install {' '.join(missing)}")
-        return False
-    except Exception as e:
-        logger.error(f"Dependency check error: {e}")
         return False
 
 if not install_dependencies():
@@ -223,12 +214,19 @@ class WallpaperGUI(QMainWindow):
             for name, value in config['Repositories'].items()
             for icon, url, branch, desc in [value.split('|')]
         ]
+        self.settings = dict(config['Settings']) if 'Settings' in config else {}
+        self.estimated_images_per_repo = int(self.settings.get('estimated_images_per_repo', 150))
+        self.average_image_size_mb = float(self.settings.get('average_image_size_mb', 5))
 
     def create_default_config(self):
         """Create a default config.ini if missing."""
         config = configparser.ConfigParser()
         config['Repositories'] = {
             'example': '🌟|https://github.com/example/wallpapers.git|main|Example wallpaper repo'
+        }
+        config['Settings'] = {
+            'estimated_images_per_repo': '150',
+            'average_image_size_mb': '5'
         }
         with open('config.ini', 'w') as f:
             config.write(f)
@@ -336,41 +334,59 @@ class WallpaperGUI(QMainWindow):
 
     def start_download(self):
         """Start the wallpaper download process."""
-        if not hasattr(self, 'save_dir'):
-            QMessageBox.warning(self, "Error", "Please select a save directory first!")
-            return
-
         selected_repos = [repo for repo, cb in zip(self.REPOSITORIES, self.repo_checkboxes) if cb.isChecked()]
         if not selected_repos:
             QMessageBox.warning(self, "Error", "Please select at least one collection!")
             return
 
-        self.worker = WallpaperWorker(selected_repos, self.save_dir)
-        self.total_files = self.worker.total_files
+        if not hasattr(self, 'save_dir'):
+            QMessageBox.warning(self, "Error", "Please select a save directory first!")
+            return
+
+        # Estimate required space
+        estimated_total_images = len(selected_repos) * self.estimated_images_per_repo
+        estimated_required_space_mb = estimated_total_images * self.average_image_size_mb
+
+        # Check available space
+        disk_usage = shutil.disk_usage(self.save_dir)
+        available_space_mb = disk_usage.free / (1024 * 1024)  # Convert bytes to MB
+
+        # Warn user if space might be insufficient
+        if available_space_mb < estimated_required_space_mb:
+            reply = QMessageBox.question(
+                self, "Low Disk Space",
+                f"Estimated required space: {estimated_required_space_mb:.2f} MB\n"
+                f"Available space: {available_space_mb:.2f} MB\n"
+                "Proceed anyway?",
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.No
+            )
+            if reply == QMessageBox.No:
+                return
+
+        self.total_files = len(selected_repos) * 150  # Estimated file count
         self.main_progress.setValue(0)
 
+        self.worker = WallpaperWorker(selected_repos, self.save_dir)
         self.worker.signals.progress_updated.connect(self.queue_update)
         self.worker.signals.finished.connect(self.download_finished)
         self.worker.signals.error.connect(self.show_error)
-        self.worker.signals.repo_started.connect(lambda repo: logger.info(f"Started {repo['name']}"))
-        self.worker.signals.repo_finished.connect(lambda repo, success: logger.info(f"Finished {repo['name']} - {'Success' if success else 'Failed'}"))
 
         self.btn_start.setEnabled(False)
         self.btn_stop.setEnabled(True)
         self.thread_pool.start(self.worker)
         self.update_timer.start()
 
-    def queue_update(self, percentage: int):
-        """Queue progress updates."""
-        self.pending_updates = percentage
-        self.main_progress.setValue(self.pending_updates)
+    def queue_update(self, count):
+        self.pending_updates += count
+        progress = min(int((self.pending_updates / self.total_files) * 100), 100)
+        self.main_progress.setValue(progress)
 
     def update_display(self):
-        """Update the progress bar display."""
-        self.main_progress.repaint()
+        if self.pending_updates > 0:
+            self.main_progress.repaint()
+            self.pending_updates = 0
 
     def stop_download(self):
-        """Stop the download process."""
         if self.worker:
             self.worker.stop()
         self.btn_start.setEnabled(True)
@@ -378,17 +394,16 @@ class WallpaperGUI(QMainWindow):
         self.update_timer.stop()
 
     def download_finished(self):
-        """Handle download completion."""
         self.stop_download()
-        QMessageBox.information(self, "Complete", f"Download finished!\nWallpapers saved to: {self.save_dir}")
+        QMessageBox.information(self, "Complete",
+                                "Download finished successfully!\n"
+                                f"Wallpapers saved to: {self.save_dir}")
 
-    def show_error(self, message: str):
-        """Display error messages."""
+    def show_error(self, message):
         QMessageBox.critical(self, "Error", message)
         self.stop_download()
 
     def show_about(self):
-        """Show the about dialog."""
         about_text = """
         <div style='text-align: center'>
             <h3>WallPimp v0.6.0 Config-Driven</h3>
@@ -404,17 +419,27 @@ class WallpaperGUI(QMainWindow):
                 • Customizable sources
             </p>
         </div>"""
-        QMessageBox(self).about(self, "About WallPimp", about_text)
+        msg = QMessageBox(self)
+        msg.setWindowTitle("About WallPimp")
+        msg.setTextFormat(Qt.TextFormat.RichText)
+        msg.setText(about_text)
+        msg.setStandardButtons(QMessageBox.StandardButton.Ok)
+        msg.exec()
 
 def main():
-    """Main entry point."""
-    # Check for git
+    # Ensure git is available
     try:
         subprocess.run(['git', '--version'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
     except (subprocess.CalledProcessError, FileNotFoundError):
-        logger.error("Git is required. Install it with: sudo apt install git (Ubuntu/Debian) or equivalent.")
+        print("Git is required. Please install Git and ensure it's in your system PATH.")
         sys.exit(1)
 
+    # Check config file exists
+    if not os.path.exists('config.ini'):
+        print("Error: config.ini not found. Please ensure the configuration file is present.")
+        sys.exit(1)
+
+    # Create application and run
     app = QApplication(sys.argv)
     app.setStyle('Fusion')
     window = WallpaperGUI()
