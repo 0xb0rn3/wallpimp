@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# Terminal styling and colors for visual appeal
+# Terminal styling and colors
 readonly RED='\033[0;31m'
 readonly GREEN='\033[0;32m'
 readonly BLUE='\033[0;34m'
@@ -10,28 +10,27 @@ readonly YELLOW='\033[1;33m'
 readonly NC='\033[0m'
 readonly BOLD='\033[1m'
 
-# Repository configuration with icons
+# Repository configuration (hardcoded from config.ini)
 declare -A REPOS=(
-    ["Minimalist"]="https://github.com/dharmx/walls"
-    ["Anime"]="https://github.com/HENTAI-CODER/Anime-Wallpaper"
-    ["Nature"]="https://github.com/FrenzyExists/wallpapers"
-    ["Scenic"]="https://github.com/michaelScopic/Wallpapers"
-    ["Artistic"]="https://github.com/D3Ext/aesthetic-wallpapers"
-    ["Anime Pack"]="https://github.com/Dreamer-Paul/Anime-Wallpaper"
-    ["Linux"]="https://github.com/polluxau/linuxnext-wallpapers"
-    ["Mixed"]="https://github.com/makccr/wallpapers"
-    ["Desktop"]="https://github.com/port19x/Wallpapers"
-    ["Gaming"]="https://github.com/ryan4yin/wallpapers"
-    ["Photos"]="https://github.com/linuxdotexe/wallpapers"
-    ["Digital"]="https://github.com/0xb0rn3/wallpapers"
+    ["Minimalist"]="🖼️|https://github.com/dharmx/walls|main|Clean minimalist designs"
+    ["Anime"]="🌸|https://github.com/HENTAI-CODER/Anime-Wallpaper|main|Anime & manga artwork"
+    ["Nature"]="🌿|https://github.com/FrenzyExists/wallpapers|main|Nature landscapes"
+    ["Scenic"]="🏞️|https://github.com/michaelScopic/Wallpapers|main|Scenic vistas"
+    ["Artistic"]="🎨|https://github.com/D3Ext/aesthetic-wallpapers|main|Artistic styles"
+    ["Anime Pack"]="🎎|https://github.com/Dreamer-Paul/Anime-Wallpaper|main|Curated anime art"
+    ["Linux"]="🐧|https://github.com/polluxau/linuxnext-wallpapers|main|Linux desktop art"
+    ["Mixed"]="🌟|https://github.com/makccr/wallpapers|main|Diverse styles"
+    ["Desktop"]="💻|https://github.com/port19x/Wallpapers|main|Minimalist desktop"
+    ["Gaming"]="🎮|https://github.com/ryan4yin/wallpapers|main|Gaming-inspired art"
+    ["Photos"]="📷|https://github.com/linuxdotexe/wallpapers|main|Professional photography"
+    ["Digital"]="🖥️|https://github.com/0xb0rn3/wallpapers|main|Digital creations"
 )
 
-# Elegant loading animation
+# Loading animation
 show_loader() {
     local pid=$1
     local message=$2
     local spinstr='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
-    
     while kill -0 $pid 2>/dev/null; do
         local temp=${spinstr#?}
         printf "\r${CYAN}${BOLD}[%c] %s${NC}" "$spinstr" "$message"
@@ -41,7 +40,7 @@ show_loader() {
     printf "\r${GREEN}${BOLD}[✓] %s${NC}\n" "$message"
 }
 
-# Smooth progress bar
+# Progress bar
 show_progress() {
     local current=$1
     local total=$2
@@ -49,52 +48,39 @@ show_progress() {
     local percentage=$((current * 100 / total))
     local filled=$((percentage * width / 100))
     local empty=$((width - filled))
-    
     printf "\r${PURPLE}${BOLD}Progress: ["
     printf "%${filled}s" '' | tr ' ' '█'
     printf "%${empty}s" '' | tr ' ' '░'
     printf "] %3d%%${NC}" $percentage
 }
 
-# Silent dependency installation
+# Install dependencies
 install_dependencies() {
-    local os_type
-    if [ -f /etc/os-release ]; then
-        . /etc/os-release
-        os_type=$ID
-    elif [ -f /etc/debian_version ]; then
-        os_type="debian"
-    elif [ -f /etc/redhat-release ]; then
-        os_type="fedora"
-    else
-        os_type="unknown"
-    fi
-
-    declare -A pkg_managers=(
-        ["debian"]="apt-get -qq -y"
-        ["ubuntu"]="apt-get -qq -y"
-        ["fedora"]="dnf -q -y"
-        ["arch"]="pacman -S --noconfirm"
-    )
-
-    declare -A packages=(
-        ["debian"]="git imagemagick"
-        ["ubuntu"]="git imagemagick"
-        ["fedora"]="git ImageMagick"
-        ["arch"]="git imagemagick"
-    )
-
-    local pkg_manager=${pkg_managers[$os_type]}
-    local pkg_list=${packages[$os_type]}
-
-    if [ -n "$pkg_manager" ] && [ -n "$pkg_list" ]; then
-        (sudo $pkg_manager update >/dev/null 2>&1 && \
-         sudo $pkg_manager install $pkg_list >/dev/null 2>&1) &
-        show_loader $! "Installing required components..."
-    fi
+    command -v git >/dev/null 2>&1 || {
+        echo "Git is required but not installed."
+        local os_type=$(grep -oP '^ID=\K\w+' /etc/os-release 2>/dev/null || echo "unknown")
+        case "$os_type" in
+            ubuntu|debian) sudo apt-get update -qq && sudo apt-get install -y -qq git imagemagick ;;
+            fedora) sudo dnf install -y -q git ImageMagick ;;
+            arch) sudo pacman -S --noconfirm git imagemagick ;;
+            *) echo "Please install Git and ImageMagick manually."; exit 1 ;;
+        esac &
+        show_loader $! "Installing Git and ImageMagick..."
+    }
+    command -v convert >/dev/null 2>&1 || {
+        echo "ImageMagick is required but not installed. Installing..."
+        local os_type=$(grep -oP '^ID=\K\w+' /etc/os-release 2>/dev/null || echo "unknown")
+        case "$os_type" in
+            ubuntu|debian) sudo apt-get install -y -qq imagemagick ;;
+            fedora) sudo dnf install -y -q ImageMagick ;;
+            arch) sudo pacman -S --noconfirm imagemagick ;;
+            *) echo "Please install ImageMagick manually."; exit 1 ;;
+        esac &
+        show_loader $! "Installing ImageMagick..."
+    }
 }
 
-# Display welcome banner
+# Display banner
 show_banner() {
     clear
     cat << "EOF"
@@ -112,51 +98,87 @@ EOF
 
 # Process wallpapers
 process_wallpapers() {
+    local save_dir="$1"
+    shift
+    local selected_repos=("$@")
     local temp_dir=$(mktemp -d)
-    local wallpaper_dir="$HOME/Pictures/Wallpapers"
-    mkdir -p "$wallpaper_dir"
-    
     declare -A processed_hashes
-    local total_repos=${#REPOS[@]}
+    local total_repos=${#selected_repos[@]}
     local current_repo=0
-    
-    for repo_name in "${!REPOS[@]}"; do
+
+    for repo_name in "${selected_repos[@]}"; do
         ((current_repo++))
-        IFS='|' read -r url branch icon <<< "${REPOS[$repo_name]}"
-        
-        printf "\n${YELLOW}${BOLD}%s %s${NC}" "$icon" "$repo_name"
-        
+        IFS='|' read -r icon url branch desc <<< "${REPOS[$repo_name]}"
+        printf "\n${YELLOW}${BOLD}%s %s${NC}\n" "$icon" "$desc"
         (git clone --depth 1 --quiet --branch "$branch" "$url" "$temp_dir/$repo_name") &
-        show_loader $! "Downloading wallpapers..."
-        
-        find "$temp_dir/$repo_name" -type f \( -iname "*.jpg" -o -iname "*.jpeg" -o -iname "*.png" -o -iname "*.webp" \) -print0 | 
+        show_loader $! "Downloading repository..."
+
+        find "$temp_dir/$repo_name" -type f \( -iname "*.jpg" -o -iname "*.jpeg" -o -iname "*.png" -o -iname "*.webp" \) -print0 |
         while IFS= read -r -d '' img; do
-            hash=$(sha256sum "$img" | cut -d' ' -f1)
-            if [[ -z ${processed_hashes[$hash]} ]]; then
-                processed_hashes[$hash]=1
-                convert "$img" -strip -quality 85 "$wallpaper_dir/${hash:0:16}.jpg" 2>/dev/null
+            width=$(identify -format "%w" "$img" 2>/dev/null || echo 0)
+            height=$(identify -format "%h" "$img" 2>/dev/null || echo 0)
+            if [ "$width" -ge 1920 ] && [ "$height" -ge 1080 ]; then
+                hash=$(sha256sum "$img" | cut -d' ' -f1)
+                if [[ -z ${processed_hashes[$hash]} ]]; then
+                    processed_hashes[$hash]=1
+                    convert "$img" -strip -quality 95 "$save_dir/${hash:0:16}.jpg" 2>/dev/null
+                fi
             fi
         done
-        
         show_progress $current_repo $total_repos
         rm -rf "$temp_dir/$repo_name"
     done
-    
-    printf "\n\n${GREEN}${BOLD}✨ Collection Complete! Wallpapers saved to: %s${NC}\n" "$wallpaper_dir"
+    printf "\n\n${GREEN}${BOLD}✨ Collection Complete! Wallpapers saved to: %s${NC}\n" "$save_dir"
     rm -rf "$temp_dir"
 }
 
-# Main execution flow
+# Main function
 main() {
     show_banner
+
+    # Prompt for save directory
+    default_dir="$HOME/Pictures/Wallpapers"
+    read -p "Enter directory to save wallpapers [default: $default_dir]: " SAVE_DIR
+    SAVE_DIR=${SAVE_DIR:-$default_dir}
+    mkdir -p "$SAVE_DIR" 2>/dev/null || { echo "Cannot create directory $SAVE_DIR"; exit 1; }
+
+    # Storage space check
+    REQUIRED_SPACE=3758096384  # 3.5GB in bytes
+    echo "Estimated storage required: approximately 3.5GB"
+    AVAILABLE_SPACE=$(df -B1 --output=avail "$SAVE_DIR" | tail -1 2>/dev/null || echo 0)
+    if [ "$AVAILABLE_SPACE" -lt "$REQUIRED_SPACE" ]; then
+        echo "${YELLOW}Warning: Only $((AVAILABLE_SPACE / 1048576))MB available, need ~3500MB${NC}"
+        read -p "Proceed anyway? (y/n): " proceed
+        [[ "$proceed" != "y" ]] && exit 0
+    fi
+
+    # Repository selection
+    echo "Select repositories to download (enter numbers separated by spaces, e.g., '1 3 5'):"
+    i=1
+    repo_names=()
+    for repo_name in "${!REPOS[@]}"; do
+        IFS='|' read -r icon url branch desc <<< "${REPOS[$repo_name]}"
+        echo "$i. $icon $repo_name - $desc"
+        repo_names+=("$repo_name")
+        ((i++))
+    done
+    read -p "Your selection: " selection
+    selected_repos=()
+    for num in $selection; do
+        if [ "$num" -ge 1 ] && [ "$num" -le "${#repo_names[@]}" ]; then
+            selected_repos+=("${repo_names[$num-1]}")
+        fi
+    done
+    [ ${#selected_repos[@]} -eq 0 ] && { echo "No repositories selected."; exit 0; }
+
     install_dependencies
-    process_wallpapers
+    process_wallpapers "$SAVE_DIR" "${selected_repos[@]}"
 }
 
-# Error handling wrapper
+# Execute with error handling
 {
     main
 } || {
-    printf "\n${RED}${BOLD}An error occurred. Please check your internet connection and try again.${NC}\n"
+    printf "\n${RED}${BOLD}Error occurred. Check internet, permissions, or dependencies.${NC}\n"
     exit 1
 }
