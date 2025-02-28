@@ -18,6 +18,19 @@ from typing import List, Dict, Optional
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
+def is_venv():
+    return sys.prefix != sys.base_prefix
+
+# Function to set up the virtual environment and install dependencies
+def setup_venv():
+    venv_dir = os.path.join(os.path.dirname(__file__), "venv")
+    if not os.path.exists(venv_dir):
+        print("Creating virtual environment...")
+        subprocess.check_call([sys.executable, "-m", "venv", venv_dir])
+    venv_python = os.path.join(venv_dir, "bin", "python")
+    print("Installing dependencies...")
+    subprocess.check_call([venv_python, "-m", "pip", "install", "pyside6", "pillow"])
+    return venv_python
 # Dependency Check and Installation
 def install_dependencies() -> bool:
     """Install required dependencies if missing."""
@@ -37,7 +50,6 @@ def install_dependencies() -> bool:
         logger.info("All dependencies are already installed.")
         return True
 
-    # Step 1: Check if pip is installed
     try:
         subprocess.check_call([sys.executable, '-m', 'pip', '--version'])
         logger.info("pip is available.")
@@ -467,4 +479,16 @@ def main():
     sys.exit(app.exec())
 
 if __name__ == "__main__":
-    main()
+    if "--in-venv" not in sys.argv and not is_venv():
+        print("Setting up environment...")
+        try:
+            venv_python = setup_venv()
+            print("Re-running script in virtual environment...")
+            # Re-run the script in the virtual environment
+            subprocess.run([venv_python, sys.argv[0], "--in-venv"])
+            sys.exit(0)
+        except Exception as e:
+            print(f"Failed to set up environment: {e}")
+            sys.exit(1)
+    else:
+        main()
