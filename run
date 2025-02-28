@@ -26,7 +26,7 @@ declare -A REPOS=(
     ["Digital"]="https://github.com/0xb0rn3/wallpapers|main"
 )
 
-# Loading animation
+# Loading animation for dependency installation
 show_loader() {
     local pid=$1
     local message=$2
@@ -40,7 +40,7 @@ show_loader() {
     printf "\r${GREEN}${BOLD}[✓] %s${NC}\n" "$message"
 }
 
-# Progress bar
+# Progress bar for repository processing
 show_progress() {
     local current=$1
     local total=$2
@@ -54,59 +54,21 @@ show_progress() {
     printf "] %3d%%${NC}" "$percentage"
 }
 
-# Install dependencies
+# Install required dependencies
 install_dependencies() {
-    local os_type
-    os_type=$(grep -oP '^ID=\K\w+' /etc/os-release 2>/dev/null || echo "unknown")
-    
-    # Check for Git
     if ! command -v git >/dev/null 2>&1; then
         echo "Installing Git..."
-        case "$os_type" in
-            ubuntu|debian)
-                sudo apt-get update -qq && sudo apt-get install -y -qq git &
-                show_loader $! "Installing Git"
-                ;;
-            fedora)
-                sudo dnf install -y -q git &
-                show_loader $! "Installing Git"
-                ;;
-            arch)
-                sudo pacman -Syu --noconfirm git &
-                show_loader $! "Installing Git"
-                ;;
-            *)
-                echo "Unsupported OS. Please install Git manually."
-                exit 1
-                ;;
-        esac
+        sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends git &
+        show_loader $! "Installing Git"
     fi
-
-    # Check for ImageMagick
     if ! command -v convert >/dev/null 2>&1; then
         echo "Installing ImageMagick..."
-        case "$os_type" in
-            ubuntu|debian)
-                sudo apt-get install -y -qq imagemagick &
-                show_loader $! "Installing ImageMagick"
-                ;;
-            fedora)
-                sudo dnf install -y -q ImageMagick &
-                show_loader $! "Installing ImageMagick"
-                ;;
-            arch)
-                sudo pacman -S --noconfirm imagemagick &
-                show_loader $! "Installing ImageMagick"
-                ;;
-            *)
-                echo "Unsupported OS. Please install ImageMagick manually."
-                exit 1
-                ;;
-        esac
+        sudo apt-get install -y -qq --no-install-recommends imagemagick &
+        show_loader $! "Installing ImageMagick"
     fi
 }
 
-# Display banner
+# Display script banner
 show_banner() {
     clear
     cat << "EOF"
@@ -122,7 +84,7 @@ EOF
     printf "${BOLD}${CYAN}%s${NC}\n\n" "                        Created by 0xB0RN3"
 }
 
-# Select repositories
+# Let user select repositories
 select_repos() {
     echo "Available repositories:"
     local i=1
@@ -156,7 +118,7 @@ select_repos() {
     done
 }
 
-# Process wallpapers
+# Process wallpapers from selected repositories
 process_wallpapers() {
     local save_dir="$1"
     shift
@@ -169,22 +131,23 @@ process_wallpapers() {
     local total_wallpapers=0
     local paused=0
 
-    # Trap Ctrl+C to clean up and exit gracefully
+    # Clean up on interruption
     trap 'echo -e "\n${YELLOW}Download interrupted.${NC}"; echo "Total unique wallpapers downloaded: $total_wallpapers"; rm -rf "$temp_dir"; exit 0' INT
 
     for repo_name in "${selected_repos[@]}"; do
         ((current_repo++))
         IFS='|' read -r url branch <<< "${REPOS[$repo_name]}"
         echo "Processing $repo_name..."
-        if ! git clone --depth 1 --quiet --branch "$branch" "$url" "$temp_dir/$repo_name" 2>/dev/null; then
-            echo "${RED}Failed to clone $repo_name. Skipping...${NC}"
+        if ! timeout 300 git clone --depth=1 --quiet --branch "$branch" "$url" "$temp_dir/$repo_name" 2>/dev/null; then
+            echo "${RED}Failed to clone $repo_name or cloning timed out. Skipping...${NC}"
             continue
         fi
 
-        # Process images
+        # Process images with progress feedback
+        image_count=0
         find "$temp_dir/$repo_name" -type f \( -iname "*.jpg" -o -iname "*.jpeg" -o -iname "*.png" -o -iname "*.webp" \) -print0 |
         while IFS= read -r -d '' img; do
-            # Handle pause state
+            ((image_count++))
             while [ "$paused" -eq 1 ]; do
                 echo "Paused. Press 'c' to continue, 's' to stop:"
                 read -n 1 -s key
@@ -194,7 +157,7 @@ process_wallpapers() {
                 esac
             done
 
-            # Check image dimensions
+            # Filter images by resolution and avoid duplicates
             width=$(identify -format "%w" "$img" 2>/dev/null || echo 0)
             height=$(identify -format "%h" "$img" 2>/dev/null || echo 0)
             if [ "$width" -ge 1920 ] && [ "$height" -ge 1080 ]; then
@@ -214,6 +177,11 @@ process_wallpapers() {
                     echo "Pausing..."
                 fi
             fi
+
+            # Show progress every 10 images
+            if (( image_count % 10 == 0 )); then
+                echo "Processed $image_count images from $repo_name"
+            fi
         done
         show_progress "$current_repo" "$total_repos"
         rm -rf "$temp_dir/$repo_name"
@@ -222,7 +190,7 @@ process_wallpapers() {
     rm -rf "$temp_dir"
 }
 
-# Main function
+# Main execution flow
 main() {
     show_banner
     install_dependencies
@@ -255,7 +223,7 @@ main() {
     process_wallpapers "$SAVE_DIR" "${selected_repos[@]}"
 }
 
-# Execute with error handling
+# Run with error handling
 set -e
 main 2>/dev/null || {
     echo -e "\n${RED}${BOLD}An error occurred. Check your internet connection, permissions, or dependencies.${NC}"
