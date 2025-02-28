@@ -10,20 +10,20 @@ readonly YELLOW='\033[1;33m'
 readonly NC='\033[0m'
 readonly BOLD='\033[1m'
 
-# Repository configuration (hardcoded from config.ini)
+# Repository configuration (hardcoded list)
 declare -A REPOS=(
-    ["Minimalist"]="🖼️|https://github.com/dharmx/walls|main|Clean minimalist designs"
-    ["Anime"]="🌸|https://github.com/HENTAI-CODER/Anime-Wallpaper|main|Anime & manga artwork"
-    ["Nature"]="🌿|https://github.com/FrenzyExists/wallpapers|main|Nature landscapes"
-    ["Scenic"]="🏞️|https://github.com/michaelScopic/Wallpapers|main|Scenic vistas"
-    ["Artistic"]="🎨|https://github.com/D3Ext/aesthetic-wallpapers|main|Artistic styles"
-    ["Anime Pack"]="🎎|https://github.com/Dreamer-Paul/Anime-Wallpaper|main|Curated anime art"
-    ["Linux"]="🐧|https://github.com/polluxau/linuxnext-wallpapers|main|Linux desktop art"
-    ["Mixed"]="🌟|https://github.com/makccr/wallpapers|main|Diverse styles"
-    ["Desktop"]="💻|https://github.com/port19x/Wallpapers|main|Minimalist desktop"
-    ["Gaming"]="🎮|https://github.com/ryan4yin/wallpapers|main|Gaming-inspired art"
-    ["Photos"]="📷|https://github.com/linuxdotexe/wallpapers|main|Professional photography"
-    ["Digital"]="🖥️|https://github.com/0xb0rn3/wallpapers|main|Digital creations"
+    ["Minimalist"]="https://github.com/dharmx/walls|main"
+    ["Anime"]="https://github.com/HENTAI-CODER/Anime-Wallpaper|main"
+    ["Nature"]="https://github.com/FrenzyExists/wallpapers|main"
+    ["Scenic"]="https://github.com/michaelScopic/Wallpapers|main"
+    ["Artistic"]="https://github.com/D3Ext/aesthetic-wallpapers|main"
+    ["Anime Pack"]="https://github.com/Dreamer-Paul/Anime-Wallpaper|main"
+    ["Linux"]="https://github.com/polluxau/linuxnext-wallpapers|main"
+    ["Mixed"]="https://github.com/makccr/wallpapers|main"
+    ["Desktop"]="https://github.com/port19x/Wallpapers|main"
+    ["Gaming"]="https://github.com/ryan4yin/wallpapers|main"
+    ["Photos"]="https://github.com/linuxdotexe/wallpapers|main"
+    ["Digital"]="https://github.com/0xb0rn3/wallpapers|main"
 )
 
 # Loading animation
@@ -105,16 +105,31 @@ process_wallpapers() {
     declare -A processed_hashes
     local total_repos=${#selected_repos[@]}
     local current_repo=0
+    local total_wallpapers=0
+    local paused=0
+
+    # Trap SIGINT (Ctrl+C) to stop gracefully
+    trap 'echo -e "\n${RED}Download stopped by user.${NC}"; printf "${GREEN}${BOLD}Total unique wallpapers downloaded so far: %d${NC}\n" "$total_wallpapers"; rm -rf "$temp_dir"; exit 0' INT
 
     for repo_name in "${selected_repos[@]}"; do
         ((current_repo++))
-        IFS='|' read -r icon url branch desc <<< "${REPOS[$repo_name]}"
-        printf "\n${YELLOW}${BOLD}%s %s${NC}\n" "$icon" "$desc"
+        IFS='|' read -r url branch <<< "${REPOS[$repo_name]}"
+        printf "\n${YELLOW}${BOLD}Downloading from %s${NC}\n" "$repo_name"
         (git clone --depth 1 --quiet --branch "$branch" "$url" "$temp_dir/$repo_name") &
         show_loader $! "Downloading repository..."
 
         find "$temp_dir/$repo_name" -type f \( -iname "*.jpg" -o -iname "*.jpeg" -o -iname "*.png" -o -iname "*.webp" \) -print0 |
         while IFS= read -r -d '' img; do
+            # Check for pause
+            while [ $paused -eq 1 ]; do
+                echo -e "\n${YELLOW}Download paused. Press 'c' to continue, 's' to stop:${NC}"
+                read -n 1 -s key
+                case "$key" in
+                    c) paused=0; echo "Resuming...";;
+                    s) echo -e "\n${RED}Download stopped.${NC}"; printf "${GREEN}${BOLD}Total unique wallpapers downloaded: %d${NC}\n" "$total_wallpapers"; rm -rf "$temp_dir"; exit 0;;
+                esac
+            done
+
             width=$(identify -format "%w" "$img" 2>/dev/null || echo 0)
             height=$(identify -format "%h" "$img" 2>/dev/null || echo 0)
             if [ "$width" -ge 1920 ] && [ "$height" -ge 1080 ]; then
@@ -122,13 +137,22 @@ process_wallpapers() {
                 if [[ -z ${processed_hashes[$hash]} ]]; then
                     processed_hashes[$hash]=1
                     convert "$img" -strip -quality 95 "$save_dir/${hash:0:16}.jpg" 2>/dev/null
+                    ((total_wallpapers++))
+                fi
+            fi
+
+            # Check for user input to pause
+            if read -t 0.1 -n 1 key; then
+                if [[ "$key" == "p" ]]; then
+                    paused=1
+                    echo -e "\n${YELLOW}Pausing download...${NC}"
                 fi
             fi
         done
         show_progress $current_repo $total_repos
         rm -rf "$temp_dir/$repo_name"
     done
-    printf "\n\n${GREEN}${BOLD}✨ Collection Complete! Wallpapers saved to: %s${NC}\n" "$save_dir"
+    printf "\n\n${GREEN}${BOLD}✨ Collection Complete! Total unique wallpapers downloaded: %d${NC}\n" "$total_wallpapers"
     rm -rf "$temp_dir"
 }
 
@@ -153,25 +177,29 @@ main() {
     fi
 
     # Repository selection
-    echo "Select repositories to download (enter numbers separated by spaces, e.g., '1 3 5'):"
+    echo "Select repositories to download (enter numbers separated by spaces, or 'all'):"
     i=1
     repo_names=()
     for repo_name in "${!REPOS[@]}"; do
-        IFS='|' read -r icon url branch desc <<< "${REPOS[$repo_name]}"
-        echo "$i. $icon $repo_name - $desc"
+        echo "$i. $repo_name"
         repo_names+=("$repo_name")
         ((i++))
     done
     read -p "Your selection: " selection
-    selected_repos=()
-    for num in $selection; do
-        if [ "$num" -ge 1 ] && [ "$num" -le "${#repo_names[@]}" ]; then
-            selected_repos+=("${repo_names[$num-1]}")
-        fi
-    done
-    [ ${#selected_repos[@]} -eq 0 ] && { echo "No repositories selected."; exit 0; }
+    if [[ "$selection" == "all" ]]; then
+        selected_repos=("${repo_names[@]}")
+    else
+        selected_repos=()
+        for num in $selection; do
+            if [ "$num" -ge 1 ] && [ "$num" -le "${#repo_names[@]}" ]; then
+                selected_repos+=("${repo_names[$num-1]}")
+            fi
+        done
+        [ ${#selected_repos[@]} -eq 0 ] && { echo "No repositories selected."; exit 0; }
+    fi
 
     install_dependencies
+    echo -e "\n${CYAN}Press 'p' to pause, Ctrl+C to stop during download.${NC}"
     process_wallpapers "$SAVE_DIR" "${selected_repos[@]}"
 }
 
