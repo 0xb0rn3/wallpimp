@@ -1,5 +1,5 @@
 # WallPimp - Intelligent Wallpaper Collector
-# Version 2.5
+# Version 0.2
 # Developer: 0xB0RN3
 
 param (
