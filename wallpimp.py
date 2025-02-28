@@ -71,7 +71,7 @@ def install_dependencies() -> bool:
 
     # Step 4: Install the missing dependencies
     try:
-        pip_cmd = [sys.executable, '-m', 'pip', 'install', --break-system-packages] + missing
+        pip_cmd = [sys.executable, '-m', 'pip', 'install',] + missing
         subprocess.run(pip_cmd, check=True)
         logger.info("Dependencies installed successfully: " + ", ".join(missing))
         return True
