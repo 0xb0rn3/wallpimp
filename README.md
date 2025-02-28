@@ -16,7 +16,7 @@ Displays total unique wallpapers downloaded
 # Linux (Bash)
 Download the script:
 ```bash
->>  curl -O https://raw.githubusercontent.com/0xb0rn3/wallpimp/main/run
+curl -O https://raw.githubusercontent.com/0xb0rn3/wallpimp/main/run
 ```
 # Make it executable:
 ```bash
