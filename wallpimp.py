@@ -12,7 +12,6 @@ import subprocess
 import logging
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import dataclass
 from typing import List, Dict, Optional
 
 # Setup logging
@@ -23,7 +22,7 @@ logger = logging.getLogger(__name__)
 def install_dependencies() -> bool:
     """Install required dependencies if missing."""
     required = {'PySide6': 'pyside6', 'Pillow': 'pillow'}
-    
+
     def is_module_installed(module_name: str) -> bool:
         """Check if a module is installed."""
         try:
@@ -32,18 +31,40 @@ def install_dependencies() -> bool:
         except ImportError:
             return False
 
+    # Identify missing dependencies
     missing = [pkg for mod, pkg in required.items() if not is_module_installed(mod)]
     if not missing:
+        logger.info("All dependencies are already installed.")
         return True
 
-    logger.info(f"Missing dependencies: {', '.join(missing)}")
+    # Step 1: Check if pip is installed
     try:
-        pip_cmd = [sys.executable, '-m', 'pip', 'install']
-        subprocess.run(pip_cmd + missing, check=True)
-        logger.info("Dependencies installed successfully!")
+        subprocess.check_call([sys.executable, '-m', 'pip', '--version'])
+        logger.info("pip is available.")
+    except subprocess.CalledProcessError:
+        logger.info("pip is not installed. Attempting to install pip...")
+        # Step 2: Try installing pip using ensurepip
+        try:
+            subprocess.check_call([sys.executable, '-m', 'ensurepip'])
+            logger.info("pip installed successfully using ensurepip.")
+        except subprocess.CalledProcessError:
+            # Step 3: If ensurepip fails, download and run get-pip.py
+            logger.info("ensurepip failed. Downloading get-pip.py...")
+            pip_installer = 'get-pip.py'
+            import urllib.request
+            urllib.request.urlretrieve('https://bootstrap.pypa.io/get-pip.py', pip_installer)
+            subprocess.check_call([sys.executable, pip_installer])
+            os.remove(pip_installer)  # Clean up
+            logger.info("pip installed successfully using get-pip.py.")
+
+    # Step 4: Install the missing dependencies
+    try:
+        pip_cmd = [sys.executable, '-m', 'pip', 'install'] + missing
+        subprocess.run(pip_cmd, check=True)
+        logger.info("Dependencies installed successfully: " + ", ".join(missing))
         return True
     except subprocess.CalledProcessError as e:
-        logger.error(f"Failed to install dependencies: {e.stderr}")
+        logger.error(f"Failed to install dependencies: {e}")
         return False
 
 if not install_dependencies():
@@ -60,11 +81,9 @@ from PySide6.QtGui import QAction, QFont, QKeySequence, QShortcut
 from PIL import Image
 
 class WorkerSignals(QObject):
-    repo_started = Signal(dict)
-    repo_finished = Signal(dict, bool)
     progress_updated = Signal(int)
-    error = Signal(str)
     finished = Signal()
+    error = Signal(str)
 
 class WallpaperWorker(QRunnable):
     def __init__(self, repos: List[Dict], save_dir: Path):
@@ -142,11 +161,9 @@ class WallpaperWorker(QRunnable):
 
     async def process_repository(self, repo: Dict):
         """Process a single repository."""
-        self.signals.repo_started.emit(repo)
         temp_dir = Path(tempfile.mkdtemp())
         try:
             if not await self.clone_repository(repo, temp_dir):
-                self.signals.repo_finished.emit(repo, False)
                 return
 
             futures = []
@@ -168,8 +185,6 @@ class WallpaperWorker(QRunnable):
                         self.signals.progress_updated.emit(self.batch_counter * 100 // self.total_files)
                 except Exception as e:
                     logger.warning(f"Image processing error: {e}")
-
-            self.signals.repo_finished.emit(repo, True)
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
 
@@ -333,7 +348,7 @@ class WallpaperGUI(QMainWindow):
             self.dir_label.setStyleSheet("color: #2c3e50; font-size: 12px;")
 
     def start_download(self):
-        """Start the wallpaper download process."""
+        """Start the wallpaper download process with disk space check."""
         selected_repos = [repo for repo, cb in zip(self.REPOSITORIES, self.repo_checkboxes) if cb.isChecked()]
         if not selected_repos:
             QMessageBox.warning(self, "Error", "Please select at least one collection!")
@@ -377,16 +392,19 @@ class WallpaperGUI(QMainWindow):
         self.update_timer.start()
 
     def queue_update(self, count):
+        """Queue progress updates."""
         self.pending_updates += count
         progress = min(int((self.pending_updates / self.total_files) * 100), 100)
         self.main_progress.setValue(progress)
 
     def update_display(self):
+        """Update the progress bar display."""
         if self.pending_updates > 0:
             self.main_progress.repaint()
             self.pending_updates = 0
 
     def stop_download(self):
+        """Stop the download process."""
         if self.worker:
             self.worker.stop()
         self.btn_start.setEnabled(True)
@@ -394,16 +412,19 @@ class WallpaperGUI(QMainWindow):
         self.update_timer.stop()
 
     def download_finished(self):
+        """Handle download completion."""
         self.stop_download()
         QMessageBox.information(self, "Complete",
                                 "Download finished successfully!\n"
                                 f"Wallpapers saved to: {self.save_dir}")
 
     def show_error(self, message):
+        """Display an error message."""
         QMessageBox.critical(self, "Error", message)
         self.stop_download()
 
     def show_about(self):
+        """Show the About dialog."""
         about_text = """
         <div style='text-align: center'>
             <h3>WallPimp v0.6.0 Config-Driven</h3>
@@ -436,9 +457,8 @@ def main():
 
     # Check config file exists
     if not os.path.exists('config.ini'):
-        print("Error: config.ini not found. Please ensure the configuration file is present.")
-        sys.exit(1)
-
+        print("Error: config.ini not found. A default will be created upon startup.")
+    
     # Create application and run
     app = QApplication(sys.argv)
     app.setStyle('Fusion')
