@@ -1,102 +1,116 @@
-# WallPimp - Intelligent Wallpaper Collector
-WallPimp is an automated tool designed to collect high-quality wallpapers from curated repositories. It is cross-platform, featuring implementations in Bash for Linux and PowerShell for Windows. The tool filters wallpapers by resolution, detects duplicates using SHA-256 hashing, and optimizes images for quality and storage efficiency.
+WallPimp - Intelligent Wallpaper Collector
+Welcome to WallPimp, your go-to tool for collecting stunning, high-quality wallpapers from curated repositories! Whether you’re on Linux, Windows, or beyond, WallPimp has you covered with implementations in Python (cross-platform, recommended for Linux) and PowerShell (tailored for Windows). This tool automates the heavy lifting—filtering by resolution, detecting duplicates with SHA-256 hashing, and optimizing your collection—all while keeping you in control.
 
-## Features
-Cross-platform support (Linux and Windows)
-Interactive repository selection with an "all" option
-Download controls: pause, stop, or continue
-Duplicate detection using SHA-256 hashing
-Resolution filtering (default: 1920x1080)
-Storage space check (requires ~3.5GB)
-Progress feedback with bars and loaders
-Displays total unique wallpapers downloaded
+Features
+WallPimp packs a punch with these awesome capabilities:
 
-## Installation:
+Cross-platform support: Python for Linux (and adaptable elsewhere), PowerShell for Windows.
+Interactive repository selection: Choose by number or grab "all" with detailed descriptions and icons.
+Download controls: Pause (p), continue (c), or stop (s) at your command.
+Duplicate detection: Uses SHA-256 hashing to keep your collection unique.
+Resolution filtering: Defaults to 1920x1080, adjustable as needed.
+Storage check: Warns if you’re low on space (needs ~3.5GB free).
+Progress feedback: Animated spinners and progress bars keep you in the loop.
+Parallel processing (Python only): Enable "Crazy Mode" for lightning-fast downloads.
+Stats: Displays total unique wallpapers downloaded.
+Installation
+WallPimp offers two flavors—Python and PowerShell. Here’s how to get started with each.
 
-# Linux (Bash)
-Download the script:
-```bash
-curl -O https://raw.githubusercontent.com/0xb0rn3/wallpimp/main/run
-```
-# Make it executable:
-```bash
-chmod +x run
-```
-# Run it:
-```bash
+Python Version (Recommended for Linux)
+The Python version is versatile, built for Linux but adaptable to other platforms (yes, even Windows!). It shines with features like optional parallel processing.
+
+Prerequisites
+Python 3.x: The backbone of the script.
+Git: For cloning repositories.
+ImageMagick: For image optimization.
+Python Libraries: requests, pillow, tqdm, configparser, colorama.
+
+Steps
+Install System Dependencies:
+
+Ubuntu/Debian:
+sudo apt-get install git imagemagick
+
+Arch:
+sudo pacman -S git imagemagick
+
+Windows: Install Git (winget install Git.Git) and ImageMagick (winget install ImageMagick.ImageMagick).
+
+Install Python Libraries:
+pip install requests pillow tqdm configparser colorama
+
+Fedora:
+sudo dnf install git ImageMagick
+
+Download the Script:
+Grab run from the GitHub repository.
+
+Run the Script:
+i) Launch it with:
+chmod +x ./run
 ./run
-```
-# Windows (PowerShell)
-Run directly from GitHub: (Copy & Paste this code in powershell)
-# step.1 
-Windows button + X (Click open powershell as admin)
-# Step.2
-COPY & PASTE code i & ii into powershell and click ENTER after copying and pasting each
-# Code (i) Copy,Paste & Enter
-```Powershell
+Follow the Prompts:
+Set a save directory (default: ~/Pictures/Wallpapers).
+Pick repositories by number or type "all".
+Opt for "y" on Crazy Mode for parallel downloads.
+Control downloads: p (pause), c (continue), s (stop).
+PowerShell Version (For Windows)
+The PowerShell version is a Windows-native experience—simple, direct, and powerful.
+
+Steps
+Run Directly from GitHub:
+Open PowerShell as Administrator:
+Hit Windows + X, choose "Windows PowerShell (Admin)".
+
+Run these commands one at a time:
 Set-ExecutionPolicy RemoteSigned -Scope CurrentUser
-```
-# Code (ii) Copy,Paste & Enter
-```
+
 irm https://raw.githubusercontent.com/0xb0rn3/wallpimp/main/run.ps1 | iex
-```
-# Follow the prompts:
-Specify a save directory (default: ~/Pictures/Wallpapers).
+
+Follow the Prompts:
+
+Choose a save directory (default: ~/Pictures/Wallpapers).
 Select repositories by number or type "all".
-During downloads, press:
-```
-p to pause
-c to continue
-s to stop
-```
-# Results:
-Wallpapers are saved to the chosen directory.
-Total unique wallpapers are displayed at the end.
+Manage downloads: p (pause), c (continue), s (stop).
 
-## Configuration
-Repositories:
-# Bash: Hardcoded in the REPOS array within run.
-# PowerShell: Fetched from a remote config.ini file at:
-```
-https://raw.githubusercontent.com/0xb0rn3/wallpimp/main/config.ini
-```
-# Config Format (for PowerShell):
-```
-[Repositories]
-repo_name = url | branch
-```
-# Customization:
-Edit config.ini on GitHub (PowerShell) or modify the REPOS array in run (Bash) to add or change sources.
-# Dependencies
-# Linux (Bash)
-Git: For cloning repositories (auto-installed if missing on supported distributions like Ubuntu, Debian, Fedora, Arch).
+Dependencies:
 
-ImageMagick: For image processing (auto-installed on supported distributions).
-# Windows (PowerShell)
-# Git: For cloning repositories. Install via:
-```
+Git: Install with:
 winget install Git.Git
-```
-# ImageMagick: For image optimization. Install via: (COPY,PASTE & ENTER)
-```
-winget install ImageMagick.ImageMagick
-```
-# Troubleshooting
-# "Permission Error":
-Run with sudo: 
-```
-sudo ./run
-```
-# "Git not found": 
-Install Git manually and ensure it’s in your PATH.
-# "ImageMagick missing": 
-Install it manually if auto-install fails.
-# Insufficient Space: 
-Requires ~3.5GB free; the script will warn if space is low.
-# Interactive Issues: 
-For PowerShell, run the script in a terminal to ensure input works with irm | iex.
 
-# Contributing
-Fork the repository at github.com/0xb0rn3/wallpimp.
-Create a branch for your changes.
-Submit a pull request with a detailed description of your contributions.
+ImageMagick: Get it via:
+winget install ImageMagick.ImageMagick
+
+Note: If dependencies aren’t in your PATH, install them manually and verify with git --version and magick --version.
+
+Configuration
+Both versions fetch repository details from a central config file:
+
+Source: https://raw.githubusercontent.com/0xb0rn3/wallpimp/main/config.ini.
+Fallback: Hardcoded defaults kick in if the fetch fails.
+Customization: Edit config.ini on GitHub to tweak repository sources.
+Troubleshooting
+Run into a snag? Here’s how to fix common issues:
+
+"Permission Error":
+Linux: Use sudo.
+Windows: Run PowerShell as Administrator.
+
+"Git not found":
+Install Git and ensure it’s in your PATH.
+
+"ImageMagick missing":
+Install manually if auto-install fails.
+
+Insufficient Space:
+Free up ~3.5GB; the script will warn you if space is tight.
+
+Interactive Issues (PowerShell):
+Run in a terminal to ensure inputs work with irm | iex.
+
+Contributing
+Love WallPimp? Help make it better!
+
+Fork the repo at github.com/0xb0rn3/wallpimp.
+Branch off for your changes.
+Submit a pull request with a clear rundown of your tweaks.
