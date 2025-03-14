@@ -1,231 +1,236 @@
-#!/usr/bin/env bash
+#!/usr/bin/env python3
 
-# Terminal styling and colors
-readonly RED='\033[0;31m'
-readonly GREEN='\033[0;32m'
-readonly BLUE='\033[0;34m'
-readonly PURPLE='\033[0;35m'
-readonly CYAN='\033[0;36m'
-readonly YELLOW='\033[1;33m'
-readonly NC='\033[0m'
-readonly BOLD='\033[1m'
+import os
+import sys
+import subprocess
+import tempfile
+import shutil
+import requests
+import configparser
+import hashlib
+from PIL import Image
+import glob
+import threading
+import time
+import select
+from tqdm import tqdm
+from colorama import init, Fore, Style
+import multiprocessing as mp
+from itertools import cycle
 
-# Repository configuration
-declare -A REPOS=(
-    ["Minimalist"]="https://github.com/dharmx/walls|main"
-    ["Anime"]="https://github.com/HENTAI-CODER/Anime-Wallpaper|main"
-    ["Nature"]="https://github.com/FrenzyExists/wallpapers|main"
-    ["Scenic"]="https://github.com/michaelScopic/Wallpapers|main"
-    ["Artistic"]="https://github.com/D3Ext/aesthetic-wallpapers|main"
-    ["Anime Pack"]="https://github.com/Dreamer-Paul/Anime-Wallpaper|main"
-    ["Linux"]="https://github.com/polluxau/linuxnext-wallpapers|main"
-    ["Mixed"]="https://github.com/makccr/wallpapers|main"
-    ["Desktop"]="https://github.com/port19x/Wallpapers|main"
-    ["Gaming"]="https://github.com/ryan4yin/wallpapers|main"
-    ["Photos"]="https://github.com/linuxdotexe/wallpapers|main"
-    ["Digital"]="https://github.com/0xb0rn3/wallpapers|main"
-)
+# Initialize colorama for cross-platform colored output
+init()
 
-# Loading animation for dependency installation
-show_loader() {
-    local pid=$1
-    local message=$2
-    local spinstr='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
-    while kill -0 "$pid" 2>/dev/null; do
-        local temp=${spinstr#?}
-        printf "\r${CYAN}${BOLD}[%c] %s${NC}" "$spinstr" "$message"
-        spinstr=$temp${spinstr%"$temp"}
-        sleep 0.1
-    done
-    printf "\r${GREEN}${BOLD}[✓] %s${NC}\n" "$message"
-}
+# Define some crazy colors and styles
+BANNER_COLOR = Fore.MAGENTA + Style.BRIGHT
+INFO_COLOR = Fore.CYAN + Style.BRIGHT
+ERROR_COLOR = Fore.RED + Style.BRIGHT
+SUCCESS_COLOR = Fore.GREEN + Style.BRIGHT
+WARNING_COLOR = Fore.YELLOW + Style.BRIGHT
+RESET = Style.RESET_ALL
 
-# Progress bar for repository processing
-show_progress() {
-    local current=$1
-    local total=$2
-    local width=50
-    local percentage=$((current * 100 / total))
-    local filled=$((percentage * width / 100))
-    local empty=$((width - filled))
-    printf "\r${PURPLE}${BOLD}Progress: ["
-    printf "%${filled}s" | tr ' ' '█'
-    printf "%${empty}s" | tr ' ' '░'
-    printf "] %3d%%${NC}" "$percentage"
-}
+# ASCII Art with a twist
+BANNER = """
+██╗    ██╗ █████╗ ██╗     ██╗     ██████╗ ██╗███╗   ███╗██████╗ 
+██║    ██║██╔══██╗██║     ██║     ██╔══██╗██║████╗ ████║██╔══██╗
+██║ █╗ ██║███████║██║     ██║     ██████╔╝██║██╔████╔██║██████╔╝
+██║███╗██║██╔══██║██║     ██║     ██╔═══╝ ██║██║╚██╔╝██║██╔═══╝ 
+╚███╔███╔╝██║  ██║███████╗███████╗██║     ██║██║ ╚═╝ ██║██║     
+ ╚══╝╚══╝ ╚═╝  ╚═╝╚══════╝╚══════╝╚═╝     ╚═╝╚═╝     ╚═╝╚═╝     
+"""
 
-# Install required dependencies
-install_dependencies() {
-    if ! command -v git >/dev/null 2>&1; then
-        echo "Installing Git..."
-        sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends git &
-        show_loader $! "Installing Git"
-    fi
-    if ! command -v convert >/dev/null 2>&1; then
-        echo "Installing ImageMagick..."
-        sudo apt-get install -y -qq --no-install-recommends imagemagick &
-        show_loader $! "Installing ImageMagick"
-    fi
-}
+# Spinner for extra pizzazz
+SPINNER = cycle(['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'])
 
-# Display script banner
-show_banner() {
-    clear
-    cat << "EOF"
+def show_banner():
+    """Display an animated banner because why not?"""
+    print("\033[2J\033[H")  # Clear screen
+    for _ in range(5):  # Flash it up
+        for line in BANNER.split('\n'):
+            print(f"{BANNER_COLOR}{line.center(80)}{RESET}")
+        print(f"{INFO_COLOR}        Ultimate Wallpaper Collector v0.5.2 - By 0xB0RN3{RESET}".center(80))
+        time.sleep(0.1)
+        print("\033[2J\033[H")  # Clear screen again
+    for line in BANNER.split('\n'):
+        print(f"{BANNER_COLOR}{line.center(80)}{RESET}")
+    print(f"{INFO_COLOR}        Ultimate Wallpaper Collector v0.5.2 - By 0xB0RN3{RESET}".center(80))
+    print(f"{SUCCESS_COLOR}      Let’s collect some wallpapers like it’s 1999!{RESET}\n".center(80))
+
+def check_dependencies():
+    """Ensure Git and ImageMagick are ready to rock."""
+    print(f"{INFO_COLOR}Checking dependencies...{RESET}", end=" ")
+    for _ in range(5):
+        sys.stdout.write(next(SPINNER))
+        sys.stdout.flush()
+        time.sleep(0.1)
+        sys.stdout.write('\b')
+    if not shutil.which("git"):
+        print(f"\n{ERROR_COLOR}Git is missing! Install it with 'sudo apt install git' or equivalent.{RESET}")
+        sys.exit(1)
+    if not shutil.which("convert"):
+        print(f"\n{ERROR_COLOR}ImageMagick is AWOL! Install it with 'sudo apt install imagemagick'.{RESET}")
+        sys.exit(1)
+    print(f"{SUCCESS_COLOR}All systems go!{RESET}")
+
+def load_config():
+    """Fetch and parse the config with some fallback magic."""
+    config_url = "https://raw.githubusercontent.com/0xb0rn3/wallpimp/main/config.ini"
+    print(f"{INFO_COLOR}Grabbing config from the interwebs...{RESET}", end=" ")
+    for _ in range(5):
+        sys.stdout.write(next(SPINNER))
+        sys.stdout.flush()
+        time.sleep(0.1)
+        sys.stdout.write('\b')
+    try:
+        response = requests.get(config_url, timeout=10)
+        response.raise_for_status()
+        config = configparser.ConfigParser()
+        config.read_string(response.text)
+        repos = []
+        for key in config['Repositories']:
+            value = config['Repositories'][key]
+            parts = [p.strip() for p in value.split('|')]
+            if len(parts) >= 3:
+                repos.append({
+                    'name': key,
+                    'icon': parts[0],
+                    'url': parts[1],
+                    'branch': parts[2],
+                    'description': parts[3] if len(parts) > 3 else 'No description'
+                })
+        print(f"{SUCCESS_COLOR}Config loaded! Found {len(repos)} repos.{RESET}")
+        return repos
+    except Exception as e:
+        print(f"\n{WARNING_COLOR}Config fetch failed: {e}. Going rogue with defaults!{RESET}")
+        return [
+            {'name': 'Minimalist', 'url': 'https://github.com/dharmx/walls', 'branch': 'main', 'description': 'Clean minimalist designs'},
+            {'name': 'Anime', 'url': 'https://github.com/HENTAI-CODER/Anime-Wallpaper', 'branch': 'main', 'description': 'Anime & manga artwork'},
+            {'name': 'Nature', 'url': 'https://github.com/FrenzyExists/wallpapers', 'branch': 'main', 'description': 'Nature landscapes'},
+            # Add more defaults as needed
+        ]
+
+def select_repos(repos):
+    """Fancy repo selector with numbers and flair."""
+    print(f"\n{INFO_COLOR}=== Pick Your Wallpaper Poison ==={RESET}")
+    for i, repo in enumerate(repos, 1):
+        print(f"{Fore.BLUE}{i}. {repo['name']}{RESET} - {repo['description']} {repo['icon']}")
+    print(f"{INFO_COLOR}Type numbers (e.g., '1 3 5') or 'all' for everything.{RESET}")
+    while True:
+        selection = input(f"{BANNER_COLOR}Your choice: {RESET}").strip().lower()
+        if selection == 'all':
+            return repos
+        try:
+            indices = [int(x) - 1 for x in selection.split()]
+            selected = [repos[i] for i in indices if 0 <= i < len(repos)]
+            if selected:
+                print(f"{SUCCESS_COLOR}Locked and loaded: {len(selected)} repos selected!{RESET}")
+                return selected
+            print(f"{ERROR_COLOR}Oops, nothing valid selected. Try again!{RESET}")
+        except ValueError:
+            print(f"{ERROR_COLOR}Numbers only, genius! Or 'all'.{RESET}")
+
+def process_image(img_path, save_dir, processed_hashes, min_width=1920, min_height=1080):
+    """Process a single image with hash deduplication."""
+    try:
+        with Image.open(img_path) as im:
+            width, height = im.size
+            if width >= min_width and height >= min_height:
+                with open(img_path, 'rb') as f:
+                    hash = hashlib.sha256(f.read()).hexdigest()
+                if hash not in processed_hashes:
+                    processed_hashes.add(hash)
+                    im.convert('RGB').save(os.path.join(save_dir, f"{hash[:16]}.jpg"), quality=95)
+                    return 1
+        return 0
+    except Exception as e:
+        print(f"{ERROR_COLOR}Image {os.path.basename(img_path)} broke me: {e}{RESET}")
+        return 0
+
+def process_repo(repo, save_dir, processed_hashes, crazy_mode=False):
+    """Process a single repo with flair and progress."""
+    total_wallpapers = 0
+    print(f"{INFO_COLOR}Cloning {repo['name']}...{RESET}", end=" ")
+    with tempfile.TemporaryDirectory() as temp_dir:
+        try:
+            subprocess.run(['git', 'clone', '--depth=1', '--quiet', '--branch', repo['branch'], repo['url'], temp_dir], check=True)
+            print(f"{SUCCESS_COLOR}Done!{RESET}")
+        except subprocess.CalledProcessError:
+            print(f"\n{ERROR_COLOR}Clone failed for {repo['name']}. Moving on...{RESET}")
+            return 0
+
+        images = glob.glob(os.path.join(temp_dir, '**', '*.jpg'), recursive=True) + \
+                 glob.glob(os.path.join(temp_dir, '**', '*.jpeg'), recursive=True) + \
+                 glob.glob(os.path.join(temp_dir, '**', '*.png'), recursive=True) + \
+                 glob.glob(os.path.join(temp_dir, '**', '*.webp'), recursive=True)
+
+        if crazy_mode:
+            with mp.Pool(processes=mp.cpu_count()) as pool:
+                results = pool.starmap(process_image, [(img, save_dir, processed_hashes) for img in images])
+                total_wallpapers = sum(results)
+        else:
+            for img in tqdm(images, desc=f"{repo['name']} Walls", bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt}"):
+                if select.select([sys.stdin], [], [], 0)[0]:
+                    key = sys.stdin.read(1)
+                    if key == 'p':
+                        print(f"{WARNING_COLOR}Paused! 'c' to continue, 's' to stop.{RESET}")
+                        while True:
+                            key = sys.stdin.read(1)
+                            if key == 'c':
+                                print(f"{SUCCESS_COLOR}Back in action!{RESET}")
+                                break
+                            elif key == 's':
+                                print(f"{ERROR_COLOR}Stopping the madness!{RESET}")
+                                return total_wallpapers
+                total_wallpapers += process_image(img, save_dir, processed_hashes)
+    return total_wallpapers
+
+def process_wallpapers(save_dir, selected_repos, crazy_mode=False):
+    """Orchestrate the wallpaper madness."""
+    processed_hashes = set()
+    total_wallpapers = 0
+    print(f"\n{INFO_COLOR}Controls: 'p' to pause, 's' to stop (non-crazy mode), Ctrl+C to bail.{RESET}")
     
-    ██╗    ██╗ █████╗ ██╗     ██╗     ██████╗ ██╗███╗   ███╗██████╗ 
-    ██║    ██║██╔══██╗██║     ██║     ██╔══██╗██║████╗ ████║██╔══██╗
-    ██║ █╗ ██║███████║██║     ██║     ██████╔╝██║██╔████╔██║██████╔╝
-    ██║███╗██║██╔══██║██║     ██║     ██╔═══╝ ██║██║╚██╔╝██║██╔═══╝ 
-    ╚███╔███╔╝██║  ██║███████╗███████╗██║     ██║██║ ╚═╝ ██║██║     
-     ╚══╝╚══╝ ╚═╝  ╚═╝╚══════╝╚══════╝╚═╝     ╚═╝╚═╝     ╚═╝╚═╝     
-EOF
-    printf "\n${BOLD}${BLUE}%s${NC}\n" "                    Ultimate Wallpaper Collector v0.5.1"
-    printf "${BOLD}${CYAN}%s${NC}\n\n" "                        Created by 0xB0RN3"
-}
+    if crazy_mode:
+        print(f"{BANNER_COLOR}=== CRAZY MODE ACTIVATED: Parallel Processing ON ==={RESET}")
+        with mp.Manager() as manager:
+            shared_hashes = manager.Set()
+            with mp.Pool(processes=min(mp.cpu_count(), len(selected_repos))) as pool:
+                results = pool.starmap(process_repo, [(repo, save_dir, shared_hashes, True) for repo in selected_repos])
+            total_wallpapers = sum(results)
+            processed_hashes = set(shared_hashes)
+    else:
+        for i, repo in enumerate(selected_repos, 1):
+            print(f"{BANNER_COLOR}Repo {i}/{len(selected_repos)}: {repo['name']}{RESET}")
+            total_wallpapers += process_repo(repo, save_dir, processed_hashes)
 
-# Let user select repositories
-select_repos() {
-    echo "Available repositories:"
-    local i=1
-    for repo_name in "${!REPOS[@]}"; do
-        echo "$i. $repo_name"
-        ((i++))
-    done
-    while true; do
-        read -p "Enter numbers separated by spaces or 'all' (e.g., 1 3 5): " selection
-        if [[ "$selection" == "all" ]]; then
-            selected_repos=("${!REPOS[@]}")
-            break
-        elif [[ "$selection" =~ ^[0-9\ ]+$ ]]; then
-            selected_repos=()
-            valid=true
-            for num in $selection; do
-                if [ "$num" -ge 1 ] && [ "$num" -le "${#REPOS[@]}" ]; then
-                    selected_repos+=("${!REPOS[@]:$((num-1)):1}")
-                else
-                    echo "Invalid number: $num. Please select between 1 and ${#REPOS[@]}."
-                    valid=false
-                    break
-                fi
-            done
-            if $valid && [ ${#selected_repos[@]} -gt 0 ]; then
-                break
-            fi
-        else
-            echo "Invalid input. Use numbers separated by spaces or 'all'."
-        fi
-    done
-}
+    print(f"\n{SUCCESS_COLOR}WallPimp has pimped your collection! Unique wallpapers: {total_wallpapers}{RESET}")
 
-# Process wallpapers from selected repositories
-process_wallpapers() {
-    local save_dir="$1"
-    shift
-    local selected_repos=("$@")
-    local temp_dir
-    temp_dir=$(mktemp -d) || { echo "Failed to create temp directory"; exit 1; }
-    declare -A processed_hashes
-    local total_repos=${#selected_repos[@]}
-    local current_repo=0
-    local total_wallpapers=0
-    local paused=0
+def main():
+    show_banner()
+    check_dependencies()
+    repos = load_config()
+    
+    default_dir = os.path.join(os.path.expanduser('~'), 'Pictures', 'Wallpapers')
+    save_dir = input(f"{INFO_COLOR}Where to stash the goods? [{default_dir}]: {RESET}") or default_dir
+    os.makedirs(save_dir, exist_ok=True)
+    
+    disk = shutil.disk_usage(save_dir)
+    if disk.free < 3.5 * 1024 * 1024 * 1024:
+        print(f"{WARNING_COLOR}Low space alert! Only {disk.free / (1024*1024*1024):.2f}GB free, need ~3.5GB.{RESET}")
+        if input(f"{INFO_COLOR}Risk it? (y/n): {RESET}").lower() != 'y':
+            print(f"{ERROR_COLOR}Bailing out!{RESET}")
+            sys.exit(0)
 
-    # Clean up on interruption
-    trap 'echo -e "\n${YELLOW}Download interrupted.${NC}"; echo "Total unique wallpapers downloaded: $total_wallpapers"; rm -rf "$temp_dir"; exit 0' INT
+    crazy_mode = input(f"{BANNER_COLOR}Go CRAZY with parallel downloads? (y/n): {RESET}").lower() == 'y'
+    selected_repos = select_repos(repos)
+    process_wallpapers(save_dir, selected_repos, crazy_mode)
 
-    for repo_name in "${selected_repos[@]}"; do
-        ((current_repo++))
-        IFS='|' read -r url branch <<< "${REPOS[$repo_name]}"
-        echo "Processing $repo_name..."
-        if ! timeout 300 git clone --depth=1 --quiet --branch "$branch" "$url" "$temp_dir/$repo_name" 2>/dev/null; then
-            echo "${RED}Failed to clone $repo_name or cloning timed out. Skipping...${NC}"
-            continue
-        fi
-
-        # Process images with progress feedback
-        image_count=0
-        find "$temp_dir/$repo_name" -type f \( -iname "*.jpg" -o -iname "*.jpeg" -o -iname "*.png" -o -iname "*.webp" \) -print0 |
-        while IFS= read -r -d '' img; do
-            ((image_count++))
-            while [ "$paused" -eq 1 ]; do
-                echo "Paused. Press 'c' to continue, 's' to stop:"
-                read -n 1 -s key
-                case "$key" in
-                    c) paused=0; echo "Resuming...";;
-                    s) echo "Stopped by user."; echo "Total unique wallpapers downloaded: $total_wallpapers"; rm -rf "$temp_dir"; exit 0;;
-                esac
-            done
-
-            # Filter images by resolution and avoid duplicates
-            width=$(identify -format "%w" "$img" 2>/dev/null || echo 0)
-            height=$(identify -format "%h" "$img" 2>/dev/null || echo 0)
-            if [ "$width" -ge 1920 ] && [ "$height" -ge 1080 ]; then
-                hash=$(sha256sum "$img" | cut -d' ' -f1)
-                if [[ -z "${processed_hashes[$hash]}" ]]; then
-                    processed_hashes[$hash]=1
-                    if convert "$img" -strip -quality 95 "$save_dir/${hash:0:16}.jpg" 2>/dev/null; then
-                        ((total_wallpapers++))
-                    fi
-                fi
-            fi
-
-            # Check for pause input
-            if read -t 0.1 -n 1 key 2>/dev/null; then
-                if [[ "$key" == "p" ]]; then
-                    paused=1
-                    echo "Pausing..."
-                fi
-            fi
-
-            # Show progress every 10 images
-            if (( image_count % 10 == 0 )); then
-                echo "Processed $image_count images from $repo_name"
-            fi
-        done
-        show_progress "$current_repo" "$total_repos"
-        rm -rf "$temp_dir/$repo_name"
-    done
-    echo -e "\n${GREEN}Collection complete! Total unique wallpapers downloaded: $total_wallpapers${NC}"
-    rm -rf "$temp_dir"
-}
-
-# Main execution flow
-main() {
-    show_banner
-    install_dependencies
-
-    # Set save directory
-    default_dir="$HOME/Pictures/Wallpapers"
-    read -p "Enter directory to save wallpapers [default: $default_dir]: " SAVE_DIR
-    SAVE_DIR=${SAVE_DIR:-$default_dir}
-    if ! mkdir -p "$SAVE_DIR" 2>/dev/null; then
-        echo "${RED}Cannot create directory $SAVE_DIR. Check permissions.${NC}"
-        exit 1
-    fi
-
-    # Check available space
-    REQUIRED_SPACE=3758096384  # 3.5GB in bytes
-    echo "Estimated storage required: ~3.5GB"
-    AVAILABLE_SPACE=$(df -B1 --output=avail "$SAVE_DIR" | tail -1 2>/dev/null || echo 0)
-    if [ "$AVAILABLE_SPACE" -lt "$REQUIRED_SPACE" ]; then
-        echo "${YELLOW}Warning: Only $((AVAILABLE_SPACE / 1048576))MB available, need ~3500MB${NC}"
-        read -p "Proceed anyway? (y/n): " proceed
-        if [[ "$proceed" != "y" && "$proceed" != "Y" ]]; then
-            echo "Aborted by user."
-            exit 0
-        fi
-    fi
-
-    # Select and process repositories
-    select_repos
-    echo "Controls: 'p' to pause, Ctrl+C to stop."
-    process_wallpapers "$SAVE_DIR" "${selected_repos[@]}"
-}
-
-# Run with error handling
-set -e
-main 2>/dev/null || {
-    echo -e "\n${RED}${BOLD}An error occurred. Check your internet connection, permissions, or dependencies.${NC}"
-    exit 1
-}
+if __name__ == "__main__":
+    try:
+        main()
+    except KeyboardInterrupt:
+        print(f"\n{ERROR_COLOR}Ctrl+C detected! WallPimp is outta here!{RESET}")
+        sys.exit(1)
+    except Exception as e:
+        print(f"\n{ERROR_COLOR}WallPimp crashed spectacularly: {e}{RESET}")
+        sys.exit(1)
