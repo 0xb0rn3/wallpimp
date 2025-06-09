@@ -60,7 +60,7 @@ Download the WallPimp script and run it directly. The tool will automatically in
 
 ```bash
 # Download the script
-curl -O https://raw.githubusercontent.com/username/wallpimp/main/wallpimp.py
+curl -O https://raw.githubusercontent.com/0xb0rn3/wallpimp/main/wallpimp.py
 
 # Make it executable (Linux/macOS)
 chmod +x wallpimp.py
