@@ -617,3 +617,4 @@ Examples:
 
 if __name__ == "__main__":
     main()
+print "FYI!! If you are on linux and need slideshow feature i HIGHLY recommend using LINUXSLIDESHOWSCRIPT with the command below and adding full path of the wallapapers so you can have slideshow funtionality. Thanks! \n chmod +x LINUXSLIDESHOWSCRIPT && sudo ./LINUXSLIDESHOWSCRIPT"
