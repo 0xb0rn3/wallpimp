@@ -1,133 +1,212 @@
-# WallPimp - Intelligent Wallpaper Collector
+# WallPimp - The Ultimate Wallpaper Manager
 
-Welcome to WallPimp, your go-to tool for collecting stunning, high-quality wallpapers from curated repositories! Whether you're on Linux, Windows, or beyond, WallPimp has you covered with implementations in Python (cross-platform, recommended for Linux) and PowerShell (tailored for Windows). This tool automates the heavy lifting—filtering by resolution, detecting duplicates with SHA-256 hashing, and optimizing your collection—all while keeping you in control.
+```
+██╗    ██╗ █████╗ ██╗     ██╗     ██████╗ ██╗███╗   ███╗██████╗ 
+██║    ██║██╔══██╗██║     ██║     ██╔══██╗██║████╗ ████║██╔══██╗
+██║ █╗ ██║███████║██║     ██║     ██████╔╝██║██╔████╔██║██████╔╝
+██║███╗██║██╔══██║██║     ██║     ██╔═══╝ ██║██║╚██╔╝██║██╔═══╝ 
+╚███╔███╔╝██║  ██║███████╗███████╗██║     ██║██║ ╚═╝ ██║██║     
+ ╚══╝╚══╝ ╚═╝  ╚═╝╚══════╝╚══════╝╚═╝     ╚═╝╚═╝     ╚═╝╚═╝     
+```
 
-## Features
+**Version 0.0.1** - A cross-platform wallpaper management tool that intelligently downloads and organizes high-quality wallpapers from curated GitHub repositories.
 
-WallPimp packs a punch with these awesome capabilities:
+WallPimp transforms the tedious process of wallpaper collection into an automated, efficient experience. Built with Python for maximum compatibility, it handles everything from dependency management to duplicate detection, ensuring you get the best wallpapers without the hassle.
 
-- **Cross-platform support**: Python for Linux (and adaptable elsewhere), PowerShell for Windows
-- **Interactive repository selection**: Choose by number or grab "all" with detailed descriptions and icons
-- **Download controls**: Pause (p), continue (c), or stop (s) at your command
-- **Duplicate detection**: Uses SHA-256 hashing to keep your collection unique
-- **Resolution filtering**: Defaults to 1920x1080, adjustable as needed
-- **Storage check**: Warns if you're low on space (needs ~3.5GB free)
-- **Progress feedback**: Animated spinners and progress bars keep you in the loop
-- **Parallel processing** (Python only): Enable "Crazy Mode" for lightning-fast downloads
-- **Stats**: Displays total unique wallpapers downloaded
+## Key Features
 
-## Installation
+WallPimp delivers a comprehensive wallpaper management solution with these powerful capabilities:
 
-WallPimp offers two flavors—Python and PowerShell. Here's how to get started with each.
+**Intelligent Repository Management**: Access twelve carefully curated repositories spanning minimalist designs, anime artwork, nature landscapes, gaming-inspired art, and professional photography. Each repository is automatically scanned for image files using GitHub's API, ensuring you never miss new additions.
 
-### Python Version (Recommended for Linux)
+**Automatic Dependency Management**: The tool handles its own setup by detecting and installing required Python packages automatically. This means you can run WallPimp immediately after download without worrying about missing dependencies or complex installation procedures.
 
-The Python version is versatile, built for Linux but adaptable to other platforms (yes, even Windows!). It shines with features like optional parallel processing.
+**Cross-Platform Compatibility**: Designed to work seamlessly across Windows, macOS, and Linux systems. The tool automatically detects your operating system and configures appropriate default directories, following platform-specific conventions for storing downloaded wallpapers.
 
-#### Prerequisites
+**Smart Caching System**: Built-in cache management prevents duplicate downloads and tracks your collection across sessions. The cache system includes cleanup functionality to maintain consistency when files are manually moved or deleted.
 
-- **Python 3.x**: The backbone of the script
-- **Git**: For cloning repositories
-- **ImageMagick**: For image optimization
-- **Python Libraries**: requests, pillow, tqdm, configparser, colorama
+**Concurrent Download Engine**: Utilize multi-threaded downloading to maximize your bandwidth while respecting rate limits. The configurable worker system allows you to balance download speed with system resources.
 
-#### Steps
+**Image Verification**: Every downloaded image undergoes validation to ensure file integrity. Corrupted or invalid files are automatically detected and removed, maintaining the quality of your collection.
 
-1. **Install System Dependencies**:
-   - Ubuntu/Debian:
-     ```
-     sudo apt-get install git imagemagick
-     ```
-   - Arch:
-     ```
-     sudo pacman -S git imagemagick
-     ```
-   - Fedora:
-     ```
-     sudo dnf install git ImageMagick
-     ```
-   - Windows: Install Git (`winget install Git.Git`) and ImageMagick (`winget install ImageMagick.ImageMagick`)
+**Comprehensive Progress Tracking**: Real-time progress bars and statistics keep you informed about download status, including files downloaded, skipped, failed, and total storage space used.
 
-2. **Install Python Libraries**:
-   ```
-   pip install requests pillow tqdm configparser colorama
-   ```
+**Flexible Command-Line Interface**: Whether you prefer quick one-time downloads or interactive exploration, WallPimp accommodates different usage patterns with intuitive command-line options.
 
-3. **Download the Script**:
-   - Grab `run` from the GitHub repository
+## Repository Collection
 
-4. **Run the Script**:
-   ```
-   chmod +x ./run
-   ./run
-   ```
+WallPimp connects to these expertly curated repositories:
 
-5. **Follow the Prompts**:
-   - Set a save directory (default: ~/Pictures/Wallpapers)
-   - Pick repositories by number or type "all"
-   - Opt for "y" on Crazy Mode for parallel downloads
-   - Control downloads: p (pause), c (continue), s (stop)
+🖼️ **Minimalist** - Clean, simple designs perfect for distraction-free desktops
+🌸 **Anime** - High-quality anime and manga artwork from dedicated collections
+🌿 **Nature** - Breathtaking natural landscapes and scenic photography
+🏞️ **Scenic** - Stunning vistas and panoramic views from around the world
+🎨 **Artistic** - Creative and aesthetic wallpapers with unique visual styles
+🎎 **Anime Pack** - Carefully curated anime art collections
+🐧 **Linux** - Desktop art specifically chosen for Linux environments
+🌟 **Mixed** - Diverse collections spanning multiple artistic styles
+💻 **Desktop** - Minimalist designs optimized for desktop environments
+🎮 **Gaming** - Gaming-inspired artwork and designs
+📷 **Photos** - Professional photography collections
+🖥️ **Digital** - Modern digital art and computer-generated imagery
 
-### PowerShell Version (For Windows)
+## Installation and Setup
 
-The PowerShell version is a Windows-native experience—simple, direct, and powerful.
+Getting started with WallPimp requires only Python 3.6 or later. The tool handles all other dependencies automatically, making installation straightforward regardless of your operating system.
 
-#### Steps
+### Quick Start
 
-1. **Run Directly from GitHub**:
-   - Open PowerShell as Administrator:
-     - Hit Windows + X, choose "Windows PowerShell (Admin)"
-   - Run these commands one at a time:
-     ```powershell
-     Set-ExecutionPolicy RemoteSigned -Scope CurrentUser
-     irm https://raw.githubusercontent.com/0xb0rn3/wallpimp/main/run.ps1 | iex
-     ```
+Download the WallPimp script and run it directly. The tool will automatically install required dependencies during its first execution:
 
-2. **Follow the Prompts**:
-   - Choose a save directory (default: ~/Pictures/Wallpapers)
-   - Select repositories by number or type "all"
-   - Manage downloads: p (pause), c (continue), s (stop)
+```bash
+# Download the script
+curl -O https://raw.githubusercontent.com/username/wallpimp/main/wallpimp.py
 
-3. **Dependencies**:
-   - Git: Install with:
-     ```
-     winget install Git.Git
-     ```
-   - ImageMagick: Get it via:
-     ```
-     winget install ImageMagick.ImageMagick
-     ```
+# Make it executable (Linux/macOS)
+chmod +x wallpimp.py
 
-   > Note: If dependencies aren't in your PATH, install them manually and verify with `git --version` and `magick --version`.
+# Run WallPimp
+python wallpimp.py
+```
 
-## Configuration
+### System Requirements
 
-Both versions fetch repository details from a central config file:
+WallPimp requires minimal system resources but benefits from adequate storage space and network connectivity:
 
-- **Source**: https://raw.githubusercontent.com/0xb0rn3/wallpimp/main/config.ini
-- **Fallback**: Hardcoded defaults kick in if the fetch fails
-- **Customization**: Edit config.ini on GitHub to tweak repository sources
+**Python Version**: Python 3.6 or later is required for compatibility with all features. The tool uses modern Python features like f-strings and type hints for improved code clarity and performance.
 
-## Troubleshooting
+**Storage Space**: Each repository typically contains 50-500 wallpapers ranging from 100KB to 10MB per file. Plan for approximately 2-5GB of storage space per repository, though actual requirements vary based on collection size and image quality.
 
-Run into a snag? Here's how to fix common issues:
+**Network Connection**: A stable internet connection is essential for downloading from GitHub repositories. The tool implements retry logic and error handling to manage temporary network issues gracefully.
 
-- **"Permission Error"**:
-  - Linux: Use sudo
-  - Windows: Run PowerShell as Administrator
-- **"Git not found"**:
-  - Install Git and ensure it's in your PATH
-- **"ImageMagick missing"**:
-  - Install manually if auto-install fails
-- **Insufficient Space**:
-  - Free up ~3.5GB; the script will warn you if space is tight
-- **Interactive Issues (PowerShell)**:
-  - Run in a terminal to ensure inputs work with `irm | iex`
+**Memory Usage**: WallPimp uses efficient streaming downloads to minimize memory consumption. Typical memory usage remains under 100MB even during intensive download operations.
 
-## Contributing
+## Usage Guide
 
-Love WallPimp? Help make it better!
+WallPimp offers flexible usage patterns to accommodate different workflows and preferences. Understanding these options helps you maximize the tool's effectiveness.
 
-- Fork the repo at github.com/0xb0rn3/wallpimp
-- Branch off for your changes
-- Submit a pull request with a clear rundown of your tweaks
+### Command-Line Operations
+
+The tool provides comprehensive command-line functionality for both quick operations and detailed control:
+
+```bash
+# List all available repositories
+python wallpimp.py --list
+
+# Download from a specific repository
+python wallpimp.py --repo anime
+
+# Download from all repositories
+python wallpimp.py --all
+
+# Specify custom download directory
+python wallpimp.py --repo nature --dir /path/to/wallpapers
+
+# Adjust concurrent download workers
+python wallpimp.py --repo gaming --workers 8
+
+# Clean up cache and remove orphaned entries
+python wallpimp.py --cleanup
+```
+
+### Interactive Mode
+
+Running WallPimp without arguments launches interactive mode, which provides a user-friendly interface for exploring repositories:
+
+```bash
+python wallpimp.py
+```
+
+Interactive mode displays the ASCII banner, lists available repositories with descriptions, and provides guidance for command-line usage. This mode is particularly helpful for first-time users or when exploring new repositories.
+
+### Advanced Configuration
+
+Power users can customize WallPimp's behavior through various command-line options:
+
+**Worker Threads**: Adjust the number of concurrent download workers based on your system capabilities and network capacity. More workers increase download speed but consume additional system resources.
+
+**Custom Directories**: Specify custom download locations to organize wallpapers according to your preferences. The tool maintains repository-based subdirectories within your chosen location.
+
+**Cache Management**: Regular cache cleanup ensures optimal performance and storage efficiency. The cleanup operation removes references to deleted files and optimizes cache structure.
+
+## Understanding the Architecture
+
+WallPimp's architecture reflects modern software design principles, emphasizing modularity, error resilience, and user experience. Understanding these design decisions helps explain the tool's reliability and performance characteristics.
+
+### Repository Integration
+
+The tool integrates with GitHub's REST API to discover and download wallpapers. This approach provides several advantages over web scraping or static file lists. The API integration enables automatic discovery of new files, provides detailed metadata for each image, and supports recursive directory traversal for comprehensive repository scanning.
+
+Each repository is scanned recursively, meaning the tool explores all subdirectories to find image files. This comprehensive approach ensures no wallpapers are missed, even in repositories with complex organizational structures.
+
+### Download Management
+
+The concurrent download system balances speed with resource management. Multiple worker threads handle downloads simultaneously while respecting rate limits to maintain good citizenship with GitHub's infrastructure. Each download includes verification steps to ensure file integrity and proper image format validation.
+
+Progress tracking provides real-time feedback without overwhelming the user interface. The system displays individual file progress for active downloads while maintaining overall statistics for the entire operation.
+
+### Cache and Storage
+
+The caching system serves multiple purposes beyond preventing duplicate downloads. It tracks download history across sessions, maintains metadata about each repository, and supports cleanup operations to maintain consistency. The cache uses JSON format for human readability and easy debugging.
+
+Storage organization follows platform conventions while maintaining logical groupings. Each repository creates its own subdirectory structure, preserving the original organization while preventing filename conflicts.
+
+## Troubleshooting Common Issues
+
+Understanding common issues and their solutions helps ensure smooth operation across different environments and use cases.
+
+### Dependency Problems
+
+If the automatic dependency installation fails, you can manually install required packages:
+
+```bash
+pip install requests tqdm pillow colorama
+```
+
+On systems with multiple Python versions, ensure you're using the correct pip command corresponding to your Python 3 installation. Some systems require `pip3` instead of `pip`.
+
+### Network and API Issues
+
+GitHub API rate limiting may affect download speed during intensive operations. The tool includes built-in delays and retry logic to handle these situations gracefully. If you encounter persistent rate limiting, consider reducing the number of worker threads or spacing out large download operations.
+
+Network connectivity issues typically resolve automatically through the tool's retry mechanisms. However, persistent connectivity problems may require checking your internet connection or firewall settings.
+
+### Storage and Permissions
+
+Ensure adequate storage space before beginning large download operations. The tool provides warnings when storage space becomes limited, but cannot prevent all storage-related issues.
+
+Permission errors typically occur when the chosen download directory is protected or when running the tool in restricted environments. Choose a directory with appropriate write permissions or run the tool with elevated privileges if necessary.
+
+### Image Validation Failures
+
+Occasional image validation failures are normal and typically indicate corrupted downloads or network issues. The tool automatically removes invalid files and continues operation. Persistent validation failures may indicate broader network problems or issues with specific repositories.
+
+## Contributing and Development
+
+WallPimp welcomes contributions from the community. The codebase is designed for maintainability and extensibility, making it straightforward to add new features or improve existing functionality.
+
+### Code Organization
+
+The tool follows object-oriented design principles with clear separation of concerns. The main `WallPimp` class encapsulates all functionality while maintaining clean interfaces for extension. Helper methods handle specific tasks like API interaction, file management, and progress tracking.
+
+### Adding New Repositories
+
+Adding new repositories requires updating the `REPOSITORIES` dictionary with appropriate metadata. Each repository entry includes display information, GitHub URLs, and descriptive text. The tool automatically handles the technical aspects of repository integration.
+
+### Performance Optimization
+
+Performance improvements can focus on several areas including download parallelization, caching efficiency, and memory usage optimization. The current implementation balances performance with resource consumption for broad compatibility.
+
+### Testing and Quality Assurance
+
+Comprehensive error handling and logging support debugging and quality assurance efforts. The tool generates detailed logs for troubleshooting while providing user-friendly error messages for common issues.
+
+## License and Acknowledgments
+
+WallPimp builds upon the excellent work of repository maintainers who curate high-quality wallpaper collections. The tool serves as a bridge between these collections and end users, making quality wallpapers more accessible while respecting the original creators' work.
+
+The implementation uses established Python libraries and follows community best practices for code organization, error handling, and user interface design. This approach ensures reliability while maintaining compatibility across different environments and use cases.
+
+---
+
+*WallPimp Version 0.0.1 - Making quality wallpapers accessible to everyone*
