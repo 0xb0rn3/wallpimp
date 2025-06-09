@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 """
 WallPimp - Wallpaper Management Tool
-Version: 0.0.1
-A cross-platform wallpaper downloader and manager
+A simple cross-platform wallpaper downloader and manager
 """
 
 import os
@@ -11,10 +10,9 @@ import json
 import argparse
 import logging
 import subprocess
-import threading
 import time
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 from urllib.parse import urlparse
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -48,11 +46,9 @@ def check_and_install_dependencies():
             lambda dep: subprocess.check_call([sys.executable, '-m', 'pip', 'install', '--break-system-packages', dep]),
             # Strategy 2: Try regular pip installation
             lambda dep: subprocess.check_call([sys.executable, '-m', 'pip', 'install', dep]),
-            # Strategy 3: Try pipx if available (for isolated installations)
-            lambda dep: subprocess.check_call(['pipx', 'install', dep.split('>=')[0]]),
-            # Strategy 4: Try pip3 directly
+            # Strategy 3: Try pip3 directly
             lambda dep: subprocess.check_call(['pip3', 'install', '--break-system-packages', dep]),
-            # Strategy 5: Try pip3 without break-system-packages
+            # Strategy 4: Try pip3 without break-system-packages
             lambda dep: subprocess.check_call(['pip3', 'install', dep]),
         ]
         
@@ -78,11 +74,6 @@ def check_and_install_dependencies():
                 print("  sudo apt install python3-requests python3-tqdm python3-pil python3-colorama")
                 print("\nFor Fedora:")
                 print("  sudo dnf install python3-requests python3-tqdm python3-pillow python3-colorama")
-                print("\nAlternatively, install pip first:")
-                print("  Arch: sudo pacman -S python-pip")
-                print("  Ubuntu: sudo apt install python3-pip")
-                print("  Fedora: sudo dnf install python3-pip")
-                print("\nThen run the script again.")
                 sys.exit(1)
         
         print("All dependencies installed successfully!\n")
@@ -104,97 +95,21 @@ init(autoreset=True)
 class WallPimp:
     """Main WallPimp class for wallpaper management"""
     
-    VERSION = "0.0.1"
-    
-    # Repository configurations
-    REPOSITORIES = {
-        'minimalist': {
-            'icon': '🖼️',
-            'url': 'https://github.com/dharmx/walls',
-            'branch': 'main',
-            'description': 'Clean minimalist designs'
-        },
-        'anime': {
-            'icon': '🌸',
-            'url': 'https://github.com/HENTAI-CODER/Anime-Wallpaper',
-            'branch': 'main',
-            'description': 'Anime & manga artwork'
-        },
-        'nature': {
-            'icon': '🌿',
-            'url': 'https://github.com/FrenzyExists/wallpapers',
-            'branch': 'main',
-            'description': 'Nature landscapes'
-        },
-        'scenic': {
-            'icon': '🏞️',
-            'url': 'https://github.com/michaelScopic/Wallpapers',
-            'branch': 'main',
-            'description': 'Scenic vistas'
-        },
-        'artistic': {
-            'icon': '🎨',
-            'url': 'https://github.com/D3Ext/aesthetic-wallpapers',
-            'branch': 'main',
-            'description': 'Artistic styles'
-        },
-        'anime_pack': {
-            'icon': '🎎',
-            'url': 'https://github.com/Dreamer-Paul/Anime-Wallpaper',
-            'branch': 'main',
-            'description': 'Curated anime art'
-        },
-        'linux': {
-            'icon': '🐧',
-            'url': 'https://github.com/polluxau/linuxnext-wallpapers',
-            'branch': 'main',
-            'description': 'Linux desktop art'
-        },
-        'mixed': {
-            'icon': '🌟',
-            'url': 'https://github.com/makccr/wallpapers',
-            'branch': 'main',
-            'description': 'Diverse styles'
-        },
-        'desktop': {
-            'icon': '💻',
-            'url': 'https://github.com/port19x/Wallpapers',
-            'branch': 'main',
-            'description': 'Minimalist desktop'
-        },
-        'gaming': {
-            'icon': '🎮',
-            'url': 'https://github.com/ryan4yin/wallpapers',
-            'branch': 'main',
-            'description': 'Gaming-inspired art'
-        },
-        'photos': {
-            'icon': '📷',
-            'url': 'https://github.com/linuxdotexe/wallpapers',
-            'branch': 'main',
-            'description': 'Professional photography'
-        },
-        'digital': {
-            'icon': '🖥️',
-            'url': 'https://github.com/0xb0rn3/wallpapers',
-            'branch': 'main',
-            'description': 'Digital creations'
-        }
-    }
-    
     def __init__(self, download_dir: str = None):
         """Initialize WallPimp with configuration"""
         self.download_dir = Path(download_dir) if download_dir else self._get_default_download_dir()
-        self.session = requests.Session()
-        self.session.headers.update({
-            'User-Agent': f'WallPimp/{self.VERSION} (https://github.com/wallpimp/wallpimp)'
-        })
         
-        # Setup logging
+        # Create download directory first - this fixes the original bug
+        self.download_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Now we can safely setup logging since the directory exists
         self._setup_logging()
         
-        # Create download directory if it doesn't exist
-        self.download_dir.mkdir(parents=True, exist_ok=True)
+        # Setup HTTP session with proper headers
+        self.session = requests.Session()
+        self.session.headers.update({
+            'User-Agent': 'WallPimp-Wallpaper-Manager (https://github.com/wallpimp/wallpimp)'
+        })
         
         # Load cache for tracking downloaded files
         self.cache_file = self.download_dir / '.wallpimp_cache.json'
@@ -209,16 +124,11 @@ class WallPimp:
         }
     
     def _get_default_download_dir(self) -> Path:
-        """Get default download directory based on OS"""
-        if sys.platform == 'win32':
-            return Path.home() / 'Pictures' / 'WallPimp'
-        elif sys.platform == 'darwin':
-            return Path.home() / 'Pictures' / 'WallPimp'
-        else:  # Linux and other Unix-like systems
-            return Path.home() / 'Pictures' / 'WallPimp'
+        """Get default download directory based on operating system"""
+        return Path.home() / 'Pictures' / 'WallPimp'
     
     def _setup_logging(self):
-        """Setup logging configuration"""
+        """Setup logging configuration - called after directory creation"""
         log_file = self.download_dir / 'wallpimp.log'
         logging.basicConfig(
             level=logging.INFO,
@@ -231,17 +141,21 @@ class WallPimp:
         self.logger = logging.getLogger(__name__)
     
     def _load_cache(self) -> Dict:
-        """Load cache from file"""
+        """Load cache from file to track what we've already downloaded"""
         if self.cache_file.exists():
             try:
                 with open(self.cache_file, 'r') as f:
-                    return json.load(f)
+                    cache_data = json.load(f)
+                    # Convert downloaded_files back to set if it exists
+                    if 'downloaded_files' in cache_data and isinstance(cache_data['downloaded_files'], list):
+                        cache_data['downloaded_files'] = set(cache_data['downloaded_files'])
+                    return cache_data
             except (json.JSONDecodeError, IOError):
                 self.logger.warning("Cache file corrupted, starting fresh")
-        return {'downloaded_files': set(), 'repo_metadata': {}}
+        return {'downloaded_files': set()}
     
     def _save_cache(self):
-        """Save cache to file"""
+        """Save cache to file for persistence between runs"""
         # Convert set to list for JSON serialization
         cache_copy = self.cache.copy()
         cache_copy['downloaded_files'] = list(cache_copy['downloaded_files'])
@@ -253,7 +167,7 @@ class WallPimp:
             self.logger.error(f"Failed to save cache: {e}")
     
     def show_banner(self):
-        """Display the WallPimp banner"""
+        """Display the WallPimp banner with basic info"""
         banner = f"""
 {Fore.CYAN}██╗    ██╗ █████╗ ██╗     ██╗     ██████╗ ██╗███╗   ███╗██████╗ 
 ██║    ██║██╔══██╗██║     ██║     ██╔══██╗██║████╗ ████║██╔══██╗
@@ -262,22 +176,12 @@ class WallPimp:
 ╚███╔███╔╝██║  ██║███████╗███████╗██║     ██║██║ ╚═╝ ██║██║     
  ╚══╝╚══╝ ╚═╝  ╚═╝╚══════╝╚══════╝╚═╝     ╚═╝╚═╝     ╚═╝╚═╝     {Style.RESET_ALL}
                                                                   
-{Fore.YELLOW}Version {self.VERSION} - The Ultimate Wallpaper Manager{Style.RESET_ALL}
+{Fore.YELLOW}The Simple Wallpaper Manager{Style.RESET_ALL}
 {Fore.GREEN}Download Directory: {self.download_dir}{Style.RESET_ALL}
 """
         print(banner)
     
-    def list_repositories(self):
-        """List all available repositories"""
-        print(f"\n{Fore.CYAN}Available Repositories:{Style.RESET_ALL}")
-        print("-" * 60)
-        
-        for repo_key, repo_info in self.REPOSITORIES.items():
-            print(f"{repo_info['icon']} {Fore.YELLOW}{repo_key.upper():<12}{Style.RESET_ALL} - {repo_info['description']}")
-        
-        print(f"\n{Fore.GREEN}Total repositories: {len(self.REPOSITORIES)}{Style.RESET_ALL}")
-    
-    def get_github_api_url(self, repo_url: str, branch: str) -> str:
+    def get_github_api_url(self, repo_url: str, branch: str = "main") -> str:
         """Convert GitHub repo URL to API URL for file listing"""
         # Parse the GitHub URL to extract owner and repo name
         parsed = urlparse(repo_url)
@@ -289,18 +193,17 @@ class WallPimp:
         else:
             raise ValueError(f"Invalid GitHub URL format: {repo_url}")
     
-    def fetch_repo_contents(self, repo_key: str) -> List[Dict]:
-        """Fetch contents of a repository recursively"""
-        repo_info = self.REPOSITORIES[repo_key]
+    def fetch_repo_contents(self, repo_url: str, branch: str = "main") -> List[Dict]:
+        """Fetch contents of a GitHub repository recursively"""
         try:
-            api_url = self.get_github_api_url(repo_info['url'], repo_info['branch'])
-            return self._fetch_contents_recursive(api_url, repo_key)
+            api_url = self.get_github_api_url(repo_url, branch)
+            return self._fetch_contents_recursive(api_url, repo_url)
         except Exception as e:
-            self.logger.error(f"Failed to fetch contents for {repo_key}: {e}")
+            self.logger.error(f"Failed to fetch contents for {repo_url}: {e}")
             return []
     
-    def _fetch_contents_recursive(self, api_url: str, repo_key: str, path: str = "") -> List[Dict]:
-        """Recursively fetch all files from a GitHub repository"""
+    def _fetch_contents_recursive(self, api_url: str, repo_url: str, path: str = "") -> List[Dict]:
+        """Recursively fetch all image files from a GitHub repository"""
         contents = []
         
         try:
@@ -320,13 +223,13 @@ class WallPimp:
                             'download_url': item['download_url'],
                             'size': item['size'],
                             'path': path + item['name'] if path else item['name'],
-                            'repo': repo_key
+                            'repo_url': repo_url
                         })
                 elif item['type'] == 'dir':
                     # Recursively fetch directory contents
                     subdir_contents = self._fetch_contents_recursive(
                         item['url'], 
-                        repo_key, 
+                        repo_url, 
                         path + item['name'] + "/"
                     )
                     contents.extend(subdir_contents)
@@ -343,13 +246,14 @@ class WallPimp:
         image_extensions = {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.tiff', '.svg'}
         return Path(filename).suffix.lower() in image_extensions
     
-    def download_file(self, file_info: Dict) -> bool:
+    def download_file(self, file_info: Dict, repo_name: str) -> bool:
         """Download a single file with progress tracking"""
-        file_path = self.download_dir / file_info['repo'] / file_info['path']
+        # Create a clean folder name from the repo URL
+        file_path = self.download_dir / repo_name / file_info['path']
         file_path.parent.mkdir(parents=True, exist_ok=True)
         
         # Check if file already exists and is in cache
-        cache_key = f"{file_info['repo']}/{file_info['path']}"
+        cache_key = f"{repo_name}/{file_info['path']}"
         if cache_key in self.cache['downloaded_files'] and file_path.exists():
             self.stats['skipped'] += 1
             return True
@@ -400,20 +304,19 @@ class WallPimp:
             self.logger.warning(f"Invalid image file: {file_path}")
             return False
     
-    def download_repository(self, repo_key: str, max_workers: int = 4) -> bool:
-        """Download all wallpapers from a specific repository"""
-        if repo_key not in self.REPOSITORIES:
-            self.logger.error(f"Repository '{repo_key}' not found")
-            return False
+    def download_from_repo(self, repo_url: str, branch: str = "main", max_workers: int = 4) -> bool:
+        """Download all wallpapers from a specific GitHub repository"""
+        # Extract repo name for folder organization
+        parsed = urlparse(repo_url)
+        repo_name = parsed.path.strip('/').split('/')[-1] if parsed.path else "wallpapers"
         
-        repo_info = self.REPOSITORIES[repo_key]
-        print(f"\n{repo_info['icon']} Fetching {Fore.YELLOW}{repo_key.upper()}{Style.RESET_ALL} wallpapers...")
+        print(f"\n🖼️ Fetching wallpapers from {Fore.YELLOW}{repo_url}{Style.RESET_ALL}...")
         
         # Fetch repository contents
-        contents = self.fetch_repo_contents(repo_key)
+        contents = self.fetch_repo_contents(repo_url, branch)
         
         if not contents:
-            print(f"{Fore.RED}No wallpapers found in {repo_key}{Style.RESET_ALL}")
+            print(f"{Fore.RED}No wallpapers found in repository{Style.RESET_ALL}")
             return False
         
         print(f"{Fore.GREEN}Found {len(contents)} wallpapers{Style.RESET_ALL}")
@@ -421,7 +324,7 @@ class WallPimp:
         # Download files using thread pool
         success_count = 0
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            futures = {executor.submit(self.download_file, file_info): file_info 
+            futures = {executor.submit(self.download_file, file_info, repo_name): file_info 
                       for file_info in contents}
             
             for future in as_completed(futures):
@@ -430,24 +333,6 @@ class WallPimp:
         
         print(f"\n{Fore.GREEN}Successfully downloaded {success_count}/{len(contents)} wallpapers{Style.RESET_ALL}")
         return True
-    
-    def download_all_repositories(self, max_workers: int = 4):
-        """Download wallpapers from all repositories"""
-        print(f"\n{Fore.CYAN}Starting bulk download from all repositories...{Style.RESET_ALL}")
-        
-        successful_repos = 0
-        for repo_key in self.REPOSITORIES:
-            if self.download_repository(repo_key, max_workers):
-                successful_repos += 1
-            
-            # Save cache after each repository
-            self._save_cache()
-            
-            # Small delay between repositories to be respectful to GitHub API
-            time.sleep(1)
-        
-        print(f"\n{Fore.GREEN}Completed downloads from {successful_repos}/{len(self.REPOSITORIES)} repositories{Style.RESET_ALL}")
-        self.show_statistics()
     
     def show_statistics(self):
         """Display download statistics"""
@@ -490,14 +375,14 @@ class WallPimp:
 def main():
     """Main entry point for WallPimp"""
     parser = argparse.ArgumentParser(
-        description='WallPimp - The Ultimate Wallpaper Manager',
-        formatter_class=argparse.RawDescriptionHelpFormatter
-    )
-    
-    parser.add_argument(
-        '--version', 
-        action='version', 
-        version=f'WallPimp {WallPimp.VERSION}'
+        description='WallPimp - Simple Wallpaper Manager',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  python wallpimp.py --url https://github.com/dharmx/walls
+  python wallpimp.py --url https://github.com/dharmx/walls --branch main --workers 8
+  python wallpimp.py --dir ~/MyWallpapers --url https://github.com/user/wallpapers
+        """
     )
     
     parser.add_argument(
@@ -507,21 +392,17 @@ def main():
     )
     
     parser.add_argument(
-        '--repo', 
+        '--url', 
         type=str, 
-        help='Specific repository to download from'
+        required=True,
+        help='GitHub repository URL to download wallpapers from'
     )
     
     parser.add_argument(
-        '--list', 
-        action='store_true', 
-        help='List all available repositories'
-    )
-    
-    parser.add_argument(
-        '--all', 
-        action='store_true', 
-        help='Download from all repositories'
+        '--branch', 
+        type=str, 
+        default='main',
+        help='Repository branch to use (default: main)'
     )
     
     parser.add_argument(
@@ -544,24 +425,13 @@ def main():
     wallpimp.show_banner()
     
     try:
-        if args.list:
-            wallpimp.list_repositories()
-        elif args.cleanup:
+        if args.cleanup:
             wallpimp.cleanup_cache()
-        elif args.all:
-            wallpimp.download_all_repositories(max_workers=args.workers)
-        elif args.repo:
-            repo_key = args.repo.lower()
-            if repo_key in wallpimp.REPOSITORIES:
-                wallpimp.download_repository(repo_key, max_workers=args.workers)
-            else:
-                print(f"{Fore.RED}Repository '{args.repo}' not found{Style.RESET_ALL}")
-                print(f"{Fore.YELLOW}Use --list to see available repositories{Style.RESET_ALL}")
         else:
-            # Interactive mode
-            wallpimp.list_repositories()
-            print(f"\n{Fore.CYAN}Use --help for command line options{Style.RESET_ALL}")
-            print(f"{Fore.GREEN}Example: python wallpimp.py --repo anime --workers 8{Style.RESET_ALL}")
+            # Download from the specified repository
+            wallpimp.download_from_repo(args.url, args.branch, max_workers=args.workers)
+            # Save cache after download
+            wallpimp._save_cache()
     
     except KeyboardInterrupt:
         print(f"\n{Fore.YELLOW}Operation cancelled by user{Style.RESET_ALL}")
