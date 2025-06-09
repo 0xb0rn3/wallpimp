@@ -18,11 +18,11 @@ from typing import Dict, List, Optional, Tuple
 from urllib.parse import urlparse
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-# Core dependencies - will be installed automatically if missing
+# Core dependencies - mapping import names to package specifications
 REQUIRED_DEPS = {
     'requests': 'requests>=2.25.0',
-    'tqdm': 'tqdm>=4.60.0',
-    'pillow': 'Pillow>=8.0.0',
+    'tqdm': 'tqdm>=4.60.0', 
+    'PIL': 'Pillow>=8.0.0',  # Note: PIL is the import name for Pillow
     'colorama': 'colorama>=0.4.4'
 }
 
@@ -30,14 +30,17 @@ def check_and_install_dependencies():
     """Check for required dependencies and install if missing using multiple strategies"""
     missing_deps = []
     
-    for dep_name, dep_spec in REQUIRED_DEPS.items():
+    # Check each dependency by trying to import it
+    for import_name, package_spec in REQUIRED_DEPS.items():
         try:
-            __import__(dep_name)
+            __import__(import_name)
+            print(f"✓ {import_name} is available")
         except ImportError:
-            missing_deps.append(dep_spec)
+            print(f"✗ {import_name} is missing")
+            missing_deps.append(package_spec)
     
     if missing_deps:
-        print("Installing missing dependencies...")
+        print("\nInstalling missing dependencies...")
         
         # Try multiple installation strategies in order of preference
         installation_methods = [
@@ -83,10 +86,13 @@ def check_and_install_dependencies():
                 sys.exit(1)
         
         print("All dependencies installed successfully!\n")
+    else:
+        print("All dependencies are already available!\n")
 
 # Install dependencies before importing them
 check_and_install_dependencies()
 
+# Now we can safely import the required modules
 import requests
 from tqdm import tqdm
 from PIL import Image
