@@ -95,6 +95,82 @@ init(autoreset=True)
 class WallPimp:
     """Main WallPimp class for wallpaper management"""
     
+    # Curated repository collection - each entry contains icon, URL, branch, and description
+    REPOSITORIES = {
+        'minimalist': {
+            'icon': '🖼️',
+            'url': 'https://github.com/dharmx/walls',
+            'branch': 'main',
+            'description': 'Clean minimalist designs'
+        },
+        'anime': {
+            'icon': '🌸',
+            'url': 'https://github.com/HENTAI-CODER/Anime-Wallpaper',
+            'branch': 'main',
+            'description': 'Anime & manga artwork'
+        },
+        'nature': {
+            'icon': '🌿',
+            'url': 'https://github.com/FrenzyExists/wallpapers',
+            'branch': 'main',
+            'description': 'Nature landscapes'
+        },
+        'scenic': {
+            'icon': '🏞️',
+            'url': 'https://github.com/michaelScopic/Wallpapers',
+            'branch': 'main',
+            'description': 'Scenic vistas'
+        },
+        'artistic': {
+            'icon': '🎨',
+            'url': 'https://github.com/D3Ext/aesthetic-wallpapers',
+            'branch': 'main',
+            'description': 'Artistic styles'
+        },
+        'anime_pack': {
+            'icon': '🎎',
+            'url': 'https://github.com/Dreamer-Paul/Anime-Wallpaper',
+            'branch': 'main',
+            'description': 'Curated anime art'
+        },
+        'linux': {
+            'icon': '🐧',
+            'url': 'https://github.com/polluxau/linuxnext-wallpapers',
+            'branch': 'main',
+            'description': 'Linux desktop art'
+        },
+        'mixed': {
+            'icon': '🌟',
+            'url': 'https://github.com/makccr/wallpapers',
+            'branch': 'main',
+            'description': 'Diverse styles'
+        },
+        'desktop': {
+            'icon': '💻',
+            'url': 'https://github.com/port19x/Wallpapers',
+            'branch': 'main',
+            'description': 'Minimalist desktop'
+        },
+        'gaming': {
+            'icon': '🎮',
+            'url': 'https://github.com/ryan4yin/wallpapers',
+            'branch': 'main',
+            'description': 'Gaming-inspired art'
+        },
+        'photos': {
+            'icon': '📷',
+            'url': 'https://github.com/linuxdotexe/wallpapers',
+            'branch': 'main',
+            'description': 'Professional photography'
+        },
+        'digital': {
+            'icon': '🖥️',
+            'url': 'https://github.com/0xb0rn3/wallpapers',
+            'branch': 'main',
+            'description': 'Digital creations'
+        }
+    }
+    
     def __init__(self, download_dir: str = None):
         """Initialize WallPimp with configuration"""
         self.download_dir = Path(download_dir) if download_dir else self._get_default_download_dir()
@@ -176,10 +252,23 @@ class WallPimp:
 ╚███╔███╔╝██║  ██║███████╗███████╗██║     ██║██║ ╚═╝ ██║██║     
  ╚══╝╚══╝ ╚═╝  ╚═╝╚══════╝╚══════╝╚═╝     ╚═╝╚═╝     ╚═╝╚═╝     {Style.RESET_ALL}
                                                                   
-{Fore.YELLOW}The Simple Wallpaper Manager{Style.RESET_ALL}
+{Fore.YELLOW}The Ultimate Wallpaper Manager{Style.RESET_ALL}
 {Fore.GREEN}Download Directory: {self.download_dir}{Style.RESET_ALL}
 """
         print(banner)
+    
+    def list_repositories(self):
+        """Display all available curated repositories in an organized format"""
+        print(f"\n{Fore.CYAN}Available Curated Repositories:{Style.RESET_ALL}")
+        print("-" * 60)
+        
+        # Display each repository with its icon, name, and description
+        for repo_key, repo_info in self.REPOSITORIES.items():
+            print(f"{repo_info['icon']} {Fore.YELLOW}{repo_key.upper():<12}{Style.RESET_ALL} - {repo_info['description']}")
+        
+        print(f"\n{Fore.GREEN}Total repositories: {len(self.REPOSITORIES)}{Style.RESET_ALL}")
+        print(f"{Fore.CYAN}Use --repo <name> to download from a specific repository{Style.RESET_ALL}")
+        print(f"{Fore.CYAN}Use --url <github-url> to download from any GitHub repository{Style.RESET_ALL}")
     
     def get_github_api_url(self, repo_url: str, branch: str = "main") -> str:
         """Convert GitHub repo URL to API URL for file listing"""
@@ -248,7 +337,7 @@ class WallPimp:
     
     def download_file(self, file_info: Dict, repo_name: str) -> bool:
         """Download a single file with progress tracking"""
-        # Create a clean folder name from the repo URL
+        # Create a clean folder name from the repo name
         file_path = self.download_dir / repo_name / file_info['path']
         file_path.parent.mkdir(parents=True, exist_ok=True)
         
@@ -304,11 +393,12 @@ class WallPimp:
             self.logger.warning(f"Invalid image file: {file_path}")
             return False
     
-    def download_from_repo(self, repo_url: str, branch: str = "main", max_workers: int = 4) -> bool:
+    def download_from_repo(self, repo_url: str, branch: str = "main", max_workers: int = 4, repo_name: str = None) -> bool:
         """Download all wallpapers from a specific GitHub repository"""
-        # Extract repo name for folder organization
-        parsed = urlparse(repo_url)
-        repo_name = parsed.path.strip('/').split('/')[-1] if parsed.path else "wallpapers"
+        # Extract repo name for folder organization if not provided
+        if not repo_name:
+            parsed = urlparse(repo_url)
+            repo_name = parsed.path.strip('/').split('/')[-1] if parsed.path else "wallpapers"
         
         print(f"\n🖼️ Fetching wallpapers from {Fore.YELLOW}{repo_url}{Style.RESET_ALL}...")
         
@@ -333,6 +423,46 @@ class WallPimp:
         
         print(f"\n{Fore.GREEN}Successfully downloaded {success_count}/{len(contents)} wallpapers{Style.RESET_ALL}")
         return True
+    
+    def download_curated_repo(self, repo_key: str, max_workers: int = 4) -> bool:
+        """Download wallpapers from one of our curated repositories"""
+        if repo_key not in self.REPOSITORIES:
+            print(f"{Fore.RED}Repository '{repo_key}' not found in curated list{Style.RESET_ALL}")
+            return False
+        
+        repo_info = self.REPOSITORIES[repo_key]
+        print(f"\n{repo_info['icon']} Starting download from {Fore.YELLOW}{repo_key.upper()}{Style.RESET_ALL}")
+        print(f"📝 Description: {repo_info['description']}")
+        
+        # Use the repo key as the folder name for better organization
+        return self.download_from_repo(
+            repo_info['url'], 
+            repo_info['branch'], 
+            max_workers, 
+            repo_key
+        )
+    
+    def download_all_curated_repos(self, max_workers: int = 4):
+        """Download wallpapers from all curated repositories"""
+        print(f"\n{Fore.CYAN}Starting bulk download from all curated repositories...{Style.RESET_ALL}")
+        
+        successful_repos = 0
+        total_repos = len(self.REPOSITORIES)
+        
+        for i, repo_key in enumerate(self.REPOSITORIES, 1):
+            print(f"\n{Fore.MAGENTA}[{i}/{total_repos}] Processing {repo_key}...{Style.RESET_ALL}")
+            
+            if self.download_curated_repo(repo_key, max_workers):
+                successful_repos += 1
+            
+            # Save cache after each repository
+            self._save_cache()
+            
+            # Small delay between repositories to be respectful to GitHub API
+            time.sleep(1)
+        
+        print(f"\n{Fore.GREEN}Completed downloads from {successful_repos}/{total_repos} repositories{Style.RESET_ALL}")
+        self.show_statistics()
     
     def show_statistics(self):
         """Display download statistics"""
@@ -375,13 +505,19 @@ class WallPimp:
 def main():
     """Main entry point for WallPimp"""
     parser = argparse.ArgumentParser(
-        description='WallPimp - Simple Wallpaper Manager',
+        description='WallPimp - The Ultimate Wallpaper Manager',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  python wallpimp.py --url https://github.com/dharmx/walls
-  python wallpimp.py --url https://github.com/dharmx/walls --branch main --workers 8
-  python wallpimp.py --dir ~/MyWallpapers --url https://github.com/user/wallpapers
+  # Download from curated repositories
+  python wallpimp.py --list                    # Show all curated repositories
+  python wallpimp.py --repo anime              # Download anime wallpapers
+  python wallpimp.py --repo minimalist --workers 8  # Download with 8 workers
+  python wallpimp.py --all                     # Download from all curated repos
+  
+  # Download from custom repositories
+  python wallpimp.py --url https://github.com/user/wallpapers
+  python wallpimp.py --url https://github.com/user/wallpapers --branch dev
         """
     )
     
@@ -392,10 +528,15 @@ Examples:
     )
     
     parser.add_argument(
+        '--repo', 
+        type=str, 
+        help='Download from a specific curated repository'
+    )
+    
+    parser.add_argument(
         '--url', 
         type=str, 
-        required=True,
-        help='GitHub repository URL to download wallpapers from'
+        help='Download from any GitHub repository URL'
     )
     
     parser.add_argument(
@@ -403,6 +544,18 @@ Examples:
         type=str, 
         default='main',
         help='Repository branch to use (default: main)'
+    )
+    
+    parser.add_argument(
+        '--list', 
+        action='store_true', 
+        help='List all available curated repositories'
+    )
+    
+    parser.add_argument(
+        '--all', 
+        action='store_true', 
+        help='Download from all curated repositories'
     )
     
     parser.add_argument(
@@ -420,18 +573,37 @@ Examples:
     
     args = parser.parse_args()
     
+    # Validate arguments - ensure only one main action is specified
+    main_actions = [args.repo, args.url, args.list, args.all, args.cleanup]
+    if sum(bool(action) for action in main_actions) > 1:
+        print(f"{Fore.RED}Error: Please specify only one main action (--repo, --url, --list, --all, or --cleanup){Style.RESET_ALL}")
+        sys.exit(1)
+    
     # Initialize WallPimp
     wallpimp = WallPimp(download_dir=args.dir)
     wallpimp.show_banner()
     
     try:
-        if args.cleanup:
+        if args.list:
+            # Display all available curated repositories
+            wallpimp.list_repositories()
+        elif args.cleanup:
+            # Clean up cache
             wallpimp.cleanup_cache()
-        else:
-            # Download from the specified repository
+        elif args.all:
+            # Download from all curated repositories
+            wallpimp.download_all_curated_repos(max_workers=args.workers)
+        elif args.repo:
+            # Download from a specific curated repository
+            wallpimp.download_curated_repo(args.repo.lower(), max_workers=args.workers)
+        elif args.url:
+            # Download from any GitHub repository URL
             wallpimp.download_from_repo(args.url, args.branch, max_workers=args.workers)
-            # Save cache after download
-            wallpimp._save_cache()
+        else:
+            # No arguments provided - show interactive help
+            wallpimp.list_repositories()
+            print(f"\n{Fore.CYAN}Use --help for all command line options{Style.RESET_ALL}")
+            print(f"{Fore.GREEN}Quick start: python wallpimp.py --repo anime{Style.RESET_ALL}")
     
     except KeyboardInterrupt:
         print(f"\n{Fore.YELLOW}Operation cancelled by user{Style.RESET_ALL}")
@@ -439,6 +611,7 @@ Examples:
         print(f"\n{Fore.RED}An error occurred: {e}{Style.RESET_ALL}")
         wallpimp.logger.error(f"Unexpected error: {e}")
     finally:
+        # Always show statistics when we're done
         wallpimp.show_statistics()
 
 
