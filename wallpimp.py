@@ -27,7 +27,7 @@ REQUIRED_DEPS = {
 }
 
 def check_and_install_dependencies():
-    """Check for required dependencies and install if missing"""
+    """Check for required dependencies and install if missing using multiple strategies"""
     missing_deps = []
     
     for dep_name, dep_spec in REQUIRED_DEPS.items():
@@ -38,13 +38,50 @@ def check_and_install_dependencies():
     
     if missing_deps:
         print("Installing missing dependencies...")
+        
+        # Try multiple installation strategies in order of preference
+        installation_methods = [
+            # Strategy 1: Try pip with --break-system-packages (for newer Python on Arch/modern distros)
+            lambda dep: subprocess.check_call([sys.executable, '-m', 'pip', 'install', '--break-system-packages', dep]),
+            # Strategy 2: Try regular pip installation
+            lambda dep: subprocess.check_call([sys.executable, '-m', 'pip', 'install', dep]),
+            # Strategy 3: Try pipx if available (for isolated installations)
+            lambda dep: subprocess.check_call(['pipx', 'install', dep.split('>=')[0]]),
+            # Strategy 4: Try pip3 directly
+            lambda dep: subprocess.check_call(['pip3', 'install', '--break-system-packages', dep]),
+            # Strategy 5: Try pip3 without break-system-packages
+            lambda dep: subprocess.check_call(['pip3', 'install', dep]),
+        ]
+        
         for dep in missing_deps:
-            try:
-                subprocess.check_call([sys.executable, '-m', 'pip', 'install', dep])
-                print(f"✓ Installed {dep}")
-            except subprocess.CalledProcessError as e:
-                print(f"✗ Failed to install {dep}: {e}")
+            installed = False
+            
+            for i, install_method in enumerate(installation_methods):
+                try:
+                    install_method(dep)
+                    print(f"✓ Installed {dep} using method {i+1}")
+                    installed = True
+                    break
+                except (subprocess.CalledProcessError, FileNotFoundError):
+                    continue
+            
+            if not installed:
+                print(f"✗ Failed to install {dep} with all methods")
+                print("\nManual installation required:")
+                print("Please install dependencies manually using your system package manager:")
+                print("\nFor Arch Linux:")
+                print("  sudo pacman -S python-requests python-tqdm python-pillow python-colorama")
+                print("\nFor Ubuntu/Debian:")
+                print("  sudo apt install python3-requests python3-tqdm python3-pil python3-colorama")
+                print("\nFor Fedora:")
+                print("  sudo dnf install python3-requests python3-tqdm python3-pillow python3-colorama")
+                print("\nAlternatively, install pip first:")
+                print("  Arch: sudo pacman -S python-pip")
+                print("  Ubuntu: sudo apt install python3-pip")
+                print("  Fedora: sudo dnf install python3-pip")
+                print("\nThen run the script again.")
                 sys.exit(1)
+        
         print("All dependencies installed successfully!\n")
 
 # Install dependencies before importing them
