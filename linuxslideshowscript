@@ -396,7 +396,7 @@ set_wallpaper_sway() {
     sleep 0.1
     
     # Start swaybg with the new wallpaper
-    if swaybg -i "$wallpaper_path" -m fill > /dev/null 2>&1 &; then
+    if swaybg -i "$wallpaper_path" -m fill > /dev/null 2>&1 & then
         log_message "Sway: Set wallpaper to $wallpaper_path"
         return 0
     else
