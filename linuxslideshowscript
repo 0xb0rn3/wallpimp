@@ -2,13 +2,31 @@
 
 set -e
 
+SERVICE_NAME="wallpaper-slideshow"
+SERVICE_FILE="/etc/systemd/system/$SERVICE_NAME.service"
+SCRIPT_PATH="$(realpath "$0")"
+
 # Get wallpaper directory
 read -p "Wallpaper directory: " WALLPAPER_DIR
 WALLPAPER_DIR="${WALLPAPER_DIR/#\~/$HOME}"
 
-# Validate directory
 if [[ ! -d "$WALLPAPER_DIR" ]]; then
     echo "Directory not found: $WALLPAPER_DIR"
+    exit 1
+fi
+
+# Get interval
+read -p "Interval (e.g. 300s, 5m, 1h): " INTERVAL_INPUT
+if [[ "$INTERVAL_INPUT" =~ ^([0-9]+)([smh]?)$ ]]; then
+    NUM="${BASH_REMATCH[1]}"
+    UNIT="${BASH_REMATCH[2]:-s}"
+    case "$UNIT" in
+        s) INTERVAL="$NUM" ;;
+        m) INTERVAL="$((NUM * 60))" ;;
+        h) INTERVAL="$((NUM * 3600))" ;;
+    esac
+else
+    echo "Invalid format. Use: 300s, 5m, or 1h"
     exit 1
 fi
 
@@ -29,7 +47,6 @@ install_deps() {
     fi
 }
 
-# Check/install feh
 if ! command -v feh >/dev/null 2>&1; then
     echo "Installing feh..."
     install_deps
@@ -39,7 +56,6 @@ fi
 set_wallpaper() {
     local img="$1"
     
-    # Try different desktop environments
     if command -v gsettings >/dev/null 2>&1; then
         gsettings set org.gnome.desktop.background picture-uri "file://$img" 2>/dev/null || true
     fi
@@ -53,7 +69,6 @@ set_wallpaper() {
         dconf write /org/cinnamon/desktop/background/picture-uri "'file://$img'" 2>/dev/null || true
     fi
     
-    # Universal fallback
     feh --bg-scale "$img" 2>/dev/null || true
 }
 
@@ -62,15 +77,52 @@ find_wallpapers() {
     find "$WALLPAPER_DIR" -type f \( -iname "*.jpg" -o -iname "*.jpeg" -o -iname "*.png" -o -iname "*.bmp" -o -iname "*.gif" \) 2>/dev/null
 }
 
-# Main slideshow loop
-echo "Starting slideshow from: $WALLPAPER_DIR"
-echo "Press Ctrl+C to stop"
+# Create systemd service
+create_service() {
+    sudo tee "$SERVICE_FILE" > /dev/null << EOF
+[Unit]
+Description=Wallpaper Slideshow
+After=graphical-session.target
 
-while true; do
-    while IFS= read -r img; do
-        [[ -f "$img" ]] || continue
-        set_wallpaper "$img"
-        echo "$(basename "$img")"
-        sleep 300  # 5 minutes
-    done < <(find_wallpapers | shuf)
-done
+[Service]
+Type=simple
+User=$USER
+Environment=DISPLAY=:0
+Environment=WALLPAPER_DIR=$WALLPAPER_DIR
+Environment=INTERVAL=$INTERVAL
+ExecStart=$SCRIPT_PATH --daemon
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=default.target
+EOF
+
+    sudo systemctl daemon-reload
+    sudo systemctl enable "$SERVICE_NAME"
+    sudo systemctl start "$SERVICE_NAME"
+    echo "Service created and started. Will run at boot."
+}
+
+# Daemon mode
+if [[ "${1:-}" == "--daemon" ]]; then
+    echo "Starting slideshow daemon: $WALLPAPER_DIR (interval: ${INTERVAL}s)"
+    
+    while true; do
+        while IFS= read -r img; do
+            [[ -f "$img" ]] || continue
+            set_wallpaper "$img"
+            sleep "$INTERVAL"
+        done < <(find_wallpapers | shuf)
+    done
+else
+    # Interactive setup
+    if systemctl is-active --quiet "$SERVICE_NAME" 2>/dev/null; then
+        echo "Stopping existing service..."
+        sudo systemctl stop "$SERVICE_NAME"
+    fi
+    
+    create_service
+    echo "Slideshow started in background"
+    echo "Control with: sudo systemctl {start|stop|restart|status} $SERVICE_NAME"
+fi
