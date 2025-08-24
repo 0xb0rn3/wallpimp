@@ -591,6 +591,97 @@ class WallPimp:
             rainbow_api_url = self.get_rainbow_api_url(rainbow_url, rainbow_branch)
             return self._fetch_rainbow_contents_recursive(rainbow_api_url, rainbow_url)
         except Exception as e:
+            self.butterfly_logger.error(f"Failed to fetch rainbow contents for {rainbow_url}: {e}")
+            return []
+    
+    def _fetch_rainbow_contents_recursive(self, rainbow_api_url: str, rainbow_url: str, rainbow_path: str = "") -> List[Dict]:
+        """Recursively fetch all files from a GitHub repository"""
+        rainbow_contents = []
+        
+        try:
+            response = self.butterfly_session.get(rainbow_api_url, timeout=30)
+            response.raise_for_status()
+            
+            rainbow_items = response.json()
+            if not isinstance(rainbow_items, list):
+                return rainbow_contents
+            
+            for rainbow_item in rainbow_items:
+                if rainbow_item['type'] == 'file':
+                    # Check if it's an image file
+                    if self._is_rainbow_file(rainbow_item['name']):
+                        rainbow_contents.append({
+                            'name': rainbow_item['name'],
+                            'download_url': rainbow_item['download_url'],
+                            'size': rainbow_item['size'],
+                            'path': rainbow_path + rainbow_item['name'] if rainbow_path else rainbow_item['name'],
+                            'repo_url': rainbow_url
+                        })
+                elif rainbow_item['type'] == 'dir':
+                    # Recursively fetch directory contents
+                    rainbow_subdir_contents = self._fetch_rainbow_contents_recursive(
+                        rainbow_item['url'], 
+                        rainbow_url, 
+                        rainbow_path + rainbow_item['name'] + "/"
+                    )
+                    rainbow_contents.extend(rainbow_subdir_contents)
+                    
+        except requests.exceptions.RequestException as e:
+            self.butterfly_logger.error(f"Error fetching {rainbow_api_url}: {e}")
+        except (KeyError, TypeError) as e:
+            self.butterfly_logger.error(f"Error parsing API response: {e}")
+        
+        return rainbow_contents
+    
+    def _is_rainbow_file(self, rainbow_filename: str) -> bool:
+        """Check if file is an image based on extension"""
+        rainbow_extensions = {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.tiff', '.svg'}
+        return Path(rainbow_filename).suffix.lower() in rainbow_extensions
+    
+    def download_rainbow_file(self, rainbow_file_info: Dict, rainbow_repo_name: str) -> bool:
+        """Download a single file with progress tracking"""
+        # Create a clean folder name from the repo name
+        rainbow_file_path = self.butterfly_dir / rainbow_file_info['path']
+        rainbow_file_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        # Check if file already exists and is in cache
+        rainbow_cache_key = f"{rainbow_file_info['path']}"
+        if rainbow_cache_key in self.butterfly_cache['downloaded_files'] and rainbow_file_path.exists():
+            self.butterfly_stats['skipped'] += 1
+            return True
+        
+        try:
+            response = self.butterfly_session.get(rainbow_file_info['download_url'], stream=True, timeout=30)
+            response.raise_for_status()
+            
+            rainbow_total_size = int(response.headers.get('content-length', 0))
+            
+            with open(rainbow_file_path, 'wb') as f:
+                if rainbow_total_size > 0:
+                    with tqdm(total=rainbow_total_size, unit='B', unit_scale=True, 
+                             desc=f"Downloading {rainbow_file_info['name'][:30]}") as pbar:
+                        for chunk in response.iter_content(chunk_size=8192):
+                            if chunk:
+                                f.write(chunk)
+                                pbar.update(len(chunk))
+                else:
+                    # Fallback for unknown content length
+                    for chunk in response.iter_content(chunk_size=8192):
+                        if chunk:
+                            f.write(chunk)
+            
+            # Verify the downloaded image
+            if self._verify_rainbow_image(rainbow_file_path):
+                self.butterfly_cache['downloaded_files'].add(rainbow_cache_key)
+                self.butterfly_stats['downloaded'] += 1
+                self.butterfly_stats['total_size'] += rainbow_file_path.stat().st_size
+                return True
+            else:
+                rainbow_file_path.unlink()  # Remove corrupted file
+                self.butterfly_stats['failed'] += 1
+                return False
+                
+        except Exception as e:
             self.butterfly_logger.error(f"Failed to download {rainbow_file_info['name']}: {e}")
             self.butterfly_stats['failed'] += 1
             return False
@@ -644,7 +735,7 @@ class WallPimp:
         
         rainbow_info = self.rainbow_repositories[rainbow_key]
         print(f"\n{rainbow_info['icon']} Starting download from {Fore.YELLOW}{rainbow_key.upper()}{Style.RESET_ALL}")
-        print(f"📝 Description: {rainbow_info['description']}")
+        print(f"📁 Description: {rainbow_info['description']}")
         
         return self.download_from_rainbow_repo(
             rainbow_info['url'], 
@@ -1182,94 +1273,3 @@ Examples:
 
 if __name__ == "__main__":
     main()
-            self.butterfly_logger.error(f"Failed to fetch rainbow contents for {rainbow_url}: {e}")
-            return []
-    
-    def _fetch_rainbow_contents_recursive(self, rainbow_api_url: str, rainbow_url: str, rainbow_path: str = "") -> List[Dict]:
-        """Recursively fetch all files from a GitHub repository"""
-        rainbow_contents = []
-        
-        try:
-            response = self.butterfly_session.get(rainbow_api_url, timeout=30)
-            response.raise_for_status()
-            
-            rainbow_items = response.json()
-            if not isinstance(rainbow_items, list):
-                return rainbow_contents
-            
-            for rainbow_item in rainbow_items:
-                if rainbow_item['type'] == 'file':
-                    # Check if it's an image file
-                    if self._is_rainbow_file(rainbow_item['name']):
-                        rainbow_contents.append({
-                            'name': rainbow_item['name'],
-                            'download_url': rainbow_item['download_url'],
-                            'size': rainbow_item['size'],
-                            'path': rainbow_path + rainbow_item['name'] if rainbow_path else rainbow_item['name'],
-                            'repo_url': rainbow_url
-                        })
-                elif rainbow_item['type'] == 'dir':
-                    # Recursively fetch directory contents
-                    rainbow_subdir_contents = self._fetch_rainbow_contents_recursive(
-                        rainbow_item['url'], 
-                        rainbow_url, 
-                        rainbow_path + rainbow_item['name'] + "/"
-                    )
-                    rainbow_contents.extend(rainbow_subdir_contents)
-                    
-        except requests.exceptions.RequestException as e:
-            self.butterfly_logger.error(f"Error fetching {rainbow_api_url}: {e}")
-        except (KeyError, TypeError) as e:
-            self.butterfly_logger.error(f"Error parsing API response: {e}")
-        
-        return rainbow_contents
-    
-    def _is_rainbow_file(self, rainbow_filename: str) -> bool:
-        """Check if file is an image based on extension"""
-        rainbow_extensions = {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.tiff', '.svg'}
-        return Path(rainbow_filename).suffix.lower() in rainbow_extensions
-    
-    def download_rainbow_file(self, rainbow_file_info: Dict, rainbow_repo_name: str) -> bool:
-        """Download a single file with progress tracking"""
-        # Create a clean folder name from the repo name
-        rainbow_file_path = self.butterfly_dir / rainbow_file_info['path']
-        rainbow_file_path.parent.mkdir(parents=True, exist_ok=True)
-        
-        # Check if file already exists and is in cache
-        rainbow_cache_key = f"{rainbow_file_info['path']}"
-        if rainbow_cache_key in self.butterfly_cache['downloaded_files'] and rainbow_file_path.exists():
-            self.butterfly_stats['skipped'] += 1
-            return True
-        
-        try:
-            response = self.butterfly_session.get(rainbow_file_info['download_url'], stream=True, timeout=30)
-            response.raise_for_status()
-            
-            rainbow_total_size = int(response.headers.get('content-length', 0))
-            
-            with open(rainbow_file_path, 'wb') as f:
-                if rainbow_total_size > 0:
-                    with tqdm(total=rainbow_total_size, unit='B', unit_scale=True, 
-                             desc=f"Downloading {rainbow_file_info['name'][:30]}") as pbar:
-                        for chunk in response.iter_content(chunk_size=8192):
-                            if chunk:
-                                f.write(chunk)
-                                pbar.update(len(chunk))
-                else:
-                    # Fallback for unknown content length
-                    for chunk in response.iter_content(chunk_size=8192):
-                        if chunk:
-                            f.write(chunk)
-            
-            # Verify the downloaded image
-            if self._verify_rainbow_image(rainbow_file_path):
-                self.butterfly_cache['downloaded_files'].add(rainbow_cache_key)
-                self.butterfly_stats['downloaded'] += 1
-                self.butterfly_stats['total_size'] += rainbow_file_path.stat().st_size
-                return True
-            else:
-                rainbow_file_path.unlink()  # Remove corrupted file
-                self.butterfly_stats['failed'] += 1
-                return False
-                
-        except Exception as e:
