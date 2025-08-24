@@ -1,8 +1,8 @@
-# WallPimp Enhanced 🎨
+# WallPimp 🎨
 
 **The Ultimate Linux Wallpaper Manager with Slideshow**
 
-WallPimp Enhanced is a comprehensive wallpaper management solution that combines powerful downloading capabilities with universal Linux slideshow functionality. Automatically fetch high-quality wallpapers from curated GitHub repositories and enjoy seamless slideshow experiences across all desktop environments.
+WallPimp is a comprehensive wallpaper management solution that combines powerful downloading capabilities with universal Linux slideshow functionality. Automatically fetch high-quality wallpapers from curated GitHub repositories and enjoy seamless slideshow experiences across all desktop environments.
 
 ## ✨ Features
 
@@ -41,8 +41,8 @@ WallPimp Enhanced is a comprehensive wallpaper management solution that combines
 ### Automatic Installation (Recommended)
 ```bash
 # Clone the repository
-git clone https://github.com/0xb0rn3/wallpimp-enhanced.git
-cd wallpimp-enhanced
+git clone https://github.com/0xb0rn3/wallpimp.git
+cd wallpimp
 
 # Run WallPimp - dependencies install automatically
 python3 wallpimp.py --setup
@@ -342,7 +342,7 @@ MIT License - Individual wallpapers retain their original licensing terms from r
 - **Multiple monitors?** Most desktop environments handle this automatically
 - **Custom timing?** Use precise intervals: `--interval "1h 15m 30s"`
 
-## 🎉 What's New in Enhanced
+## 🎉 What's New!
 
 - ✅ **Universal Linux slideshow support**
 - ✅ **Interactive setup wizard** 
