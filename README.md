@@ -43,9 +43,9 @@ WallPimp is a comprehensive wallpaper management solution that combines powerful
 # Clone the repository
 git clone https://github.com/0xb0rn3/wallpimp.git
 cd wallpimp
-
+chmod +x run
 # Run WallPimp - dependencies install automatically
-python3 wallpimp.py --setup
+./run --setup
 ```
 
 ### Manual Dependency Installation
@@ -70,31 +70,31 @@ pip3 install requests tqdm Pillow colorama --break-system-packages
 
 ### **Interactive Setup (Recommended)**
 ```bash
-python3 wallpimp.py --setup
+./run --setup
 ```
 
 ### **Download Wallpapers**
 ```bash
 # View all available repositories
-python3 wallpimp.py --list
+./run --list
 
 # Download anime wallpapers
-python3 wallpimp.py --repo anime
+./run --repo anime
 
 # Download everything
-python3 wallpimp.py --all
+./run --all
 ```
 
 ### **Wallpaper Management**
 ```bash
 # Set random static wallpaper
-python3 wallpimp.py --static --dir ~/Pictures
+./run --static --dir ~/Pictures
 
 # Start slideshow (5-minute intervals)
-python3 wallpimp.py --slideshow --dir ~/Pictures --interval 5m
+./run --slideshow --dir ~/Pictures --interval 5m
 
 # Enable autostart slideshow
-python3 wallpimp.py --enable-autostart --dir ~/Pictures --interval 10m
+./run --enable-autostart --dir ~/Pictures --interval 10m
 ```
 
 ## 🎨 Curated Repositories
@@ -121,49 +121,49 @@ Carefully selected repositories covering various aesthetic preferences:
 ### **Download Operations**
 ```bash
 # Interactive repository selection and setup
-python3 wallpimp.py --setup
+./run --setup
 
 # Download with custom directory
-python3 wallpimp.py --repo nature --dir ~/MyWallpapers
+./run --repo nature --dir ~/MyWallpapers
 
 # High-speed download with 8 workers
-python3 wallpimp.py --repo minimalist --workers 8
+./run --repo minimalist --workers 8
 
 # Download from custom GitHub repository
-python3 wallpimp.py --url https://github.com/user/wallpapers --branch main
+./run --url https://github.com/user/wallpapers --branch main
 
 # Bulk download with progress tracking
-python3 wallpimp.py --all --workers 6
+./run --all --workers 6
 ```
 
 ### **Wallpaper Management**
 ```bash
 # Set specific image as wallpaper
-python3 wallpimp.py --static --dir ~/Pictures --image ~/Pictures/favorite.jpg
+./run --static --dir ~/Pictures --image ~/Pictures/favorite.jpg
 
 # Start slideshow with complex timing
-python3 wallpimp.py --slideshow --dir ~/Pictures --interval "2h 30m"
+./run --slideshow --dir ~/Pictures --interval "2h 30m"
 
 # Quick 30-second slideshow for testing
-python3 wallpimp.py --slideshow --dir ~/Pictures --interval 30s
+./run --slideshow --dir ~/Pictures --interval 30s
 ```
 
 ### **Autostart Configuration**
 ```bash
 # Enable slideshow to start on login
-python3 wallpimp.py --enable-autostart --dir ~/Pictures --interval 15m
+./run --enable-autostart --dir ~/Pictures --interval 15m
 
 # Enable static wallpaper on login
-python3 wallpimp.py --enable-autostart --dir ~/Pictures
+./run --enable-autostart --dir ~/Pictures
 
 # Disable autostart
-python3 wallpimp.py --disable-autostart
+./run --disable-autostart
 ```
 
 ### **Maintenance**
 ```bash
 # Clean cache and orphaned entries
-python3 wallpimp.py --cleanup
+./run --cleanup
 ```
 
 ## 🛠️ Command Line Reference
@@ -214,7 +214,7 @@ python3 wallpimp.py --cleanup
 
 ## ⏱️ Time Format Examples
 
-WallPimp Enhanced supports flexible time interval formats:
+WallPimp supports flexible time interval formats:
 
 ```bash
 # Simple formats
@@ -271,10 +271,10 @@ Creates XDG-compliant `.desktop` entries in `~/.config/autostart/` for seamless 
 ### **Desktop Environment Issues**
 ```bash
 # Check detected desktop environment
-python3 wallpimp.py --setup
+./run --setup
 
 # Test wallpaper setting manually
-python3 wallpimp.py --static --dir ~/Pictures
+./run --static --dir ~/Pictures
 ```
 
 ### **Dependency Problems**
@@ -283,7 +283,7 @@ python3 wallpimp.py --static --dir ~/Pictures
 python3 -c "import requests, tqdm, PIL, colorama; print('All dependencies OK')"
 
 # Force dependency installation
-python3 wallpimp.py --list  # Triggers auto-installation
+./run --list  # Triggers auto-installation
 ```
 
 ### **Slideshow Not Working**
@@ -292,7 +292,7 @@ python3 wallpimp.py --list  # Triggers auto-installation
 ls ~/Pictures/*.{jpg,png,jpeg} 2>/dev/null | wc -l
 
 # Test with shorter interval
-python3 wallpimp.py --slideshow --dir ~/Pictures --interval 10s
+./run --slideshow --dir ~/Pictures --interval 10s
 
 # Check autostart entry
 ls ~/.config/autostart/wallpimp-slideshow.desktop
@@ -301,10 +301,10 @@ ls ~/.config/autostart/wallpimp-slideshow.desktop
 ### **Performance Optimization**
 ```bash
 # Reduce workers for slower systems
-python3 wallpimp.py --repo anime --workers 2
+./run --repo anime --workers 2
 
 # Use local directory for faster access
-python3 wallpimp.py --slideshow --dir /home/user/Pictures --interval 1m
+./run --slideshow --dir /home/user/Pictures --interval 1m
 ```
 
 ## 🤝 Contributing
@@ -355,4 +355,4 @@ MIT License - Individual wallpapers retain their original licensing terms from r
 
 ---
 
-**Ready to transform your desktop?** Start with `python3 wallpimp.py --setup` and enjoy endless beautiful wallpapers! 🚀
+**Ready to transform your desktop?** Start with `./run --setup` and enjoy endless beautiful wallpapers! 🚀
