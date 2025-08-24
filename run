@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """
-WallPimp - Universal Linux Wallpaper Manager with Slideshow
-A comprehensive wallpaper downloader and slideshow manager for all Linux desktop environments
+WallPimp - Universal Linux Wallpaper Manager
+Developer: 0xb0rn3 (Discord: 0xbv1, Twitter: 0xbv1, Instagram: theehiv3)
+Email: q4n0@proton.me
+Repository: https://github.com/0xb0rn3/wallpimp
 """
 
 import os
@@ -20,58 +22,54 @@ from typing import Dict, List, Optional, Tuple
 from urllib.parse import urlparse
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-# Core dependencies - mapping import names to package specifications
-REQUIRED_DEPS = {
+# Butterfly dependencies - mapping butterfly names to package specifications
+butterfly_dependencies = {
     'requests': 'requests>=2.25.0',
     'tqdm': 'tqdm>=4.60.0', 
-    'PIL': 'Pillow>=8.0.0',  # Note: PIL is the import name for Pillow
+    'PIL': 'Pillow>=8.0.0',
     'colorama': 'colorama>=0.4.4'
 }
 
-def check_and_install_dependencies():
-    """Check for required dependencies and install if missing using multiple strategies"""
-    missing_deps = []
+def butterfly_dependency_validator():
+    """Validate butterfly dependencies and install if missing using multiple strategies"""
+    missing_butterflies = []
     
-    # Check each dependency by trying to import it
-    for import_name, package_spec in REQUIRED_DEPS.items():
+    # Check each butterfly by trying to import it
+    for butterfly_name, butterfly_spec in butterfly_dependencies.items():
         try:
-            __import__(import_name)
-            print(f"✓ {import_name} is available")
+            __import__(butterfly_name)
+            print(f"✓ {butterfly_name} butterfly is available")
         except ImportError:
-            print(f"✗ {import_name} is missing")
-            missing_deps.append(package_spec)
+            print(f"✗ {butterfly_name} butterfly is missing")
+            missing_butterflies.append(butterfly_spec)
     
-    if missing_deps:
-        print("\nInstalling missing dependencies...")
+    if missing_butterflies:
+        print("\nInstalling missing butterflies...")
         
-        # Try multiple installation strategies in order of preference
-        installation_methods = [
-            # Strategy 1: Try pip with --break-system-packages (for newer Python on Arch/modern distros)
+        # Try multiple butterfly installation strategies
+        butterfly_methods = [
             lambda dep: subprocess.check_call([sys.executable, '-m', 'pip', 'install', '--break-system-packages', dep]),
-            # Strategy 2: Try regular pip installation
             lambda dep: subprocess.check_call([sys.executable, '-m', 'pip', 'install', dep]),
-            # Strategy 3: Try pip3 directly
             lambda dep: subprocess.check_call(['pip3', 'install', '--break-system-packages', dep]),
-            # Strategy 4: Try pip3 without break-system-packages
             lambda dep: subprocess.check_call(['pip3', 'install', dep]),
         ]
         
-        for dep in missing_deps:
-            installed = False
+        for butterfly_dep in missing_butterflies:
+            butterfly_installed = False
             
-            for i, install_method in enumerate(installation_methods):
+            for i, butterfly_method in enumerate(butterfly_methods):
                 try:
-                    install_method(dep)
-                    print(f"✓ Installed {dep} using method {i+1}")
-                    installed = True
+                    butterfly_method(butterfly_dep)
+                    print(f"✓ Installed {butterfly_dep} using butterfly method {i+1}")
+                    butterfly_installed = True
                     break
                 except (subprocess.CalledProcessError, FileNotFoundError):
                     continue
             
-            if not installed:
-                print(f"✗ Failed to install {dep} with all methods")
-                print("\nManual installation required:")
-                print("Please install dependencies manually using your system package manager:")
+            if not butterfly_installed:
+                print(f"✗ Failed to install {butterfly_dep} with all butterfly methods")
+                print("\nManual butterfly installation required:")
+                print("Please install butterflies manually using your system package manager:")
                 print("\nFor Arch Linux:")
                 print("  sudo pacman -S python-requests python-tqdm python-pillow python-colorama")
                 print("\nFor Ubuntu/Debian:")
@@ -80,12 +78,12 @@ def check_and_install_dependencies():
                 print("  sudo dnf install python3-requests python3-tqdm python3-pillow python3-colorama")
                 sys.exit(1)
         
-        print("All dependencies installed successfully!\n")
+        print("All butterflies installed successfully!\n")
     else:
-        print("All dependencies are already available!\n")
+        print("All butterflies are already available!\n")
 
-# Install dependencies before importing them
-check_and_install_dependencies()
+# Install butterflies before importing them
+butterfly_dependency_validator()
 
 # Now we can safely import the required modules
 import requests
@@ -96,19 +94,19 @@ from colorama import init, Fore, Style
 # Initialize colorama for cross-platform colored output
 init(autoreset=True)
 
-class DesktopEnvironmentManager:
-    """Universal desktop environment manager for Linux systems"""
+class PaintbrushEnvironmentWizard:
+    """Universal paintbrush environment wizard for Linux systems"""
     
     @staticmethod
-    def detect_desktop_environment():
-        """Detect the current desktop environment"""
+    def detect_paintbrush_environment():
+        """Detect the current paintbrush environment"""
         # Check common environment variables
-        desktop_session = os.environ.get('DESKTOP_SESSION', '').lower()
-        xdg_current_desktop = os.environ.get('XDG_CURRENT_DESKTOP', '').lower()
-        gdmsession = os.environ.get('GDMSESSION', '').lower()
+        paintbrush_session = os.environ.get('DESKTOP_SESSION', '').lower()
+        paintbrush_current = os.environ.get('XDG_CURRENT_DESKTOP', '').lower()
+        paintbrush_gdm = os.environ.get('GDMSESSION', '').lower()
         
-        # Map environment variables to DE names
-        de_mappings = {
+        # Map environment variables to paintbrush names
+        paintbrush_mappings = {
             'gnome': 'gnome',
             'kde': 'kde',
             'plasma': 'kde',
@@ -128,35 +126,35 @@ class DesktopEnvironmentManager:
         }
         
         # Check all environment variables
-        for env_var in [desktop_session, xdg_current_desktop, gdmsession]:
-            for de_key, de_name in de_mappings.items():
-                if de_key in env_var:
-                    return de_name
+        for paintbrush_var in [paintbrush_session, paintbrush_current, paintbrush_gdm]:
+            for paintbrush_key, paintbrush_name in paintbrush_mappings.items():
+                if paintbrush_key in paintbrush_var:
+                    return paintbrush_name
         
         # Fallback: check running processes
         try:
             processes = subprocess.check_output(['ps', 'aux'], universal_newlines=True)
-            for de_key, de_name in de_mappings.items():
-                if de_key in processes.lower():
-                    return de_name
+            for paintbrush_key, paintbrush_name in paintbrush_mappings.items():
+                if paintbrush_key in processes.lower():
+                    return paintbrush_name
         except subprocess.CalledProcessError:
             pass
         
         return 'unknown'
     
     @staticmethod
-    def set_wallpaper(image_path: str, desktop_env: str = None) -> bool:
-        """Set wallpaper for the detected desktop environment"""
-        if not desktop_env:
-            desktop_env = DesktopEnvironmentManager.detect_desktop_environment()
+    def set_canvas_wallpaper(canvas_path: str, paintbrush_env: str = None) -> bool:
+        """Set canvas wallpaper for the detected paintbrush environment"""
+        if not paintbrush_env:
+            paintbrush_env = PaintbrushEnvironmentWizard.detect_paintbrush_environment()
         
-        image_path = os.path.abspath(image_path)
+        canvas_path = os.path.abspath(canvas_path)
         
-        # Desktop environment specific commands
-        wallpaper_commands = {
+        # Paintbrush environment specific commands
+        canvas_commands = {
             'gnome': [
-                ['gsettings', 'set', 'org.gnome.desktop.background', 'picture-uri', f'file://{image_path}'],
-                ['gsettings', 'set', 'org.gnome.desktop.background', 'picture-uri-dark', f'file://{image_path}']
+                ['gsettings', 'set', 'org.gnome.desktop.background', 'picture-uri', f'file://{canvas_path}'],
+                ['gsettings', 'set', 'org.gnome.desktop.background', 'picture-uri-dark', f'file://{canvas_path}']
             ],
             'kde': [
                 ['qdbus', 'org.kde.plasmashell', '/PlasmaShell', 'org.kde.PlasmaShell.evaluateScript', 
@@ -166,55 +164,55 @@ class DesktopEnvironmentManager:
                      d = allDesktops[i];
                      d.wallpaperPlugin = "org.kde.image";
                      d.currentConfigGroup = Array("Wallpaper", "org.kde.image", "General");
-                     d.writeConfig("Image", "file://{image_path}");
+                     d.writeConfig("Image", "file://{canvas_path}");
                  }}
                  ''']
             ],
             'xfce': [
-                ['xfconf-query', '-c', 'xfce4-desktop', '-p', '/backdrop/screen0/monitor0/workspace0/last-image', '-s', image_path]
+                ['xfconf-query', '-c', 'xfce4-desktop', '-p', '/backdrop/screen0/monitor0/workspace0/last-image', '-s', canvas_path]
             ],
             'lxde': [
-                ['pcmanfm', '--set-wallpaper', image_path]
+                ['pcmanfm', '--set-wallpaper', canvas_path]
             ],
             'lxqt': [
-                ['pcmanfm-qt', '--set-wallpaper', image_path]
+                ['pcmanfm-qt', '--set-wallpaper', canvas_path]
             ],
             'mate': [
-                ['gsettings', 'set', 'org.mate.background', 'picture-filename', image_path]
+                ['gsettings', 'set', 'org.mate.background', 'picture-filename', canvas_path]
             ],
             'cinnamon': [
-                ['gsettings', 'set', 'org.cinnamon.desktop.background', 'picture-uri', f'file://{image_path}']
+                ['gsettings', 'set', 'org.cinnamon.desktop.background', 'picture-uri', f'file://{canvas_path}']
             ],
             'i3': [
-                ['feh', '--bg-fill', image_path]
+                ['feh', '--bg-fill', canvas_path]
             ],
             'sway': [
-                ['swaymsg', 'output', '*', 'bg', image_path, 'fill']
+                ['swaymsg', 'output', '*', 'bg', canvas_path, 'fill']
             ],
             'bspwm': [
-                ['feh', '--bg-fill', image_path]
+                ['feh', '--bg-fill', canvas_path]
             ],
             'openbox': [
-                ['feh', '--bg-fill', image_path]
+                ['feh', '--bg-fill', canvas_path]
             ],
             'fluxbox': [
-                ['feh', '--bg-fill', image_path]
+                ['feh', '--bg-fill', canvas_path]
             ],
             'dwm': [
-                ['feh', '--bg-fill', image_path]
+                ['feh', '--bg-fill', canvas_path]
             ],
             'awesome': [
-                ['feh', '--bg-fill', image_path]
+                ['feh', '--bg-fill', canvas_path]
             ],
             'qtile': [
-                ['feh', '--bg-fill', image_path]
+                ['feh', '--bg-fill', canvas_path]
             ]
         }
         
-        # Get commands for the desktop environment
-        commands = wallpaper_commands.get(desktop_env, [['feh', '--bg-fill', image_path]])
+        # Get commands for the paintbrush environment
+        commands = canvas_commands.get(paintbrush_env, [['feh', '--bg-fill', canvas_path]])
         
-        # Execute all commands for the desktop environment
+        # Execute all commands for the paintbrush environment
         for command in commands:
             try:
                 subprocess.run(command, check=True, capture_output=True)
@@ -223,13 +221,13 @@ class DesktopEnvironmentManager:
                 continue
         
         # Fallback methods
-        fallback_commands = [
-            ['feh', '--bg-fill', image_path],
-            ['nitrogen', '--set-zoom-fill', image_path],
-            ['hsetroot', '-fill', image_path]
+        canvas_fallback_commands = [
+            ['feh', '--bg-fill', canvas_path],
+            ['nitrogen', '--set-zoom-fill', canvas_path],
+            ['hsetroot', '-fill', canvas_path]
         ]
         
-        for command in fallback_commands:
+        for command in canvas_fallback_commands:
             try:
                 subprocess.run(command, check=True, capture_output=True)
                 return True
@@ -238,99 +236,99 @@ class DesktopEnvironmentManager:
         
         return False
 
-class SlideshowManager:
-    """Manages wallpaper slideshow functionality"""
+class CarouselManager:
+    """Manages carousel functionality"""
     
-    def __init__(self, wallpaper_dir: str, interval_seconds: int, desktop_env: str = None):
-        self.wallpaper_dir = Path(wallpaper_dir)
-        self.interval_seconds = interval_seconds
-        self.desktop_env = desktop_env or DesktopEnvironmentManager.detect_desktop_environment()
-        self.running = False
-        self.thread = None
-        self.image_files = []
-        self.current_index = 0
+    def __init__(self, carousel_dir: str, carousel_interval_seconds: int, paintbrush_env: str = None):
+        self.carousel_dir = Path(carousel_dir)
+        self.carousel_interval_seconds = carousel_interval_seconds
+        self.paintbrush_env = paintbrush_env or PaintbrushEnvironmentWizard.detect_paintbrush_environment()
+        self.carousel_running = False
+        self.carousel_thread = None
+        self.carousel_files = []
+        self.carousel_index = 0
         
-        # Load image files
-        self._load_image_files()
+        # Load carousel files
+        self._load_carousel_files()
     
-    def _load_image_files(self):
-        """Load all image files from the wallpaper directory"""
-        image_extensions = {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.tiff', '.svg'}
+    def _load_carousel_files(self):
+        """Load all carousel files from the directory"""
+        carousel_extensions = {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.tiff', '.svg'}
         
-        self.image_files = []
-        for ext in image_extensions:
-            self.image_files.extend(self.wallpaper_dir.glob(f'*{ext}'))
-            self.image_files.extend(self.wallpaper_dir.glob(f'*{ext.upper()}'))
+        self.carousel_files = []
+        for ext in carousel_extensions:
+            self.carousel_files.extend(self.carousel_dir.glob(f'*{ext}'))
+            self.carousel_files.extend(self.carousel_dir.glob(f'*{ext.upper()}'))
         
         # Shuffle the list for variety
-        random.shuffle(self.image_files)
+        random.shuffle(self.carousel_files)
         
-        if not self.image_files:
-            raise ValueError(f"No image files found in {self.wallpaper_dir}")
+        if not self.carousel_files:
+            raise ValueError(f"No carousel files found in {self.carousel_dir}")
     
-    def start_slideshow(self):
-        """Start the wallpaper slideshow"""
-        if self.running:
+    def start_carousel(self):
+        """Start the carousel"""
+        if self.carousel_running:
             return
         
-        self.running = True
-        self.thread = threading.Thread(target=self._slideshow_loop, daemon=True)
-        self.thread.start()
-        print(f"{Fore.GREEN}Slideshow started! Changing wallpaper every {self._format_interval()}{Style.RESET_ALL}")
+        self.carousel_running = True
+        self.carousel_thread = threading.Thread(target=self._carousel_loop, daemon=True)
+        self.carousel_thread.start()
+        print(f"{Fore.GREEN}Carousel started! Changing wallpaper every {self._format_carousel_interval()}{Style.RESET_ALL}")
     
-    def stop_slideshow(self):
-        """Stop the wallpaper slideshow"""
-        self.running = False
-        if self.thread:
-            self.thread.join(timeout=1)
-        print(f"{Fore.YELLOW}Slideshow stopped{Style.RESET_ALL}")
+    def stop_carousel(self):
+        """Stop the carousel"""
+        self.carousel_running = False
+        if self.carousel_thread:
+            self.carousel_thread.join(timeout=1)
+        print(f"{Fore.YELLOW}Carousel stopped{Style.RESET_ALL}")
     
-    def _slideshow_loop(self):
-        """Main slideshow loop"""
-        while self.running:
-            if self.image_files:
-                current_image = self.image_files[self.current_index]
+    def _carousel_loop(self):
+        """Main carousel loop"""
+        while self.carousel_running:
+            if self.carousel_files:
+                current_canvas = self.carousel_files[self.carousel_index]
                 
-                if DesktopEnvironmentManager.set_wallpaper(str(current_image), self.desktop_env):
-                    print(f"{Fore.CYAN}Changed wallpaper to: {current_image.name}{Style.RESET_ALL}")
+                if PaintbrushEnvironmentWizard.set_canvas_wallpaper(str(current_canvas), self.paintbrush_env):
+                    print(f"{Fore.CYAN}Changed wallpaper to: {current_canvas.name}{Style.RESET_ALL}")
                 else:
-                    print(f"{Fore.RED}Failed to set wallpaper: {current_image.name}{Style.RESET_ALL}")
+                    print(f"{Fore.RED}Failed to set wallpaper: {current_canvas.name}{Style.RESET_ALL}")
                 
-                # Move to next image
-                self.current_index = (self.current_index + 1) % len(self.image_files)
+                # Move to next canvas
+                self.carousel_index = (self.carousel_index + 1) % len(self.carousel_files)
             
             # Wait for the specified interval
-            time.sleep(self.interval_seconds)
+            time.sleep(self.carousel_interval_seconds)
     
-    def set_static_wallpaper(self, image_path: str = None):
-        """Set a static wallpaper (random if none specified)"""
-        if image_path:
-            target_image = Path(image_path)
+    def set_static_canvas(self, canvas_path: str = None):
+        """Set a static canvas (random if none specified)"""
+        if canvas_path:
+            target_canvas = Path(canvas_path)
         else:
-            if not self.image_files:
-                raise ValueError("No image files available")
-            target_image = random.choice(self.image_files)
+            if not self.carousel_files:
+                raise ValueError("No carousel files available")
+            target_canvas = random.choice(self.carousel_files)
         
-        if DesktopEnvironmentManager.set_wallpaper(str(target_image), self.desktop_env):
-            print(f"{Fore.GREEN}Set static wallpaper: {target_image.name}{Style.RESET_ALL}")
+        if PaintbrushEnvironmentWizard.set_canvas_wallpaper(str(target_canvas), self.paintbrush_env):
+            print(f"{Fore.GREEN}Set static wallpaper: {target_canvas.name}{Style.RESET_ALL}")
             return True
         else:
-            print(f"{Fore.RED}Failed to set wallpaper: {target_image.name}{Style.RESET_ALL}")
+            print(f"{Fore.RED}Failed to set wallpaper: {target_canvas.name}{Style.RESET_ALL}")
             return False
     
-    def _format_interval(self) -> str:
+    def _format_carousel_interval(self) -> str:
         """Format interval seconds to human readable format"""
-        if self.interval_seconds < 60:
-            return f"{self.interval_seconds}s"
-        elif self.interval_seconds < 3600:
-            minutes = self.interval_seconds // 60
-            seconds = self.interval_seconds % 60
+        if self.carousel_interval_seconds < 60:
+            return f"{self.carousel_interval_seconds}s"
+        elif self.carousel_interval_seconds < 3600:
+            minutes = self.carousel_interval_seconds // 60
+            seconds = self.carousel_interval_seconds % 60
             if seconds:
                 return f"{minutes}m {seconds}s"
             return f"{minutes}m"
         else:
-            hours = self.interval_seconds // 3600
-            remaining = self.interval_seconds % 3600
+            hours = self.carousel_interval_seconds // 3600
+            remaining = self.carousel_interval_seconds % 3600
             minutes = remaining // 60
             seconds = remaining % 60
             
@@ -341,27 +339,27 @@ class SlideshowManager:
                 result += f" {seconds}s"
             return result
 
-class AutostartManager:
-    """Manages autostart functionality for the slideshow"""
+class AutostartWizard:
+    """Manages autostart functionality for the carousel"""
     
     @staticmethod
-    def create_autostart_entry(script_path: str, wallpaper_dir: str, interval: str, mode: str = 'slideshow'):
-        """Create autostart entry for the slideshow"""
+    def create_autostart_butterfly(script_path: str, canvas_dir: str, interval: str, mode: str = 'carousel'):
+        """Create autostart butterfly for the carousel"""
         autostart_dir = Path.home() / '.config' / 'autostart'
         autostart_dir.mkdir(parents=True, exist_ok=True)
         
-        desktop_file = autostart_dir / 'wallpimp-slideshow.desktop'
+        desktop_butterfly = autostart_dir / 'wallpimp-carousel.desktop'
         
         # Create the command based on mode
-        if mode == 'slideshow':
-            command = f'python3 {script_path} --slideshow --dir "{wallpaper_dir}" --interval {interval}'
+        if mode == 'carousel':
+            command = f'{script_path} --carousel --dir "{canvas_dir}" --interval {interval}'
         else:
-            command = f'python3 {script_path} --static --dir "{wallpaper_dir}"'
+            command = f'{script_path} --static --dir "{canvas_dir}"'
         
         desktop_content = f"""[Desktop Entry]
 Type=Application
-Name=WallPimp Slideshow
-Comment=Automatic wallpaper slideshow
+Name=WallPimp Carousel
+Comment=Automatic wallpaper carousel
 Exec={command}
 Icon=preferences-desktop-wallpaper
 StartupNotify=false
@@ -369,33 +367,33 @@ NoDisplay=true
 X-GNOME-Autostart-enabled=true
 """
         
-        with open(desktop_file, 'w') as f:
+        with open(desktop_butterfly, 'w') as f:
             f.write(desktop_content)
         
         # Make it executable
-        desktop_file.chmod(0o755)
+        desktop_butterfly.chmod(0o755)
         
-        print(f"{Fore.GREEN}Autostart entry created: {desktop_file}{Style.RESET_ALL}")
-        return str(desktop_file)
+        print(f"{Fore.GREEN}Autostart butterfly created: {desktop_butterfly}{Style.RESET_ALL}")
+        return str(desktop_butterfly)
     
     @staticmethod
-    def remove_autostart_entry():
-        """Remove autostart entry"""
-        desktop_file = Path.home() / '.config' / 'autostart' / 'wallpimp-slideshow.desktop'
+    def remove_autostart_butterfly():
+        """Remove autostart butterfly"""
+        desktop_butterfly = Path.home() / '.config' / 'autostart' / 'wallpimp-carousel.desktop'
         
-        if desktop_file.exists():
-            desktop_file.unlink()
-            print(f"{Fore.YELLOW}Autostart entry removed{Style.RESET_ALL}")
+        if desktop_butterfly.exists():
+            desktop_butterfly.unlink()
+            print(f"{Fore.YELLOW}Autostart butterfly removed{Style.RESET_ALL}")
             return True
         else:
-            print(f"{Fore.YELLOW}No autostart entry found{Style.RESET_ALL}")
+            print(f"{Fore.YELLOW}No autostart butterfly found{Style.RESET_ALL}")
             return False
 
 class WallPimp:
-    """Enhanced WallPimp class with slideshow functionality"""
+    """Main WallPimp class for wallpaper management"""
     
-    # Curated repository collection - each entry contains icon, URL, branch, and description
-    REPOSITORIES = {
+    # Rainbow repository collection - each entry contains icon, URL, branch, and description
+    rainbow_repositories = {
         'minimalist': {
             'icon': '🖼️',
             'url': 'https://github.com/dharmx/walls',
@@ -470,81 +468,81 @@ class WallPimp:
         }
     }
     
-    def __init__(self, download_dir: str = None):
+    def __init__(self, butterfly_dir: str = None):
         """Initialize WallPimp with configuration"""
-        self.download_dir = Path(download_dir) if download_dir else self._get_default_download_dir()
+        self.butterfly_dir = Path(butterfly_dir) if butterfly_dir else self._get_default_butterfly_dir()
         
-        # Create download directory first - this fixes the original bug
-        self.download_dir.mkdir(parents=True, exist_ok=True)
+        # Create butterfly directory first
+        self.butterfly_dir.mkdir(parents=True, exist_ok=True)
         
-        # Now we can safely setup logging since the directory exists
-        self._setup_logging()
+        # Setup logging
+        self._setup_butterfly_logging()
         
         # Setup HTTP session with proper headers
-        self.session = requests.Session()
-        self.session.headers.update({
-            'User-Agent': 'WallPimp-Wallpaper-Manager (https://github.com/wallpimp/wallpimp)'
+        self.butterfly_session = requests.Session()
+        self.butterfly_session.headers.update({
+            'User-Agent': 'WallPimp-Wallpaper-Manager (https://github.com/0xb0rn3/wallpimp)'
         })
         
         # Load cache for tracking downloaded files
-        self.cache_file = self.download_dir / '.wallpimp_cache.json'
-        self.cache = self._load_cache()
+        self.butterfly_cache_file = self.butterfly_dir / '.wallpimp_cache.json'
+        self.butterfly_cache = self._load_butterfly_cache()
         
         # Statistics tracking
-        self.stats = {
+        self.butterfly_stats = {
             'downloaded': 0,
             'skipped': 0,
             'failed': 0,
             'total_size': 0
         }
         
-        # Desktop environment detection
-        self.desktop_env = DesktopEnvironmentManager.detect_desktop_environment()
+        # Paintbrush environment detection
+        self.paintbrush_env = PaintbrushEnvironmentWizard.detect_paintbrush_environment()
     
-    def _get_default_download_dir(self) -> Path:
-        """Get default download directory based on operating system"""
-        return Path.home() / 'Pictures' / 'WallPimp'
+    def _get_default_butterfly_dir(self) -> Path:
+        """Get default butterfly directory"""
+        return Path.home() / 'Pictures'
     
-    def _setup_logging(self):
-        """Setup logging configuration - called after directory creation"""
-        log_file = self.download_dir / 'wallpimp.log'
+    def _setup_butterfly_logging(self):
+        """Setup butterfly logging configuration"""
+        butterfly_log_file = self.butterfly_dir / 'wallpimp.log'
         logging.basicConfig(
             level=logging.INFO,
             format='%(asctime)s - %(levelname)s - %(message)s',
             handlers=[
-                logging.FileHandler(log_file),
+                logging.FileHandler(butterfly_log_file),
                 logging.StreamHandler()
             ]
         )
-        self.logger = logging.getLogger(__name__)
+        self.butterfly_logger = logging.getLogger(__name__)
     
-    def _load_cache(self) -> Dict:
-        """Load cache from file to track what we've already downloaded"""
-        if self.cache_file.exists():
+    def _load_butterfly_cache(self) -> Dict:
+        """Load butterfly cache from file"""
+        if self.butterfly_cache_file.exists():
             try:
-                with open(self.cache_file, 'r') as f:
-                    cache_data = json.load(f)
+                with open(self.butterfly_cache_file, 'r') as f:
+                    butterfly_cache_data = json.load(f)
                     # Convert downloaded_files back to set if it exists
-                    if 'downloaded_files' in cache_data and isinstance(cache_data['downloaded_files'], list):
-                        cache_data['downloaded_files'] = set(cache_data['downloaded_files'])
-                    return cache_data
+                    if 'downloaded_files' in butterfly_cache_data and isinstance(butterfly_cache_data['downloaded_files'], list):
+                        butterfly_cache_data['downloaded_files'] = set(butterfly_cache_data['downloaded_files'])
+                    return butterfly_cache_data
             except (json.JSONDecodeError, IOError):
-                self.logger.warning("Cache file corrupted, starting fresh")
+                self.butterfly_logger.warning("Butterfly cache file corrupted, starting fresh")
         return {'downloaded_files': set()}
     
-    def _save_cache(self):
-        """Save cache to file for persistence between runs"""
+    def _save_butterfly_cache(self):
+        """Save butterfly cache to file"""
         # Convert set to list for JSON serialization
-        cache_copy = self.cache.copy()
-        cache_copy['downloaded_files'] = list(cache_copy['downloaded_files'])
+        butterfly_cache_copy = self.butterfly_cache.copy()
+        butterfly_cache_copy['downloaded_files'] = list(butterfly_cache_copy['downloaded_files'])
         
         try:
-            with open(self.cache_file, 'w') as f:
-                json.dump(cache_copy, f, indent=2)
+            with open(self.butterfly_cache_file, 'w') as f:
+                json.dump(butterfly_cache_copy, f, indent=2)
         except IOError as e:
-            self.logger.error(f"Failed to save cache: {e}")
+            self.butterfly_logger.error(f"Failed to save butterfly cache: {e}")
     
-    def show_banner(self):
+    def show_wallpimp_banner(self):
         """Display the WallPimp banner with basic info"""
         banner = f"""
 {Fore.CYAN}██╗    ██╗ █████╗ ██╗     ██╗     ██████╗ ██╗███╗   ███╗██████╗ 
@@ -554,112 +552,705 @@ class WallPimp:
 ╚███╔███╔╝██║  ██║███████╗███████╗██║     ██║██║ ╚═╝ ██║██║     
  ╚══╝╚══╝ ╚═╝  ╚═╝╚══════╝╚══════╝╚═╝     ╚═╝╚═╝     ╚═╝╚═╝     {Style.RESET_ALL}
                                                                   
-{Fore.YELLOW}Enhanced - Universal Linux Wallpaper Manager with Slideshow{Style.RESET_ALL}
-{Fore.GREEN}Download Directory: {self.download_dir}{Style.RESET_ALL}
-{Fore.BLUE}Desktop Environment: {self.desktop_env.upper()}{Style.RESET_ALL}
+{Fore.YELLOW}Universal Linux Wallpaper Manager{Style.RESET_ALL}
+{Fore.GREEN}Directory: {self.butterfly_dir}{Style.RESET_ALL}
+{Fore.BLUE}Environment: {self.paintbrush_env.upper()}{Style.RESET_ALL}
+{Fore.MAGENTA}Developer: 0xb0rn3 | Contact: q4n0@proton.me{Style.RESET_ALL}
+{Fore.CYAN}Discord: 0xbv1 | Twitter: 0xbv1 | Instagram: theehiv3{Style.RESET_ALL}
 """
         print(banner)
     
-    def list_repositories(self):
-        """Display all available curated repositories in an organized format"""
-        print(f"\n{Fore.CYAN}Available Curated Repositories:{Style.RESET_ALL}")
+    def list_rainbow_repositories(self):
+        """Display all available rainbow repositories"""
+        print(f"\n{Fore.CYAN}Available Rainbow Repositories:{Style.RESET_ALL}")
         print("-" * 60)
         
         # Display each repository with its icon, name, and description
-        for repo_key, repo_info in self.REPOSITORIES.items():
-            print(f"{repo_info['icon']} {Fore.YELLOW}{repo_key.upper():<12}{Style.RESET_ALL} - {repo_info['description']}")
+        for rainbow_key, rainbow_info in self.rainbow_repositories.items():
+            print(f"{rainbow_info['icon']} {Fore.YELLOW}{rainbow_key.upper():<12}{Style.RESET_ALL} - {rainbow_info['description']}")
         
-        print(f"\n{Fore.GREEN}Total repositories: {len(self.REPOSITORIES)}{Style.RESET_ALL}")
-        print(f"{Fore.CYAN}Use --repo <name> to download from a specific repository{Style.RESET_ALL}")
-        print(f"{Fore.CYAN}Use --url <github-url> to download from any GitHub repository{Style.RESET_ALL}")
+        print(f"\n{Fore.GREEN}Total repositories: {len(self.rainbow_repositories)}{Style.RESET_ALL}")
+        print(f"{Fore.CYAN}Use repository name to download from a specific repository{Style.RESET_ALL}")
+        print(f"{Fore.CYAN}Use custom URL to download from any GitHub repository{Style.RESET_ALL}")
     
-    def get_github_api_url(self, repo_url: str, branch: str = "main") -> str:
+    def get_rainbow_api_url(self, rainbow_url: str, rainbow_branch: str = "main") -> str:
         """Convert GitHub repo URL to API URL for file listing"""
         # Parse the GitHub URL to extract owner and repo name
-        parsed = urlparse(repo_url)
+        parsed = urlparse(rainbow_url)
         path_parts = parsed.path.strip('/').split('/')
         
         if len(path_parts) >= 2:
             owner, repo = path_parts[0], path_parts[1]
-            return f"https://api.github.com/repos/{owner}/{repo}/contents?ref={branch}"
+            return f"https://api.github.com/repos/{owner}/{repo}/contents?ref={rainbow_branch}"
         else:
-            raise ValueError(f"Invalid GitHub URL format: {repo_url}")
+            raise ValueError(f"Invalid GitHub URL format: {rainbow_url}")
     
-    def fetch_repo_contents(self, repo_url: str, branch: str = "main") -> List[Dict]:
+    def fetch_rainbow_contents(self, rainbow_url: str, rainbow_branch: str = "main") -> List[Dict]:
         """Fetch contents of a GitHub repository recursively"""
         try:
-            api_url = self.get_github_api_url(repo_url, branch)
-            return self._fetch_contents_recursive(api_url, repo_url)
+            rainbow_api_url = self.get_rainbow_api_url(rainbow_url, rainbow_branch)
+            return self._fetch_rainbow_contents_recursive(rainbow_api_url, rainbow_url)
         except Exception as e:
-            self.logger.error(f"Failed to fetch contents for {repo_url}: {e}")
+            self.butterfly_logger.error(f"Failed to download {rainbow_file_info['name']}: {e}")
+            self.butterfly_stats['failed'] += 1
+            return False
+    
+    def _verify_rainbow_image(self, rainbow_file_path: Path) -> bool:
+        """Verify that the downloaded file is a valid image"""
+        try:
+            with Image.open(rainbow_file_path) as img:
+                img.verify()
+            return True
+        except Exception:
+            self.butterfly_logger.warning(f"Invalid rainbow image file: {rainbow_file_path}")
+            return False
+    
+    def download_from_rainbow_repo(self, rainbow_url: str, rainbow_branch: str = "main", rainbow_workers: int = 4, rainbow_name: str = None) -> bool:
+        """Download all wallpapers from a specific GitHub repository"""
+        # Extract repo name for folder organization if not provided
+        if not rainbow_name:
+            parsed = urlparse(rainbow_url)
+            rainbow_name = parsed.path.strip('/').split('/')[-1] if parsed.path else "wallpapers"
+        
+        print(f"\n🖼️ Fetching wallpapers from {Fore.YELLOW}{rainbow_url}{Style.RESET_ALL}...")
+        
+        # Fetch repository contents
+        rainbow_contents = self.fetch_rainbow_contents(rainbow_url, rainbow_branch)
+        
+        if not rainbow_contents:
+            print(f"{Fore.RED}No wallpapers found in repository{Style.RESET_ALL}")
+            return False
+        
+        print(f"{Fore.GREEN}Found {len(rainbow_contents)} wallpapers{Style.RESET_ALL}")
+        
+        # Download files using thread pool
+        rainbow_success_count = 0
+        with ThreadPoolExecutor(max_workers=rainbow_workers) as executor:
+            rainbow_futures = {executor.submit(self.download_rainbow_file, rainbow_file_info, rainbow_name): rainbow_file_info 
+                      for rainbow_file_info in rainbow_contents}
+            
+            for rainbow_future in as_completed(rainbow_futures):
+                if rainbow_future.result():
+                    rainbow_success_count += 1
+        
+        print(f"\n{Fore.GREEN}Successfully downloaded {rainbow_success_count}/{len(rainbow_contents)} wallpapers{Style.RESET_ALL}")
+        return True
+    
+    def download_rainbow_repo(self, rainbow_key: str, rainbow_workers: int = 4) -> bool:
+        """Download wallpapers from one of our rainbow repositories"""
+        if rainbow_key not in self.rainbow_repositories:
+            print(f"{Fore.RED}Repository '{rainbow_key}' not found in rainbow list{Style.RESET_ALL}")
+            return False
+        
+        rainbow_info = self.rainbow_repositories[rainbow_key]
+        print(f"\n{rainbow_info['icon']} Starting download from {Fore.YELLOW}{rainbow_key.upper()}{Style.RESET_ALL}")
+        print(f"📝 Description: {rainbow_info['description']}")
+        
+        return self.download_from_rainbow_repo(
+            rainbow_info['url'], 
+            rainbow_info['branch'], 
+            rainbow_workers, 
+            rainbow_key
+        )
+    
+    def download_all_rainbow_repos(self, rainbow_workers: int = 4):
+        """Download wallpapers from all rainbow repositories"""
+        print(f"\n{Fore.CYAN}Starting bulk download from all rainbow repositories...{Style.RESET_ALL}")
+        
+        rainbow_successful_repos = 0
+        rainbow_total_repos = len(self.rainbow_repositories)
+        
+        for i, rainbow_key in enumerate(self.rainbow_repositories, 1):
+            print(f"\n{Fore.MAGENTA}[{i}/{rainbow_total_repos}] Processing {rainbow_key}...{Style.RESET_ALL}")
+            
+            if self.download_rainbow_repo(rainbow_key, rainbow_workers):
+                rainbow_successful_repos += 1
+            
+            # Save cache after each repository
+            self._save_butterfly_cache()
+            
+            # Small delay between repositories to be respectful to GitHub API
+            time.sleep(1)
+        
+        print(f"\n{Fore.GREEN}Completed downloads from {rainbow_successful_repos}/{rainbow_total_repos} repositories{Style.RESET_ALL}")
+        self.show_butterfly_statistics()
+    
+    def show_butterfly_statistics(self):
+        """Display download statistics"""
+        print(f"\n{Fore.CYAN}Download Statistics:{Style.RESET_ALL}")
+        print("-" * 40)
+        print(f"📥 Downloaded: {Fore.GREEN}{self.butterfly_stats['downloaded']}{Style.RESET_ALL}")
+        print(f"⏭️  Skipped: {Fore.YELLOW}{self.butterfly_stats['skipped']}{Style.RESET_ALL}")
+        print(f"❌ Failed: {Fore.RED}{self.butterfly_stats['failed']}{Style.RESET_ALL}")
+        print(f"💾 Total Size: {Fore.CYAN}{self._format_butterfly_bytes(self.butterfly_stats['total_size'])}{Style.RESET_ALL}")
+        print(f"📁 Storage Path: {Fore.BLUE}{self.butterfly_dir}{Style.RESET_ALL}")
+    
+    def _format_butterfly_bytes(self, butterfly_bytes_count: int) -> str:
+        """Format bytes to human readable format"""
+        for unit in ['B', 'KB', 'MB', 'GB', 'TB']:
+            if butterfly_bytes_count < 1024.0:
+                return f"{butterfly_bytes_count:.1f} {unit}"
+            butterfly_bytes_count /= 1024.0
+        return f"{butterfly_bytes_count:.1f} PB"
+    
+    def cleanup_butterfly_cache(self):
+        """Clean up cache and remove orphaned entries"""
+        butterfly_cleaned_count = 0
+        if 'downloaded_files' in self.butterfly_cache:
+            for butterfly_cache_key in list(self.butterfly_cache['downloaded_files']):
+                butterfly_file_path = self.butterfly_dir / butterfly_cache_key
+                if not butterfly_file_path.exists():
+                    self.butterfly_cache['downloaded_files'].discard(butterfly_cache_key)
+                    butterfly_cleaned_count += 1
+        
+        if butterfly_cleaned_count > 0:
+            print(f"{Fore.GREEN}Cleaned {butterfly_cleaned_count} orphaned cache entries{Style.RESET_ALL}")
+            self._save_butterfly_cache()
+    
+    def __del__(self):
+        """Cleanup when object is destroyed"""
+        if hasattr(self, 'butterfly_cache'):
+            self._save_butterfly_cache()
+
+def parse_carousel_interval(carousel_interval_str: str) -> int:
+    """Parse carousel interval string to seconds"""
+    if not carousel_interval_str:
+        return 0
+    
+    # Pattern to match time components
+    carousel_pattern = r'(\d+)([smh])'
+    carousel_matches = re.findall(carousel_pattern, carousel_interval_str.lower())
+    
+    if not carousel_matches:
+        # Try to parse as plain number (assume seconds)
+        try:
+            return int(carousel_interval_str)
+        except ValueError:
+            raise ValueError(f"Invalid carousel interval format: {carousel_interval_str}")
+    
+    carousel_total_seconds = 0
+    for carousel_value, carousel_unit in carousel_matches:
+        carousel_value = int(carousel_value)
+        if carousel_unit == 's':
+            carousel_total_seconds += carousel_value
+        elif carousel_unit == 'm':
+            carousel_total_seconds += carousel_value * 60
+        elif carousel_unit == 'h':
+            carousel_total_seconds += carousel_value * 3600
+    
+    return carousel_total_seconds
+
+def check_for_butterfly_updates():
+    """Check for updates from the GitHub repository"""
+    try:
+        print(f"{Fore.CYAN}Checking for updates...{Style.RESET_ALL}")
+        response = requests.get("https://api.github.com/repos/0xb0rn3/wallpimp/releases/latest", timeout=10)
+        if response.status_code == 200:
+            latest_release = response.json()
+            current_version = "v1.0.0"  # You can store this in a config file
+            latest_version = latest_release.get('tag_name', 'Unknown')
+            
+            if latest_version != current_version:
+                print(f"{Fore.YELLOW}Update available: {latest_version} (current: {current_version}){Style.RESET_ALL}")
+                print(f"{Fore.CYAN}Visit: https://github.com/0xb0rn3/wallpimp for the latest version{Style.RESET_ALL}")
+                return True
+            else:
+                print(f"{Fore.GREEN}You are running the latest version: {current_version}{Style.RESET_ALL}")
+        else:
+            print(f"{Fore.YELLOW}Unable to check for updates{Style.RESET_ALL}")
+    except Exception as e:
+        print(f"{Fore.YELLOW}Update check failed: {e}{Style.RESET_ALL}")
+    
+    return False
+
+def butterfly_interactive_setup():
+    """Interactive setup for wallpaper carousel"""
+    print(f"\n{Fore.CYAN}🎨 WallPimp Interactive Setup{Style.RESET_ALL}")
+    print("=" * 50)
+    
+    # Detect paintbrush environment
+    paintbrush_env = PaintbrushEnvironmentWizard.detect_paintbrush_environment()
+    print(f"{Fore.BLUE}Detected Environment: {paintbrush_env.upper()}{Style.RESET_ALL}")
+    
+    # Ask for wallpaper directory
+    butterfly_default_dir = str(Path.home() / 'Pictures')
+    butterfly_wallpaper_dir = input(f"\n📁 Enter wallpaper directory (default: {butterfly_default_dir}): ").strip()
+    if not butterfly_wallpaper_dir:
+        butterfly_wallpaper_dir = butterfly_default_dir
+    
+    butterfly_wallpaper_path = Path(butterfly_wallpaper_dir)
+    if not butterfly_wallpaper_path.exists():
+        print(f"{Fore.RED}Directory doesn't exist: {butterfly_wallpaper_path}{Style.RESET_ALL}")
+        return None, None, None
+    
+    # Check for images in directory
+    butterfly_image_extensions = {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.tiff', '.svg'}
+    butterfly_image_count = sum(1 for ext in butterfly_image_extensions 
+                     for _ in butterfly_wallpaper_path.glob(f'*{ext}'))
+    
+    if butterfly_image_count == 0:
+        print(f"{Fore.YELLOW}No images found in {butterfly_wallpaper_path}{Style.RESET_ALL}")
+        print(f"{Fore.CYAN}You can download wallpapers first using repository downloads{Style.RESET_ALL}")
+        return None, None, None
+    
+    print(f"{Fore.GREEN}Found {butterfly_image_count} images in directory{Style.RESET_ALL}")
+    
+    # Ask for mode (static or carousel)
+    print(f"\n🔄 Choose wallpaper mode:")
+    print(f"1. Static wallpaper (set once)")
+    print(f"2. Carousel (change automatically)")
+    
+    while True:
+        butterfly_mode_choice = input("\nEnter choice (1 or 2): ").strip()
+        if butterfly_mode_choice in ['1', '2']:
+            break
+        print(f"{Fore.RED}Invalid choice. Please enter 1 or 2.{Style.RESET_ALL}")
+    
+    if butterfly_mode_choice == '1':
+        return butterfly_wallpaper_dir, 'static', 0
+    
+    # Ask for carousel interval
+    print(f"\n⏱️  Enter carousel interval:")
+    print(f"Examples: 30s (30 seconds), 5m (5 minutes), 1h (1 hour)")
+    print(f"Advanced: 1h 30m 45s (1 hour 30 minutes 45 seconds)")
+    
+    while True:
+        butterfly_interval_str = input("Interval: ").strip()
+        try:
+            butterfly_interval_seconds = parse_carousel_interval(butterfly_interval_str)
+            if butterfly_interval_seconds < 1:
+                print(f"{Fore.RED}Interval must be at least 1 second{Style.RESET_ALL}")
+                continue
+            break
+        except ValueError as e:
+            print(f"{Fore.RED}{e}{Style.RESET_ALL}")
+    
+    return butterfly_wallpaper_dir, 'carousel', butterfly_interval_seconds
+
+def butterfly_interactive_menu():
+    """Interactive menu for WallPimp"""
+    while True:
+        print(f"\n{Fore.CYAN}🎨 WallPimp Interactive Menu{Style.RESET_ALL}")
+        print("=" * 50)
+        print(f"{Fore.YELLOW}1.{Style.RESET_ALL} Download wallpapers from repository")
+        print(f"{Fore.YELLOW}2.{Style.RESET_ALL} Download from all repositories")
+        print(f"{Fore.YELLOW}3.{Style.RESET_ALL} Download from custom URL")
+        print(f"{Fore.YELLOW}4.{Style.RESET_ALL} Set static wallpaper")
+        print(f"{Fore.YELLOW}5.{Style.RESET_ALL} Start carousel mode")
+        print(f"{Fore.YELLOW}6.{Style.RESET_ALL} Enable autostart carousel")
+        print(f"{Fore.YELLOW}7.{Style.RESET_ALL} Disable autostart")
+        print(f"{Fore.YELLOW}8.{Style.RESET_ALL} Clean cache")
+        print(f"{Fore.YELLOW}9.{Style.RESET_ALL} View repositories")
+        print(f"{Fore.YELLOW}10.{Style.RESET_ALL} Check for updates")
+        print(f"{Fore.YELLOW}0.{Style.RESET_ALL} Exit")
+        
+        butterfly_choice = input(f"\n{Fore.GREEN}Enter your choice: {Style.RESET_ALL}").strip()
+        
+        if butterfly_choice == '1':
+            butterfly_menu_download_repo()
+        elif butterfly_choice == '2':
+            butterfly_menu_download_all()
+        elif butterfly_choice == '3':
+            butterfly_menu_download_url()
+        elif butterfly_choice == '4':
+            butterfly_menu_static_wallpaper()
+        elif butterfly_choice == '5':
+            butterfly_menu_carousel()
+        elif butterfly_choice == '6':
+            butterfly_menu_enable_autostart()
+        elif butterfly_choice == '7':
+            butterfly_menu_disable_autostart()
+        elif butterfly_choice == '8':
+            butterfly_menu_clean_cache()
+        elif butterfly_choice == '9':
+            butterfly_menu_view_repos()
+        elif butterfly_choice == '10':
+            butterfly_menu_check_updates()
+        elif butterfly_choice == '0':
+            print(f"{Fore.GREEN}Thank you for using WallPimp! 👋{Style.RESET_ALL}")
+            break
+        else:
+            print(f"{Fore.RED}Invalid choice. Please try again.{Style.RESET_ALL}")
+
+def butterfly_menu_download_repo():
+    """Menu option to download from repository"""
+    wallpimp = WallPimp()
+    wallpimp.list_rainbow_repositories()
+    
+    butterfly_repo_name = input(f"\n{Fore.GREEN}Enter repository name: {Style.RESET_ALL}").strip().lower()
+    if butterfly_repo_name in wallpimp.rainbow_repositories:
+        butterfly_workers = int(input(f"{Fore.GREEN}Enter number of workers (default 4): {Style.RESET_ALL}").strip() or "4")
+        wallpimp.download_rainbow_repo(butterfly_repo_name, butterfly_workers)
+        wallpimp.show_butterfly_statistics()
+    else:
+        print(f"{Fore.RED}Repository not found!{Style.RESET_ALL}")
+
+def butterfly_menu_download_all():
+    """Menu option to download from all repositories"""
+    wallpimp = WallPimp()
+    butterfly_confirm = input(f"{Fore.YELLOW}This will download from ALL repositories. Continue? (y/N): {Style.RESET_ALL}").strip().lower()
+    if butterfly_confirm == 'y':
+        butterfly_workers = int(input(f"{Fore.GREEN}Enter number of workers (default 4): {Style.RESET_ALL}").strip() or "4")
+        wallpimp.download_all_rainbow_repos(butterfly_workers)
+
+def butterfly_menu_download_url():
+    """Menu option to download from custom URL"""
+    wallpimp = WallPimp()
+    butterfly_url = input(f"{Fore.GREEN}Enter GitHub repository URL: {Style.RESET_ALL}").strip()
+    if butterfly_url:
+        butterfly_branch = input(f"{Fore.GREEN}Enter branch (default main): {Style.RESET_ALL}").strip() or "main"
+        butterfly_workers = int(input(f"{Fore.GREEN}Enter number of workers (default 4): {Style.RESET_ALL}").strip() or "4")
+        wallpimp.download_from_rainbow_repo(butterfly_url, butterfly_branch, butterfly_workers)
+        wallpimp.show_butterfly_statistics()
+
+def butterfly_menu_static_wallpaper():
+    """Menu option to set static wallpaper"""
+    butterfly_dir = input(f"{Fore.GREEN}Enter wallpaper directory (default ~/Pictures): {Style.RESET_ALL}").strip() or str(Path.home() / 'Pictures')
+    try:
+        carousel_manager = CarouselManager(butterfly_dir, 0)
+        carousel_manager.set_static_canvas()
+    except Exception as e:
+        print(f"{Fore.RED}Error: {e}{Style.RESET_ALL}")
+
+def butterfly_menu_carousel():
+    """Menu option to start carousel"""
+    butterfly_dir = input(f"{Fore.GREEN}Enter wallpaper directory (default ~/Pictures): {Style.RESET_ALL}").strip() or str(Path.home() / 'Pictures')
+    butterfly_interval = input(f"{Fore.GREEN}Enter interval (e.g., 30s, 5m, 1h): {Style.RESET_ALL}").strip()
+    
+    try:
+        butterfly_interval_seconds = parse_carousel_interval(butterfly_interval)
+        carousel_manager = CarouselManager(butterfly_dir, butterfly_interval_seconds)
+        
+        # Handle graceful shutdown
+        def butterfly_signal_handler(signum, frame):
+            print(f"\n{Fore.YELLOW}Stopping carousel...{Style.RESET_ALL}")
+            carousel_manager.stop_carousel()
+            sys.exit(0)
+        
+        signal.signal(signal.SIGINT, butterfly_signal_handler)
+        signal.signal(signal.SIGTERM, butterfly_signal_handler)
+        
+        carousel_manager.start_carousel()
+        
+        print(f"{Fore.CYAN}Carousel running... Press Ctrl+C to stop{Style.RESET_ALL}")
+        while True:
+            time.sleep(1)
+            
+    except Exception as e:
+        print(f"{Fore.RED}Error: {e}{Style.RESET_ALL}")
+
+def butterfly_menu_enable_autostart():
+    """Menu option to enable autostart"""
+    butterfly_dir = input(f"{Fore.GREEN}Enter wallpaper directory (default ~/Pictures): {Style.RESET_ALL}").strip() or str(Path.home() / 'Pictures')
+    butterfly_interval = input(f"{Fore.GREEN}Enter interval (e.g., 10m): {Style.RESET_ALL}").strip() or "10m"
+    
+    butterfly_script_path = os.path.abspath(__file__)
+    AutostartWizard.create_autostart_butterfly(butterfly_script_path, butterfly_dir, butterfly_interval, 'carousel')
+
+def butterfly_menu_disable_autostart():
+    """Menu option to disable autostart"""
+    AutostartWizard.remove_autostart_butterfly()
+
+def butterfly_menu_clean_cache():
+    """Menu option to clean cache"""
+    wallpimp = WallPimp()
+    wallpimp.cleanup_butterfly_cache()
+
+def butterfly_menu_view_repos():
+    """Menu option to view repositories"""
+    wallpimp = WallPimp()
+    wallpimp.list_rainbow_repositories()
+
+def butterfly_menu_check_updates():
+    """Menu option to check for updates"""
+    check_for_butterfly_updates()
+
+def butterfly_first_run_setup():
+    """First run setup"""
+    butterfly_config_file = Path.home() / '.config' / 'wallpimp' / 'config.json'
+    butterfly_config_file.parent.mkdir(parents=True, exist_ok=True)
+    
+    if not butterfly_config_file.exists():
+        print(f"{Fore.CYAN}🎉 Welcome to WallPimp! First time setup...{Style.RESET_ALL}")
+        
+        # Check for updates
+        butterfly_update_choice = input(f"{Fore.YELLOW}Check for updates? (Y/n): {Style.RESET_ALL}").strip().lower()
+        if butterfly_update_choice != 'n':
+            check_for_butterfly_updates()
+        
+        # Create basic config
+        butterfly_config = {
+            'first_run': False,
+            'default_dir': str(Path.home() / 'Pictures'),
+            'check_updates': butterfly_update_choice != 'n'
+        }
+        
+        with open(butterfly_config_file, 'w') as f:
+            json.dump(butterfly_config, f, indent=2)
+        
+        print(f"{Fore.GREEN}Setup complete! Starting interactive menu...{Style.RESET_ALL}")
+        return True
+    
+    # Load existing config and check for updates if enabled
+    try:
+        with open(butterfly_config_file, 'r') as f:
+            butterfly_config = json.load(f)
+        
+        if butterfly_config.get('check_updates', True):
+            butterfly_update_choice = input(f"{Fore.YELLOW}Check for updates? (Y/n): {Style.RESET_ALL}").strip().lower()
+            if butterfly_update_choice != 'n':
+                check_for_butterfly_updates()
+    except:
+        pass
+    
+    return False
+
+def main():
+    """Main entry point for WallPimp"""
+    parser = argparse.ArgumentParser(
+        description='WallPimp - Universal Linux Wallpaper Manager',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  ./run                              # Interactive menu
+  ./run --repo anime                 # Download anime wallpapers
+  ./run --all                        # Download from all repositories
+  ./run --url https://github.com/user/wallpapers
+  ./run --static --dir ~/Pictures    # Set random static wallpaper
+  ./run --carousel --dir ~/Pictures --interval 5m
+  ./run --enable-autostart --dir ~/Pictures --interval 10m
+        """
+    )
+    
+    # Download options
+    butterfly_download_group = parser.add_argument_group('Download Options')
+    butterfly_download_group.add_argument('--dir', type=str, help='Download/wallpaper directory')
+    butterfly_download_group.add_argument('--repo', type=str, help='Download from repository')
+    butterfly_download_group.add_argument('--url', type=str, help='Download from GitHub repository URL')
+    butterfly_download_group.add_argument('--branch', type=str, default='main', help='Repository branch (default: main)')
+    butterfly_download_group.add_argument('--list', action='store_true', help='List repositories')
+    butterfly_download_group.add_argument('--all', action='store_true', help='Download from all repositories')
+    butterfly_download_group.add_argument('--workers', type=int, default=4, help='Download workers (default: 4)')
+    butterfly_download_group.add_argument('--cleanup', action='store_true', help='Clean cache')
+    
+    # Wallpaper management options
+    butterfly_wallpaper_group = parser.add_argument_group('Wallpaper Management')
+    butterfly_wallpaper_group.add_argument('--setup', action='store_true', help='Interactive setup')
+    butterfly_wallpaper_group.add_argument('--static', action='store_true', help='Set random static wallpaper')
+    butterfly_wallpaper_group.add_argument('--carousel', action='store_true', help='Start carousel mode')
+    butterfly_wallpaper_group.add_argument('--interval', type=str, help='Carousel interval (e.g., 30s, 5m, 1h)')
+    butterfly_wallpaper_group.add_argument('--image', type=str, help='Specific image path for static mode')
+    
+    # Autostart options
+    butterfly_autostart_group = parser.add_argument_group('Autostart Management')
+    butterfly_autostart_group.add_argument('--enable-autostart', action='store_true', help='Enable autostart')
+    butterfly_autostart_group.add_argument('--disable-autostart', action='store_true', help='Disable autostart')
+    
+    args = parser.parse_args()
+    
+    # If no arguments provided, run interactive mode
+    if len(sys.argv) == 1:
+        # First run check
+        butterfly_first_run = butterfly_first_run_setup()
+        
+        # Initialize WallPimp and show banner
+        wallpimp = WallPimp()
+        wallpimp.show_wallpimp_banner()
+        
+        # Start interactive menu
+        butterfly_interactive_menu()
+        return
+    
+    # Validate argument combinations for command line mode
+    butterfly_main_actions = [
+        args.repo, args.url, args.list, args.all, args.cleanup,
+        args.setup, args.static, args.carousel, 
+        args.enable_autostart, args.disable_autostart
+    ]
+    
+    if sum(bool(action) for action in butterfly_main_actions) > 1:
+        print(f"{Fore.RED}Error: Please specify only one main action{Style.RESET_ALL}")
+        sys.exit(1)
+    
+    # Initialize WallPimp
+    wallpimp = WallPimp(butterfly_dir=args.dir)
+    wallpimp.show_wallpimp_banner()
+    
+    try:
+        # Handle download operations
+        if args.list:
+            wallpimp.list_rainbow_repositories()
+        elif args.cleanup:
+            wallpimp.cleanup_butterfly_cache()
+        elif args.all:
+            wallpimp.download_all_rainbow_repos(rainbow_workers=args.workers)
+        elif args.repo:
+            wallpimp.download_rainbow_repo(args.repo.lower(), rainbow_workers=args.workers)
+        elif args.url:
+            wallpimp.download_from_rainbow_repo(args.url, args.branch, rainbow_workers=args.workers)
+        
+        # Handle wallpaper management
+        elif args.setup:
+            butterfly_wallpaper_dir, butterfly_mode, butterfly_interval = butterfly_interactive_setup()
+            if butterfly_wallpaper_dir:
+                if butterfly_mode == 'static':
+                    carousel_manager = CarouselManager(butterfly_wallpaper_dir, 0)
+                    carousel_manager.set_static_canvas()
+                else:
+                    # Create autostart entry
+                    butterfly_script_path = os.path.abspath(__file__)
+                    AutostartWizard.create_autostart_butterfly(
+                        butterfly_script_path, butterfly_wallpaper_dir, f"{butterfly_interval}s", 'carousel'
+                    )
+                    print(f"{Fore.GREEN}Carousel will start automatically on next login{Style.RESET_ALL}")
+        
+        elif args.static:
+            if not args.dir:
+                print(f"{Fore.RED}Error: --dir is required for static mode{Style.RESET_ALL}")
+                sys.exit(1)
+            
+            carousel_manager = CarouselManager(args.dir, 0)
+            carousel_manager.set_static_canvas(args.image)
+        
+        elif args.carousel:
+            if not args.dir:
+                print(f"{Fore.RED}Error: --dir is required for carousel mode{Style.RESET_ALL}")
+                sys.exit(1)
+            if not args.interval:
+                print(f"{Fore.RED}Error: --interval is required for carousel mode{Style.RESET_ALL}")
+                sys.exit(1)
+            
+            try:
+                butterfly_interval_seconds = parse_carousel_interval(args.interval)
+                carousel_manager = CarouselManager(args.dir, butterfly_interval_seconds)
+                
+                # Handle graceful shutdown
+                def butterfly_signal_handler(signum, frame):
+                    print(f"\n{Fore.YELLOW}Stopping carousel...{Style.RESET_ALL}")
+                    carousel_manager.stop_carousel()
+                    sys.exit(0)
+                
+                signal.signal(signal.SIGINT, butterfly_signal_handler)
+                signal.signal(signal.SIGTERM, butterfly_signal_handler)
+                
+                carousel_manager.start_carousel()
+                
+                # Keep the program running
+                while True:
+                    time.sleep(1)
+                    
+            except ValueError as e:
+                print(f"{Fore.RED}Error parsing interval: {e}{Style.RESET_ALL}")
+                sys.exit(1)
+            except Exception as e:
+                print(f"{Fore.RED}Error starting carousel: {e}{Style.RESET_ALL}")
+                sys.exit(1)
+        
+        # Handle autostart management
+        elif args.enable_autostart:
+            if not args.dir:
+                print(f"{Fore.RED}Error: --dir is required for autostart{Style.RESET_ALL}")
+                sys.exit(1)
+            
+            butterfly_script_path = os.path.abspath(__file__)
+            if args.interval:
+                AutostartWizard.create_autostart_butterfly(
+                    butterfly_script_path, args.dir, args.interval, 'carousel'
+                )
+            else:
+                AutostartWizard.create_autostart_butterfly(
+                    butterfly_script_path, args.dir, '10m', 'static'
+                )
+        
+        elif args.disable_autostart:
+            AutostartWizard.remove_autostart_butterfly()
+        
+        else:
+            # No arguments provided - this shouldn't happen due to earlier check
+            print(f"{Fore.CYAN}Use ./run --help for command line options or ./run for interactive menu{Style.RESET_ALL}")
+    
+    except KeyboardInterrupt:
+        print(f"\n{Fore.YELLOW}Operation cancelled by user{Style.RESET_ALL}")
+    except Exception as e:
+        print(f"\n{Fore.RED}An error occurred: {e}{Style.RESET_ALL}")
+        if hasattr(wallpimp, 'butterfly_logger'):
+            wallpimp.butterfly_logger.error(f"Unexpected error: {e}")
+    finally:
+        # Always show statistics for download operations
+        if any([args.repo, args.url, args.all]):
+            wallpimp.show_butterfly_statistics()
+
+if __name__ == "__main__":
+    main()
+            self.butterfly_logger.error(f"Failed to fetch rainbow contents for {rainbow_url}: {e}")
             return []
     
-    def _fetch_contents_recursive(self, api_url: str, repo_url: str, path: str = "") -> List[Dict]:
-        """Recursively fetch all image files from a GitHub repository"""
-        contents = []
+    def _fetch_rainbow_contents_recursive(self, rainbow_api_url: str, rainbow_url: str, rainbow_path: str = "") -> List[Dict]:
+        """Recursively fetch all files from a GitHub repository"""
+        rainbow_contents = []
         
         try:
-            response = self.session.get(api_url, timeout=30)
+            response = self.butterfly_session.get(rainbow_api_url, timeout=30)
             response.raise_for_status()
             
-            items = response.json()
-            if not isinstance(items, list):
-                return contents
+            rainbow_items = response.json()
+            if not isinstance(rainbow_items, list):
+                return rainbow_contents
             
-            for item in items:
-                if item['type'] == 'file':
+            for rainbow_item in rainbow_items:
+                if rainbow_item['type'] == 'file':
                     # Check if it's an image file
-                    if self._is_image_file(item['name']):
-                        contents.append({
-                            'name': item['name'],
-                            'download_url': item['download_url'],
-                            'size': item['size'],
-                            'path': path + item['name'] if path else item['name'],
-                            'repo_url': repo_url
+                    if self._is_rainbow_file(rainbow_item['name']):
+                        rainbow_contents.append({
+                            'name': rainbow_item['name'],
+                            'download_url': rainbow_item['download_url'],
+                            'size': rainbow_item['size'],
+                            'path': rainbow_path + rainbow_item['name'] if rainbow_path else rainbow_item['name'],
+                            'repo_url': rainbow_url
                         })
-                elif item['type'] == 'dir':
+                elif rainbow_item['type'] == 'dir':
                     # Recursively fetch directory contents
-                    subdir_contents = self._fetch_contents_recursive(
-                        item['url'], 
-                        repo_url, 
-                        path + item['name'] + "/"
+                    rainbow_subdir_contents = self._fetch_rainbow_contents_recursive(
+                        rainbow_item['url'], 
+                        rainbow_url, 
+                        rainbow_path + rainbow_item['name'] + "/"
                     )
-                    contents.extend(subdir_contents)
+                    rainbow_contents.extend(rainbow_subdir_contents)
                     
         except requests.exceptions.RequestException as e:
-            self.logger.error(f"Error fetching {api_url}: {e}")
+            self.butterfly_logger.error(f"Error fetching {rainbow_api_url}: {e}")
         except (KeyError, TypeError) as e:
-            self.logger.error(f"Error parsing API response: {e}")
+            self.butterfly_logger.error(f"Error parsing API response: {e}")
         
-        return contents
+        return rainbow_contents
     
-    def _is_image_file(self, filename: str) -> bool:
+    def _is_rainbow_file(self, rainbow_filename: str) -> bool:
         """Check if file is an image based on extension"""
-        image_extensions = {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.tiff', '.svg'}
-        return Path(filename).suffix.lower() in image_extensions
+        rainbow_extensions = {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.tiff', '.svg'}
+        return Path(rainbow_filename).suffix.lower() in rainbow_extensions
     
-    def download_file(self, file_info: Dict, repo_name: str) -> bool:
+    def download_rainbow_file(self, rainbow_file_info: Dict, rainbow_repo_name: str) -> bool:
         """Download a single file with progress tracking"""
         # Create a clean folder name from the repo name
-        file_path = self.download_dir / repo_name / file_info['path']
-        file_path.parent.mkdir(parents=True, exist_ok=True)
+        rainbow_file_path = self.butterfly_dir / rainbow_file_info['path']
+        rainbow_file_path.parent.mkdir(parents=True, exist_ok=True)
         
         # Check if file already exists and is in cache
-        cache_key = f"{repo_name}/{file_info['path']}"
-        if cache_key in self.cache['downloaded_files'] and file_path.exists():
-            self.stats['skipped'] += 1
+        rainbow_cache_key = f"{rainbow_file_info['path']}"
+        if rainbow_cache_key in self.butterfly_cache['downloaded_files'] and rainbow_file_path.exists():
+            self.butterfly_stats['skipped'] += 1
             return True
         
         try:
-            response = self.session.get(file_info['download_url'], stream=True, timeout=30)
+            response = self.butterfly_session.get(rainbow_file_info['download_url'], stream=True, timeout=30)
             response.raise_for_status()
             
-            total_size = int(response.headers.get('content-length', 0))
+            rainbow_total_size = int(response.headers.get('content-length', 0))
             
-            with open(file_path, 'wb') as f:
-                if total_size > 0:
-                    with tqdm(total=total_size, unit='B', unit_scale=True, 
-                             desc=f"Downloading {file_info['name'][:30]}") as pbar:
+            with open(rainbow_file_path, 'wb') as f:
+                if rainbow_total_size > 0:
+                    with tqdm(total=rainbow_total_size, unit='B', unit_scale=True, 
+                             desc=f"Downloading {rainbow_file_info['name'][:30]}") as pbar:
                         for chunk in response.iter_content(chunk_size=8192):
                             if chunk:
                                 f.write(chunk)
@@ -671,405 +1262,14 @@ class WallPimp:
                             f.write(chunk)
             
             # Verify the downloaded image
-            if self._verify_image(file_path):
-                self.cache['downloaded_files'].add(cache_key)
-                self.stats['downloaded'] += 1
-                self.stats['total_size'] += file_path.stat().st_size
+            if self._verify_rainbow_image(rainbow_file_path):
+                self.butterfly_cache['downloaded_files'].add(rainbow_cache_key)
+                self.butterfly_stats['downloaded'] += 1
+                self.butterfly_stats['total_size'] += rainbow_file_path.stat().st_size
                 return True
             else:
-                file_path.unlink()  # Remove corrupted file
-                self.stats['failed'] += 1
+                rainbow_file_path.unlink()  # Remove corrupted file
+                self.butterfly_stats['failed'] += 1
                 return False
                 
         except Exception as e:
-            self.logger.error(f"Failed to download {file_info['name']}: {e}")
-            self.stats['failed'] += 1
-            return False
-    
-    def _verify_image(self, file_path: Path) -> bool:
-        """Verify that the downloaded file is a valid image"""
-        try:
-            with Image.open(file_path) as img:
-                img.verify()
-            return True
-        except Exception:
-            self.logger.warning(f"Invalid image file: {file_path}")
-            return False
-    
-    def download_from_repo(self, repo_url: str, branch: str = "main", max_workers: int = 4, repo_name: str = None) -> bool:
-        """Download all wallpapers from a specific GitHub repository"""
-        # Extract repo name for folder organization if not provided
-        if not repo_name:
-            parsed = urlparse(repo_url)
-            repo_name = parsed.path.strip('/').split('/')[-1] if parsed.path else "wallpapers"
-        
-        print(f"\n🖼️ Fetching wallpapers from {Fore.YELLOW}{repo_url}{Style.RESET_ALL}...")
-        
-        # Fetch repository contents
-        contents = self.fetch_repo_contents(repo_url, branch)
-        
-        if not contents:
-            print(f"{Fore.RED}No wallpapers found in repository{Style.RESET_ALL}")
-            return False
-        
-        print(f"{Fore.GREEN}Found {len(contents)} wallpapers{Style.RESET_ALL}")
-        
-        # Download files using thread pool
-        success_count = 0
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            futures = {executor.submit(self.download_file, file_info, repo_name): file_info 
-                      for file_info in contents}
-            
-            for future in as_completed(futures):
-                if future.result():
-                    success_count += 1
-        
-        print(f"\n{Fore.GREEN}Successfully downloaded {success_count}/{len(contents)} wallpapers{Style.RESET_ALL}")
-        return True
-    
-    def download_curated_repo(self, repo_key: str, max_workers: int = 4) -> bool:
-        """Download wallpapers from one of our curated repositories"""
-        if repo_key not in self.REPOSITORIES:
-            print(f"{Fore.RED}Repository '{repo_key}' not found in curated list{Style.RESET_ALL}")
-            return False
-        
-        repo_info = self.REPOSITORIES[repo_key]
-        print(f"\n{repo_info['icon']} Starting download from {Fore.YELLOW}{repo_key.upper()}{Style.RESET_ALL}")
-        print(f"📝 Description: {repo_info['description']}")
-        
-        # Use the repo key as the folder name for better organization
-        return self.download_from_repo(
-            repo_info['url'], 
-            repo_info['branch'], 
-            max_workers, 
-            repo_key
-        )
-    
-    def download_all_curated_repos(self, max_workers: int = 4):
-        """Download wallpapers from all curated repositories"""
-        print(f"\n{Fore.CYAN}Starting bulk download from all curated repositories...{Style.RESET_ALL}")
-        
-        successful_repos = 0
-        total_repos = len(self.REPOSITORIES)
-        
-        for i, repo_key in enumerate(self.REPOSITORIES, 1):
-            print(f"\n{Fore.MAGENTA}[{i}/{total_repos}] Processing {repo_key}...{Style.RESET_ALL}")
-            
-            if self.download_curated_repo(repo_key, max_workers):
-                successful_repos += 1
-            
-            # Save cache after each repository
-            self._save_cache()
-            
-            # Small delay between repositories to be respectful to GitHub API
-            time.sleep(1)
-        
-        print(f"\n{Fore.GREEN}Completed downloads from {successful_repos}/{total_repos} repositories{Style.RESET_ALL}")
-        self.show_statistics()
-    
-    def show_statistics(self):
-        """Display download statistics"""
-        print(f"\n{Fore.CYAN}Download Statistics:{Style.RESET_ALL}")
-        print("-" * 40)
-        print(f"📥 Downloaded: {Fore.GREEN}{self.stats['downloaded']}{Style.RESET_ALL}")
-        print(f"⏭️  Skipped: {Fore.YELLOW}{self.stats['skipped']}{Style.RESET_ALL}")
-        print(f"❌ Failed: {Fore.RED}{self.stats['failed']}{Style.RESET_ALL}")
-        print(f"💾 Total Size: {Fore.CYAN}{self._format_bytes(self.stats['total_size'])}{Style.RESET_ALL}")
-        print(f"📁 Storage Path: {Fore.BLUE}{self.download_dir}{Style.RESET_ALL}")
-    
-    def _format_bytes(self, bytes_count: int) -> str:
-        """Format bytes to human readable format"""
-        for unit in ['B', 'KB', 'MB', 'GB', 'TB']:
-            if bytes_count < 1024.0:
-                return f"{bytes_count:.1f} {unit}"
-            bytes_count /= 1024.0
-        return f"{bytes_count:.1f} PB"
-    
-    def cleanup_cache(self):
-        """Clean up cache and remove orphaned entries"""
-        cleaned_count = 0
-        if 'downloaded_files' in self.cache:
-            for cache_key in list(self.cache['downloaded_files']):
-                file_path = self.download_dir / cache_key
-                if not file_path.exists():
-                    self.cache['downloaded_files'].discard(cache_key)
-                    cleaned_count += 1
-        
-        if cleaned_count > 0:
-            print(f"{Fore.GREEN}Cleaned {cleaned_count} orphaned cache entries{Style.RESET_ALL}")
-            self._save_cache()
-    
-    def __del__(self):
-        """Cleanup when object is destroyed"""
-        if hasattr(self, 'cache'):
-            self._save_cache()
-
-def parse_interval(interval_str: str) -> int:
-    """Parse interval string (e.g., '30s', '5m', '1h', '1h 30m 45s') to seconds"""
-    if not interval_str:
-        return 0
-    
-    # Pattern to match time components
-    pattern = r'(\d+)([smh])'
-    matches = re.findall(pattern, interval_str.lower())
-    
-    if not matches:
-        # Try to parse as plain number (assume seconds)
-        try:
-            return int(interval_str)
-        except ValueError:
-            raise ValueError(f"Invalid interval format: {interval_str}")
-    
-    total_seconds = 0
-    for value, unit in matches:
-        value = int(value)
-        if unit == 's':
-            total_seconds += value
-        elif unit == 'm':
-            total_seconds += value * 60
-        elif unit == 'h':
-            total_seconds += value * 3600
-    
-    return total_seconds
-
-def interactive_setup():
-    """Interactive setup for wallpaper slideshow"""
-    print(f"\n{Fore.CYAN}🎨 WallPimp Interactive Setup{Style.RESET_ALL}")
-    print("=" * 50)
-    
-    # Detect desktop environment
-    desktop_env = DesktopEnvironmentManager.detect_desktop_environment()
-    print(f"{Fore.BLUE}Detected Desktop Environment: {desktop_env.upper()}{Style.RESET_ALL}")
-    
-    # Ask for wallpaper directory
-    default_dir = str(Path.home() / 'Pictures')
-    wallpaper_dir = input(f"\n📁 Enter wallpaper directory (default: {default_dir}): ").strip()
-    if not wallpaper_dir:
-        wallpaper_dir = default_dir
-    
-    wallpaper_path = Path(wallpaper_dir)
-    if not wallpaper_path.exists():
-        print(f"{Fore.RED}Directory doesn't exist: {wallpaper_path}{Style.RESET_ALL}")
-        return None, None, None
-    
-    # Check for images in directory
-    image_extensions = {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.tiff', '.svg'}
-    image_count = sum(1 for ext in image_extensions 
-                     for _ in wallpaper_path.glob(f'*{ext}'))
-    
-    if image_count == 0:
-        print(f"{Fore.YELLOW}No images found in {wallpaper_path}{Style.RESET_ALL}")
-        print(f"{Fore.CYAN}You can download wallpapers first using: --repo <name> or --all{Style.RESET_ALL}")
-        return None, None, None
-    
-    print(f"{Fore.GREEN}Found {image_count} images in directory{Style.RESET_ALL}")
-    
-    # Ask for mode (static or slideshow)
-    print(f"\n🔄 Choose wallpaper mode:")
-    print(f"1. Static wallpaper (set once)")
-    print(f"2. Slideshow (change automatically)")
-    
-    while True:
-        mode_choice = input("\nEnter choice (1 or 2): ").strip()
-        if mode_choice in ['1', '2']:
-            break
-        print(f"{Fore.RED}Invalid choice. Please enter 1 or 2.{Style.RESET_ALL}")
-    
-    if mode_choice == '1':
-        return wallpaper_dir, 'static', 0
-    
-    # Ask for slideshow interval
-    print(f"\n⏱️  Enter slideshow interval:")
-    print(f"Examples: 30s (30 seconds), 5m (5 minutes), 1h (1 hour)")
-    print(f"Advanced: 1h 30m 45s (1 hour 30 minutes 45 seconds)")
-    
-    while True:
-        interval_str = input("Interval: ").strip()
-        try:
-            interval_seconds = parse_interval(interval_str)
-            if interval_seconds < 1:
-                print(f"{Fore.RED}Interval must be at least 1 second{Style.RESET_ALL}")
-                continue
-            break
-        except ValueError as e:
-            print(f"{Fore.RED}{e}{Style.RESET_ALL}")
-    
-    return wallpaper_dir, 'slideshow', interval_seconds
-
-def main():
-    """Main entry point for WallPimp Enhanced"""
-    parser = argparse.ArgumentParser(
-        description='WallPimp Enhanced - Universal Linux Wallpaper Manager with Slideshow',
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-Examples:
-  # Download wallpapers
-  python wallpimp.py --list                    # Show all curated repositories
-  python wallpimp.py --repo anime              # Download anime wallpapers
-  python wallpimp.py --all                     # Download from all curated repos
-  python wallpimp.py --url https://github.com/user/wallpapers
-  
-  # Wallpaper management
-  python wallpimp.py --setup                   # Interactive setup
-  python wallpimp.py --static --dir ~/Pictures # Set random static wallpaper
-  python wallpimp.py --slideshow --dir ~/Pictures --interval 5m
-  python wallpimp.py --slideshow --dir ~/Pictures --interval "1h 30m"
-  
-  # Autostart management
-  python wallpimp.py --enable-autostart --dir ~/Pictures --interval 10m
-  python wallpimp.py --disable-autostart
-        """
-    )
-    
-    # Download options
-    download_group = parser.add_argument_group('Download Options')
-    download_group.add_argument('--dir', type=str, help='Download/wallpaper directory')
-    download_group.add_argument('--repo', type=str, help='Download from curated repository')
-    download_group.add_argument('--url', type=str, help='Download from GitHub repository URL')
-    download_group.add_argument('--branch', type=str, default='main', help='Repository branch (default: main)')
-    download_group.add_argument('--list', action='store_true', help='List curated repositories')
-    download_group.add_argument('--all', action='store_true', help='Download from all curated repositories')
-    download_group.add_argument('--workers', type=int, default=4, help='Download workers (default: 4)')
-    download_group.add_argument('--cleanup', action='store_true', help='Clean up cache')
-    
-    # Wallpaper management options
-    wallpaper_group = parser.add_argument_group('Wallpaper Management')
-    wallpaper_group.add_argument('--setup', action='store_true', help='Interactive setup')
-    wallpaper_group.add_argument('--static', action='store_true', help='Set random static wallpaper')
-    wallpaper_group.add_argument('--slideshow', action='store_true', help='Start slideshow mode')
-    wallpaper_group.add_argument('--interval', type=str, help='Slideshow interval (e.g., 30s, 5m, 1h)')
-    wallpaper_group.add_argument('--image', type=str, help='Specific image path for static mode')
-    
-    # Autostart options
-    autostart_group = parser.add_argument_group('Autostart Management')
-    autostart_group.add_argument('--enable-autostart', action='store_true', help='Enable autostart')
-    autostart_group.add_argument('--disable-autostart', action='store_true', help='Disable autostart')
-    
-    args = parser.parse_args()
-    
-    # Validate argument combinations
-    main_actions = [
-        args.repo, args.url, args.list, args.all, args.cleanup,
-        args.setup, args.static, args.slideshow, 
-        args.enable_autostart, args.disable_autostart
-    ]
-    
-    if sum(bool(action) for action in main_actions) > 1:
-        print(f"{Fore.RED}Error: Please specify only one main action{Style.RESET_ALL}")
-        sys.exit(1)
-    
-    # Initialize WallPimp
-    wallpimp = WallPimp(download_dir=args.dir)
-    wallpimp.show_banner()
-    
-    try:
-        # Handle download operations
-        if args.list:
-            wallpimp.list_repositories()
-        elif args.cleanup:
-            wallpimp.cleanup_cache()
-        elif args.all:
-            wallpimp.download_all_curated_repos(max_workers=args.workers)
-        elif args.repo:
-            wallpimp.download_curated_repo(args.repo.lower(), max_workers=args.workers)
-        elif args.url:
-            wallpimp.download_from_repo(args.url, args.branch, max_workers=args.workers)
-        
-        # Handle wallpaper management
-        elif args.setup:
-            wallpaper_dir, mode, interval = interactive_setup()
-            if wallpaper_dir:
-                if mode == 'static':
-                    slideshow_manager = SlideshowManager(wallpaper_dir, 0)
-                    slideshow_manager.set_static_wallpaper()
-                else:
-                    # Create autostart entry
-                    script_path = os.path.abspath(__file__)
-                    AutostartManager.create_autostart_entry(
-                        script_path, wallpaper_dir, f"{interval}s", 'slideshow'
-                    )
-                    print(f"{Fore.GREEN}Slideshow will start automatically on next login{Style.RESET_ALL}")
-        
-        elif args.static:
-            if not args.dir:
-                print(f"{Fore.RED}Error: --dir is required for static mode{Style.RESET_ALL}")
-                sys.exit(1)
-            
-            slideshow_manager = SlideshowManager(args.dir, 0)
-            slideshow_manager.set_static_wallpaper(args.image)
-        
-        elif args.slideshow:
-            if not args.dir:
-                print(f"{Fore.RED}Error: --dir is required for slideshow mode{Style.RESET_ALL}")
-                sys.exit(1)
-            if not args.interval:
-                print(f"{Fore.RED}Error: --interval is required for slideshow mode{Style.RESET_ALL}")
-                sys.exit(1)
-            
-            try:
-                interval_seconds = parse_interval(args.interval)
-                slideshow_manager = SlideshowManager(args.dir, interval_seconds)
-                
-                # Handle graceful shutdown
-                def signal_handler(signum, frame):
-                    print(f"\n{Fore.YELLOW}Stopping slideshow...{Style.RESET_ALL}")
-                    slideshow_manager.stop_slideshow()
-                    sys.exit(0)
-                
-                signal.signal(signal.SIGINT, signal_handler)
-                signal.signal(signal.SIGTERM, signal_handler)
-                
-                slideshow_manager.start_slideshow()
-                
-                # Keep the program running
-                while True:
-                    time.sleep(1)
-                    
-            except ValueError as e:
-                print(f"{Fore.RED}Error parsing interval: {e}{Style.RESET_ALL}")
-                sys.exit(1)
-            except Exception as e:
-                print(f"{Fore.RED}Error starting slideshow: {e}{Style.RESET_ALL}")
-                sys.exit(1)
-        
-        # Handle autostart management
-        elif args.enable_autostart:
-            if not args.dir:
-                print(f"{Fore.RED}Error: --dir is required for autostart{Style.RESET_ALL}")
-                sys.exit(1)
-            
-            script_path = os.path.abspath(__file__)
-            if args.interval:
-                AutostartManager.create_autostart_entry(
-                    script_path, args.dir, args.interval, 'slideshow'
-                )
-            else:
-                AutostartManager.create_autostart_entry(
-                    script_path, args.dir, '10m', 'static'
-                )
-        
-        elif args.disable_autostart:
-            AutostartManager.remove_autostart_entry()
-        
-        else:
-            # No arguments provided - show interactive help
-            wallpimp.list_repositories()
-            print(f"\n{Fore.CYAN}🚀 Quick Start Options:{Style.RESET_ALL}")
-            print(f"{Fore.GREEN}  python wallpimp.py --setup           # Interactive setup{Style.RESET_ALL}")
-            print(f"{Fore.GREEN}  python wallpimp.py --repo anime      # Download anime wallpapers{Style.RESET_ALL}")
-            print(f"{Fore.GREEN}  python wallpimp.py --all             # Download all wallpapers{Style.RESET_ALL}")
-            print(f"{Fore.CYAN}  python wallpimp.py --help            # Show all options{Style.RESET_ALL}")
-    
-    except KeyboardInterrupt:
-        print(f"\n{Fore.YELLOW}Operation cancelled by user{Style.RESET_ALL}")
-    except Exception as e:
-        print(f"\n{Fore.RED}An error occurred: {e}{Style.RESET_ALL}")
-        if hasattr(wallpimp, 'logger'):
-            wallpimp.logger.error(f"Unexpected error: {e}")
-    finally:
-        # Always show statistics for download operations
-        if any([args.repo, args.url, args.all]):
-            wallpimp.show_statistics()
-
-if __name__ == "__main__":
-    main()
