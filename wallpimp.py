@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-WallPimp Enhanced - Universal Linux Wallpaper Manager with Slideshow
+WallPimp - Universal Linux Wallpaper Manager with Slideshow
 A comprehensive wallpaper downloader and slideshow manager for all Linux desktop environments
 """
 
