@@ -1,6 +1,6 @@
 # WallPimp 🎨
 
-**The Ultimate Linux Wallpaper Manager with Slideshow**
+**Universal Linux Wallpaper Manager**
 
 WallPimp is a comprehensive wallpaper management solution that combines powerful downloading capabilities with universal Linux slideshow functionality. Automatically fetch high-quality wallpapers from curated GitHub repositories and enjoy seamless slideshow experiences across all desktop environments.
 
@@ -22,7 +22,7 @@ WallPimp is a comprehensive wallpaper management solution that combines powerful
 - **Auto-detects all desktop environments**: GNOME, KDE/Plasma, XFCE, MATE, Cinnamon, i3, Sway, and more
 - **Flexible time formats**: `30s`, `5m`, `1h`, or precise combinations like `1h 30m 45s`
 - **Autostart integration**: Automatic slideshow on login via XDG autostart
-- **Graceful shutdown**: Proper signal handling and background operation
+- **Interactive menu system**: Easy-to-use interface for all operations
 
 ### 🔧 **Cross-Platform Compatibility**
 - Universal Linux distribution support
@@ -31,70 +31,49 @@ WallPimp is a comprehensive wallpaper management solution that combines powerful
 - Fallback wallpaper setters for window managers
 
 ### 🎯 **User-Friendly Interface**
-- Interactive setup wizard for first-time users
+- Interactive menu for effortless navigation
 - Colorful terminal output with progress bars
-- Detailed statistics and comprehensive error reporting
-- Organized folder structure by repository
+- First-run setup with update checking
+- Comprehensive error handling and recovery
 
-## 🚀 Installation
+## 🚀 Installation & Usage
 
-### Automatic Installation (Recommended)
+### Quick Start
 ```bash
 # Clone the repository
 git clone https://github.com/0xb0rn3/wallpimp.git
 cd wallpimp
+
+# Make executable and run
 chmod +x run
-# Run WallPimp - dependencies install automatically
-./run --setup
+./run
 ```
 
-### Manual Dependency Installation
-```bash
-# Arch Linux
-sudo pacman -S python-requests python-tqdm python-pillow python-colorama
+### First Run
+On first execution, WallPimp will:
+- Automatically install required dependencies
+- Check for updates (with user consent)
+- Launch interactive setup wizard
+- Create configuration files
 
-# Ubuntu/Debian
-sudo apt install python3-requests python3-tqdm python3-pil python3-colorama
+## 🏃‍♂️ Interactive Menu
 
-# Fedora/RHEL
-sudo dnf install python3-requests python3-tqdm python3-pillow python3-colorama
+WallPimp features a comprehensive interactive menu system:
 
-# OpenSUSE
-sudo zypper install python3-requests python3-tqdm python3-Pillow python3-colorama
-
-# Via pip (fallback)
-pip3 install requests tqdm Pillow colorama --break-system-packages
 ```
-
-## 🏃‍♂️ Quick Start
-
-### **Interactive Setup (Recommended)**
-```bash
-./run --setup
-```
-
-### **Download Wallpapers**
-```bash
-# View all available repositories
-./run --list
-
-# Download anime wallpapers
-./run --repo anime
-
-# Download everything
-./run --all
-```
-
-### **Wallpaper Management**
-```bash
-# Set random static wallpaper
-./run --static --dir ~/Pictures
-
-# Start slideshow (5-minute intervals)
-./run --slideshow --dir ~/Pictures --interval 5m
-
-# Enable autostart slideshow
-./run --enable-autostart --dir ~/Pictures --interval 10m
+🎨 WallPimp Interactive Menu
+==================================================
+1. Download wallpapers from repository
+2. Download from all repositories  
+3. Download from custom URL
+4. Set static wallpaper
+5. Start carousel mode
+6. Enable autostart carousel
+7. Disable autostart
+8. Clean cache
+9. View repositories
+10. Check for updates
+0. Exit
 ```
 
 ## 🎨 Curated Repositories
@@ -118,81 +97,34 @@ Carefully selected repositories covering various aesthetic preferences:
 
 ## 💡 Usage Examples
 
-### **Download Operations**
+### **Interactive Mode (Recommended)**
 ```bash
-# Interactive repository selection and setup
-./run --setup
+# Launch interactive menu
+./run
 
-# Download with custom directory
-./run --repo nature --dir ~/MyWallpapers
+# First-time users get guided setup
+./run  # Will trigger first-run setup automatically
+```
 
-# High-speed download with 8 workers
-./run --repo minimalist --workers 8
-
-# Download from custom GitHub repository
+### **Command Line Mode**
+```bash
+# Download operations
+./run --repo anime                    # Download anime wallpapers
+./run --all --workers 8              # Download all with 8 workers
 ./run --url https://github.com/user/wallpapers --branch main
 
-# Bulk download with progress tracking
-./run --all --workers 6
-```
+# Wallpaper management
+./run --static --dir ~/Pictures      # Set random wallpaper
+./run --carousel --dir ~/Pictures --interval 5m  # Start 5-minute slideshow
+./run --setup                         # Interactive configuration
 
-### **Wallpaper Management**
-```bash
-# Set specific image as wallpaper
-./run --static --dir ~/Pictures --image ~/Pictures/favorite.jpg
-
-# Start slideshow with complex timing
-./run --slideshow --dir ~/Pictures --interval "2h 30m"
-
-# Quick 30-second slideshow for testing
-./run --slideshow --dir ~/Pictures --interval 30s
-```
-
-### **Autostart Configuration**
-```bash
-# Enable slideshow to start on login
-./run --enable-autostart --dir ~/Pictures --interval 15m
-
-# Enable static wallpaper on login
-./run --enable-autostart --dir ~/Pictures
-
-# Disable autostart
+# Autostart management  
+./run --enable-autostart --dir ~/Pictures --interval 10m
 ./run --disable-autostart
-```
 
-### **Maintenance**
-```bash
-# Clean cache and orphaned entries
-./run --cleanup
-```
-
-## 🛠️ Command Line Reference
-
-### **Download Options**
-```
---list                     List all curated repositories
---repo REPO               Download from specific repository
---url URL                 Download from GitHub repository URL
---branch BRANCH           Repository branch (default: main)
---all                     Download from all repositories
---dir DIR                 Download directory
---workers N               Parallel workers (default: 4)
---cleanup                 Clean cache and orphaned entries
-```
-
-### **Wallpaper Management**
-```
---setup                   Interactive configuration wizard
---static                  Set random static wallpaper
---slideshow              Start slideshow mode
---interval TIME          Slideshow interval (30s, 5m, 1h, "1h 30m")
---image PATH             Specific image for static mode
-```
-
-### **Autostart Management**
-```
---enable-autostart       Enable autostart functionality
---disable-autostart      Disable autostart functionality
+# Maintenance
+./run --cleanup                       # Clean cache
+./run --list                         # View repositories
 ```
 
 ## 🖥️ Supported Desktop Environments
@@ -228,6 +160,35 @@ WallPimp supports flexible time interval formats:
 --interval "45m 30s"     # 45 minutes 30 seconds
 ```
 
+## 🛠️ Command Line Reference
+
+### **Download Options**
+```
+--list                     List all curated repositories
+--repo REPO               Download from specific repository
+--url URL                 Download from GitHub repository URL
+--branch BRANCH           Repository branch (default: main)
+--all                     Download from all repositories
+--dir DIR                 Download directory (default: ~/Pictures)
+--workers N               Parallel workers (default: 4)
+--cleanup                 Clean cache and orphaned entries
+```
+
+### **Wallpaper Management**
+```
+--setup                   Interactive configuration wizard
+--static                  Set random static wallpaper
+--carousel                Start slideshow mode
+--interval TIME          Slideshow interval (30s, 5m, 1h, "1h 30m")
+--image PATH             Specific image for static mode
+```
+
+### **Autostart Management**
+```
+--enable-autostart       Enable autostart functionality
+--disable-autostart      Disable autostart functionality
+```
+
 ## 🔧 How It Works
 
 ### **Repository Discovery**
@@ -245,45 +206,54 @@ Automatically detects your desktop environment using multiple detection methods:
 - **Random rotation**: Shuffles wallpapers for variety
 - **Error recovery**: Continues operation despite individual failures
 
-### **Autostart Integration**
-Creates XDG-compliant `.desktop` entries in `~/.config/autostart/` for seamless integration with all desktop environments.
+### **Update System**
+- **Automatic checking**: Optional update checking on startup
+- **GitHub integration**: Checks latest releases from repository
+- **User consent**: Always asks before checking for updates
+- **Manual checking**: Available through interactive menu
 
 ## 📁 File Organization
 
 ### **Default Structure**
 ```
-~/Pictures/WallPimp/
-├── anime/                    # Anime wallpapers by category
-├── nature/                   # Nature photography
-├── minimalist/               # Clean, minimal designs
+~/Pictures/
+├── wallpaper1.jpg            # Downloaded wallpapers (flattened)
+├── wallpaper2.png            # All images in root directory
+├── wallpaper3.jpg            # Perfect for slideshow usage
 ├── .wallpimp_cache.json      # Smart cache system
 └── wallpimp.log             # Comprehensive logging
 ```
 
-### **Autostart Configuration**
+### **Configuration Files**
 ```
+~/.config/wallpimp/
+└── config.json              # User configuration
+
 ~/.config/autostart/
-└── wallpimp-slideshow.desktop # XDG autostart entry
+└── wallpimp-carousel.desktop # XDG autostart entry
 ```
 
 ## 🔍 Troubleshooting
 
-### **Desktop Environment Issues**
+### **First Run Issues**
 ```bash
-# Check detected desktop environment
-./run --setup
+# If dependencies fail to install automatically
+sudo pacman -S python-requests python-tqdm python-pillow python-colorama  # Arch
+sudo apt install python3-requests python3-tqdm python3-pil python3-colorama  # Ubuntu/Debian
+sudo dnf install python3-requests python3-tqdm python3-pillow python3-colorama  # Fedora
 
-# Test wallpaper setting manually
-./run --static --dir ~/Pictures
+# Make script executable
+chmod +x run
 ```
 
-### **Dependency Problems**
+### **Desktop Environment Issues**
 ```bash
-# Manual dependency check
-python3 -c "import requests, tqdm, PIL, colorama; print('All dependencies OK')"
+# Check detected desktop environment - run interactive mode
+./run
+# Select option 4 (Set static wallpaper) to test detection
 
-# Force dependency installation
-./run --list  # Triggers auto-installation
+# Manual wallpaper setting test
+feh --bg-fill ~/Pictures/somewallpaper.jpg  # Universal fallback
 ```
 
 ### **Slideshow Not Working**
@@ -292,32 +262,44 @@ python3 -c "import requests, tqdm, PIL, colorama; print('All dependencies OK')"
 ls ~/Pictures/*.{jpg,png,jpeg} 2>/dev/null | wc -l
 
 # Test with shorter interval
-./run --slideshow --dir ~/Pictures --interval 10s
+./run --carousel --dir ~/Pictures --interval 10s
 
 # Check autostart entry
-ls ~/.config/autostart/wallpimp-slideshow.desktop
+cat ~/.config/autostart/wallpimp-carousel.desktop
 ```
 
-### **Performance Optimization**
+### **Network/Download Issues**
 ```bash
-# Reduce workers for slower systems
+# Test with fewer workers
 ./run --repo anime --workers 2
 
-# Use local directory for faster access
-./run --slideshow --dir /home/user/Pictures --interval 1m
+# Clean cache if issues persist
+./run --cleanup
+
+# Check GitHub connectivity
+curl -I https://api.github.com/repos/0xb0rn3/wallpimp
 ```
+
+## 👨‍💻 Developer Info
+
+**Developer**: 0xb0rn3  
+**Email**: q4n0@proton.me  
+**Discord**: 0xbv1  
+**Twitter**: 0xbv1  
+**Instagram**: theehiv3  
+**Repository**: https://github.com/0xb0rn3/wallpimp
 
 ## 🤝 Contributing
 
 ### **Adding New Repositories**
 1. Verify repository contains high-quality wallpapers
 2. Check proper licensing for redistribution  
-3. Add entry to `REPOSITORIES` dictionary
+3. Add entry to `rainbow_repositories` dictionary in code
 4. Include emoji, description, and default branch
-5. Test functionality with WallPimp Enhanced
+5. Test functionality with WallPimp
 
 ### **Desktop Environment Support**
-1. Add detection logic to `DesktopEnvironmentManager`
+1. Add detection logic to `PaintbrushEnvironmentWizard`
 2. Implement wallpaper setting commands
 3. Test on actual desktop environment
 4. Update documentation
@@ -329,30 +311,32 @@ MIT License - Individual wallpapers retain their original licensing terms from r
 ## 💬 Support & Tips
 
 ### **Getting Help**
-- Check `wallpimp.log` in download directory for detailed errors
-- Use `--setup` for guided configuration
+- Use interactive mode: `./run` for guided experience
+- Check `wallpimp.log` in your directory for detailed errors
+- Use `--cleanup` for cache-related issues
 - Verify internet connectivity and GitHub access
-- Try `--cleanup` for cache-related issues
 
 ### **Pro Tips**
-- **First time?** Start with `--setup` for guided configuration
-- **Testing?** Use `--interval 30s` for quick slideshow testing  
+- **First time?** Just run `./run` - the interactive menu guides you through everything
+- **Testing slideshow?** Use `--interval 30s` for quick testing  
 - **Slow connection?** Reduce workers: `--workers 2`
 - **Storage conscious?** Download specific repos instead of `--all`
 - **Multiple monitors?** Most desktop environments handle this automatically
 - **Custom timing?** Use precise intervals: `--interval "1h 15m 30s"`
+- **Autostart setup?** Use the interactive menu option 6 for guided setup
 
-## 🎉 What's New!
+## 🎯 Key Features Summary
 
-- ✅ **Universal Linux slideshow support**
-- ✅ **Interactive setup wizard** 
-- ✅ **Autostart integration**
-- ✅ **Flexible time parsing**
-- ✅ **Desktop environment auto-detection**
-- ✅ **Graceful shutdown handling**
-- ✅ **Background slideshow operation**
-- ✅ **Enhanced error recovery**
+- ✅ **Interactive menu system** for easy navigation
+- ✅ **Universal Linux slideshow support** across all DE/WM
+- ✅ **First-run setup** with dependency management
+- ✅ **Update checking** with user consent
+- ✅ **Autostart integration** via XDG standards
+- ✅ **Flexible time parsing** for precise intervals
+- ✅ **Smart caching** prevents re-downloads
+- ✅ **Graceful error handling** and recovery
+- ✅ **Command-line compatibility** for automation
 
 ---
 
-**Ready to transform your desktop?** Start with `./run --setup` and enjoy endless beautiful wallpapers! 🚀
+**Ready to transform your desktop?** Simply run `./run` and let the interactive menu guide you! 🚀
