@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """
-WallPimp - Universal Linux Wallpaper Manager
+WallPimp - Universal Linux Wallpaper Manager with Directory Consolidation
 Developer: 0xb0rn3 (Discord: 0xbv1, Twitter: 0xbv1, Instagram: theehiv3)
 Email: q4n0@proton.me
 Repository: https://github.com/0xb0rn3/wallpimp
+Enhanced with directory consolidation features
 """
-
 import os
 import sys
 import json
@@ -17,6 +17,7 @@ import signal
 import threading
 import random
 import re
+import shutil
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 from urllib.parse import urlparse
@@ -390,7 +391,7 @@ X-GNOME-Autostart-enabled=true
             return False
 
 class WallPimp:
-    """Main WallPimp class for wallpaper management"""
+    """Main WallPimp class for wallpaper management with directory consolidation"""
     
     # Rainbow repository collection - each entry contains icon, URL, branch, and description
     rainbow_repositories = {
@@ -470,7 +471,12 @@ class WallPimp:
     
     def __init__(self, butterfly_dir: str = None):
         """Initialize WallPimp with configuration"""
-        self.butterfly_dir = Path(butterfly_dir) if butterfly_dir else self._get_default_butterfly_dir()
+        # Load saved directory or use provided/default
+        if butterfly_dir:
+            self.butterfly_dir = Path(butterfly_dir)
+        else:
+            saved_dir = self._load_directory_config()
+            self.butterfly_dir = Path(saved_dir)
         
         # Create butterfly directory first
         self.butterfly_dir.mkdir(parents=True, exist_ok=True)
@@ -499,9 +505,158 @@ class WallPimp:
         # Paintbrush environment detection
         self.paintbrush_env = PaintbrushEnvironmentWizard.detect_paintbrush_environment()
     
-    def _get_default_butterfly_dir(self) -> Path:
-        """Get default butterfly directory"""
-        return Path.home() / 'Pictures'
+    def _load_directory_config(self) -> str:
+        """Load directory configuration from config file"""
+        config_file = Path.home() / '.config' / 'wallpimp' / 'config.json'
+        
+        if config_file.exists():
+            try:
+                with open(config_file, 'r') as f:
+                    config = json.load(f)
+                    return config.get('default_dir', str(Path.home() / 'Pictures'))
+            except:
+                pass
+        
+        return str(Path.home() / 'Pictures')
+    
+    def _save_directory_config(self, directory_path: str):
+        """Save directory configuration to config file"""
+        config_dir = Path.home() / '.config' / 'wallpimp'
+        config_dir.mkdir(parents=True, exist_ok=True)
+        config_file = config_dir / 'config.json'
+        
+        # Load existing config or create new
+        config = {}
+        if config_file.exists():
+            try:
+                with open(config_file, 'r') as f:
+                    config = json.load(f)
+            except:
+                pass
+        
+        config['default_dir'] = directory_path
+        config['consolidate_downloads'] = True
+        
+        try:
+            with open(config_file, 'w') as f:
+                json.dump(config, f, indent=2)
+            print(f"{Fore.GREEN}Configuration saved{Style.RESET_ALL}")
+        except Exception as e:
+            print(f"{Fore.YELLOW}Warning: Could not save config: {e}{Style.RESET_ALL}")
+    
+    def setup_consolidation_directory(self):
+        """Setup or change the consolidation directory preference"""
+        print(f"\n{Fore.CYAN}📁 Wallpaper Directory Setup{Style.RESET_ALL}")
+        print("-" * 40)
+        
+        current_dir = str(self.butterfly_dir)
+        print(f"Current directory: {Fore.BLUE}{current_dir}{Style.RESET_ALL}")
+        
+        # Ask if user wants to change directory
+        change_dir = input(f"\n{Fore.YELLOW}Change wallpaper directory? (y/N): {Style.RESET_ALL}").strip().lower()
+        
+        if change_dir == 'y':
+            new_dir = input(f"{Fore.GREEN}Enter new directory path: {Style.RESET_ALL}").strip()
+            
+            if new_dir:
+                # Expand user path and validate
+                new_path = Path(new_dir).expanduser()
+                
+                try:
+                    new_path.mkdir(parents=True, exist_ok=True)
+                    self.butterfly_dir = new_path
+                    print(f"{Fore.GREEN}✓ Directory set to: {new_path}{Style.RESET_ALL}")
+                    
+                    # Update config
+                    self._save_directory_config(str(new_path))
+                    return str(new_path)
+                    
+                except Exception as e:
+                    print(f"{Fore.RED}✗ Error creating directory: {e}{Style.RESET_ALL}")
+                    return current_dir
+        
+        return current_dir
+    
+    def ask_consolidation_preference(self) -> bool:
+        """Ask user if they want to consolidate downloads"""
+        print(f"\n{Fore.CYAN}📋 Download Organization{Style.RESET_ALL}")
+        print("Choose how to organize downloaded wallpapers:")
+        print(f"1. Keep in separate folders (default)")
+        print(f"2. Consolidate all into main directory")
+        
+        while True:
+            choice = input(f"\n{Fore.GREEN}Enter choice (1 or 2): {Style.RESET_ALL}").strip()
+            if choice == '1':
+                return False
+            elif choice == '2':
+                return True
+            else:
+                print(f"{Fore.RED}Invalid choice. Please enter 1 or 2.{Style.RESET_ALL}")
+    
+    def consolidate_wallpapers_after_download(self):
+        """Consolidate all downloaded wallpapers into main directory"""
+        print(f"\n{Fore.CYAN}🔄 Consolidating wallpapers...{Style.RESET_ALL}")
+        
+        # Get all subdirectories with images
+        image_extensions = {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.tiff', '.svg'}
+        moved_count = 0
+        
+        for root, dirs, files in os.walk(self.butterfly_dir):
+            current_path = Path(root)
+            
+            # Skip if we're in the main directory
+            if current_path == self.butterfly_dir:
+                continue
+            
+            for file in files:
+                file_path = current_path / file
+                
+                if file_path.suffix.lower() in image_extensions:
+                    # Create new filename with folder prefix to avoid conflicts
+                    folder_name = current_path.relative_to(self.butterfly_dir).parts[0]
+                    new_name = f"{folder_name}_{file}"
+                    target_path = self.butterfly_dir / new_name
+                    
+                    # Handle name conflicts
+                    counter = 1
+                    while target_path.exists():
+                        name_parts = file.rsplit('.', 1)
+                        if len(name_parts) == 2:
+                            new_name = f"{folder_name}_{name_parts[0]}_{counter}.{name_parts[1]}"
+                        else:
+                            new_name = f"{folder_name}_{file}_{counter}"
+                        target_path = self.butterfly_dir / new_name
+                        counter += 1
+                    
+                    try:
+                        shutil.move(str(file_path), str(target_path))
+                        moved_count += 1
+                    except Exception as e:
+                        self.butterfly_logger.error(f"Error moving {file_path}: {e}")
+        
+        # Clean up empty directories
+        self._cleanup_empty_dirs()
+        
+        if moved_count > 0:
+            print(f"{Fore.GREEN}✓ Consolidated {moved_count} wallpapers{Style.RESET_ALL}")
+        else:
+            print(f"{Fore.YELLOW}No wallpapers to consolidate{Style.RESET_ALL}")
+    
+    def _cleanup_empty_dirs(self):
+        """Remove empty subdirectories"""
+        for root, dirs, files in os.walk(self.butterfly_dir, topdown=False):
+            current_path = Path(root)
+            
+            # Skip main directory
+            if current_path == self.butterfly_dir:
+                continue
+            
+            # Remove if empty
+            try:
+                if not any(current_path.iterdir()):
+                    current_path.rmdir()
+            except:
+                pass
     
     def _setup_butterfly_logging(self):
         """Setup butterfly logging configuration"""
@@ -552,7 +707,7 @@ class WallPimp:
 ╚███╔███╔╝██║  ██║███████╗███████╗██║     ██║██║ ╚═╝ ██║██║     
  ╚══╝╚══╝ ╚═╝  ╚═╝╚══════╝╚══════╝╚═╝     ╚═╝╚═╝     ╚═╝╚═╝     {Style.RESET_ALL}
                                                                   
-{Fore.YELLOW}Universal Linux Wallpaper Manager{Style.RESET_ALL}
+{Fore.YELLOW}Universal Linux Wallpaper Manager with Consolidation{Style.RESET_ALL}
 {Fore.GREEN}Directory: {self.butterfly_dir}{Style.RESET_ALL}
 {Fore.BLUE}Environment: {self.paintbrush_env.upper()}{Style.RESET_ALL}
 {Fore.MAGENTA}Developer: 0xb0rn3 | Contact: q4n0@proton.me{Style.RESET_ALL}
@@ -727,26 +882,40 @@ class WallPimp:
         print(f"\n{Fore.GREEN}Successfully downloaded {rainbow_success_count}/{len(rainbow_contents)} wallpapers{Style.RESET_ALL}")
         return True
     
-    def download_rainbow_repo(self, rainbow_key: str, rainbow_workers: int = 4) -> bool:
+    def download_rainbow_repo(self, rainbow_key: str, rainbow_workers: int = 4, consolidate: bool = None) -> bool:
         """Download wallpapers from one of our rainbow repositories"""
         if rainbow_key not in self.rainbow_repositories:
             print(f"{Fore.RED}Repository '{rainbow_key}' not found in rainbow list{Style.RESET_ALL}")
             return False
         
+        # Ask for consolidation preference if not specified
+        if consolidate is None:
+            consolidate = self.ask_consolidation_preference()
+        
         rainbow_info = self.rainbow_repositories[rainbow_key]
         print(f"\n{rainbow_info['icon']} Starting download from {Fore.YELLOW}{rainbow_key.upper()}{Style.RESET_ALL}")
         print(f"📁 Description: {rainbow_info['description']}")
         
-        return self.download_from_rainbow_repo(
+        success = self.download_from_rainbow_repo(
             rainbow_info['url'], 
             rainbow_info['branch'], 
             rainbow_workers, 
             rainbow_key
         )
+        
+        # Consolidate if requested and download was successful
+        if success and consolidate:
+            self.consolidate_wallpapers_after_download()
+        
+        return success
     
-    def download_all_rainbow_repos(self, rainbow_workers: int = 4):
+    def download_all_rainbow_repos(self, rainbow_workers: int = 4, consolidate: bool = None):
         """Download wallpapers from all rainbow repositories"""
         print(f"\n{Fore.CYAN}Starting bulk download from all rainbow repositories...{Style.RESET_ALL}")
+        
+        # Ask for consolidation preference if not specified
+        if consolidate is None:
+            consolidate = self.ask_consolidation_preference()
         
         rainbow_successful_repos = 0
         rainbow_total_repos = len(self.rainbow_repositories)
@@ -754,7 +923,7 @@ class WallPimp:
         for i, rainbow_key in enumerate(self.rainbow_repositories, 1):
             print(f"\n{Fore.MAGENTA}[{i}/{rainbow_total_repos}] Processing {rainbow_key}...{Style.RESET_ALL}")
             
-            if self.download_rainbow_repo(rainbow_key, rainbow_workers):
+            if self.download_rainbow_repo(rainbow_key, rainbow_workers, False):  # Don't consolidate per repo
                 rainbow_successful_repos += 1
             
             # Save cache after each repository
@@ -762,6 +931,10 @@ class WallPimp:
             
             # Small delay between repositories to be respectful to GitHub API
             time.sleep(1)
+        
+        # Consolidate all at once if requested
+        if consolidate:
+            self.consolidate_wallpapers_after_download()
         
         print(f"\n{Fore.GREEN}Completed downloads from {rainbow_successful_repos}/{rainbow_total_repos} repositories{Style.RESET_ALL}")
         self.show_butterfly_statistics()
@@ -930,9 +1103,11 @@ def butterfly_interactive_menu():
         print(f"{Fore.YELLOW}5.{Style.RESET_ALL} Start carousel mode")
         print(f"{Fore.YELLOW}6.{Style.RESET_ALL} Enable autostart carousel")
         print(f"{Fore.YELLOW}7.{Style.RESET_ALL} Disable autostart")
-        print(f"{Fore.YELLOW}8.{Style.RESET_ALL} Clean cache")
-        print(f"{Fore.YELLOW}9.{Style.RESET_ALL} View repositories")
-        print(f"{Fore.YELLOW}10.{Style.RESET_ALL} Check for updates")
+        print(f"{Fore.YELLOW}8.{Style.RESET_ALL} Setup wallpaper directory")
+        print(f"{Fore.YELLOW}9.{Style.RESET_ALL} Consolidate wallpapers")
+        print(f"{Fore.YELLOW}10.{Style.RESET_ALL} Clean cache")
+        print(f"{Fore.YELLOW}11.{Style.RESET_ALL} View repositories")
+        print(f"{Fore.YELLOW}12.{Style.RESET_ALL} Check for updates")
         print(f"{Fore.YELLOW}0.{Style.RESET_ALL} Exit")
         
         butterfly_choice = input(f"\n{Fore.GREEN}Enter your choice: {Style.RESET_ALL}").strip()
@@ -952,10 +1127,14 @@ def butterfly_interactive_menu():
         elif butterfly_choice == '7':
             butterfly_menu_disable_autostart()
         elif butterfly_choice == '8':
-            butterfly_menu_clean_cache()
+            butterfly_menu_setup_directory()
         elif butterfly_choice == '9':
-            butterfly_menu_view_repos()
+            butterfly_menu_consolidate()
         elif butterfly_choice == '10':
+            butterfly_menu_clean_cache()
+        elif butterfly_choice == '11':
+            butterfly_menu_view_repos()
+        elif butterfly_choice == '12':
             butterfly_menu_check_updates()
         elif butterfly_choice == '0':
             print(f"{Fore.GREEN}Thank you for using WallPimp! 👋{Style.RESET_ALL}")
@@ -1042,6 +1221,17 @@ def butterfly_menu_disable_autostart():
     """Menu option to disable autostart"""
     AutostartWizard.remove_autostart_butterfly()
 
+def butterfly_menu_setup_directory():
+    """Menu option to setup wallpaper directory"""
+    wallpimp = WallPimp()
+    wallpimp.setup_consolidation_directory()
+
+def butterfly_menu_consolidate():
+    """Menu option to consolidate existing wallpapers"""
+    butterfly_dir = input(f"{Fore.GREEN}Enter wallpaper directory (default ~/Pictures): {Style.RESET_ALL}").strip() or str(Path.home() / 'Pictures')
+    wallpimp = WallPimp(butterfly_dir)
+    wallpimp.consolidate_wallpapers_after_download()
+
 def butterfly_menu_clean_cache():
     """Menu option to clean cache"""
     wallpimp = WallPimp()
@@ -1099,17 +1289,17 @@ def butterfly_first_run_setup():
 def main():
     """Main entry point for WallPimp"""
     parser = argparse.ArgumentParser(
-        description='WallPimp - Universal Linux Wallpaper Manager',
+        description='WallPimp - Universal Linux Wallpaper Manager with Consolidation',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  ./run                              # Interactive menu
-  ./run --repo anime                 # Download anime wallpapers
-  ./run --all                        # Download from all repositories
-  ./run --url https://github.com/user/wallpapers
-  ./run --static --dir ~/Pictures    # Set random static wallpaper
-  ./run --carousel --dir ~/Pictures --interval 5m
-  ./run --enable-autostart --dir ~/Pictures --interval 10m
+  ./wallpimp                         # Interactive menu
+  ./wallpimp --repo anime            # Download anime wallpapers
+  ./wallpimp --all                   # Download from all repositories
+  ./wallpimp --url https://github.com/user/wallpapers
+  ./wallpimp --static --dir ~/Pictures    # Set random static wallpaper
+  ./wallpimp --carousel --dir ~/Pictures --interval 5m
+  ./wallpimp --enable-autostart --dir ~/Pictures --interval 10m
         """
     )
     
@@ -1123,6 +1313,7 @@ Examples:
     butterfly_download_group.add_argument('--all', action='store_true', help='Download from all repositories')
     butterfly_download_group.add_argument('--workers', type=int, default=4, help='Download workers (default: 4)')
     butterfly_download_group.add_argument('--cleanup', action='store_true', help='Clean cache')
+    butterfly_download_group.add_argument('--consolidate', action='store_true', help='Consolidate downloads into main directory')
     
     # Wallpaper management options
     butterfly_wallpaper_group = parser.add_argument_group('Wallpaper Management')
@@ -1131,6 +1322,8 @@ Examples:
     butterfly_wallpaper_group.add_argument('--carousel', action='store_true', help='Start carousel mode')
     butterfly_wallpaper_group.add_argument('--interval', type=str, help='Carousel interval (e.g., 30s, 5m, 1h)')
     butterfly_wallpaper_group.add_argument('--image', type=str, help='Specific image path for static mode')
+    butterfly_wallpaper_group.add_argument('--setup-dir', action='store_true', help='Setup wallpaper directory')
+    butterfly_wallpaper_group.add_argument('--consolidate-existing', action='store_true', help='Consolidate existing wallpapers')
     
     # Autostart options
     butterfly_autostart_group = parser.add_argument_group('Autostart Management')
@@ -1156,7 +1349,8 @@ Examples:
     butterfly_main_actions = [
         args.repo, args.url, args.list, args.all, args.cleanup,
         args.setup, args.static, args.carousel, 
-        args.enable_autostart, args.disable_autostart
+        args.enable_autostart, args.disable_autostart,
+        args.setup_dir, args.consolidate_existing
     ]
     
     if sum(bool(action) for action in butterfly_main_actions) > 1:
@@ -1174,11 +1368,19 @@ Examples:
         elif args.cleanup:
             wallpimp.cleanup_butterfly_cache()
         elif args.all:
-            wallpimp.download_all_rainbow_repos(rainbow_workers=args.workers)
+            wallpimp.download_all_rainbow_repos(rainbow_workers=args.workers, consolidate=args.consolidate)
         elif args.repo:
-            wallpimp.download_rainbow_repo(args.repo.lower(), rainbow_workers=args.workers)
+            wallpimp.download_rainbow_repo(args.repo.lower(), rainbow_workers=args.workers, consolidate=args.consolidate)
         elif args.url:
-            wallpimp.download_from_rainbow_repo(args.url, args.branch, rainbow_workers=args.workers)
+            success = wallpimp.download_from_rainbow_repo(args.url, args.branch, rainbow_workers=args.workers)
+            if success and args.consolidate:
+                wallpimp.consolidate_wallpapers_after_download()
+        
+        # Handle directory setup
+        elif args.setup_dir:
+            wallpimp.setup_consolidation_directory()
+        elif args.consolidate_existing:
+            wallpimp.consolidate_wallpapers_after_download()
         
         # Handle wallpaper management
         elif args.setup:
@@ -1258,7 +1460,7 @@ Examples:
         
         else:
             # No arguments provided - this shouldn't happen due to earlier check
-            print(f"{Fore.CYAN}Use ./run --help for command line options or ./run for interactive menu{Style.RESET_ALL}")
+            print(f"{Fore.CYAN}Use ./wallpimp --help for command line options or ./wallpimp for interactive menu{Style.RESET_ALL}")
     
     except KeyboardInterrupt:
         print(f"\n{Fore.YELLOW}Operation cancelled by user{Style.RESET_ALL}")
