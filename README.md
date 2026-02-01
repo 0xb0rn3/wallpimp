@@ -4,14 +4,16 @@ A powerful, terminal-driven wallpaper manager with slideshow support for Linux d
 
 ## Features
 
-- 🎨 **Multi-Desktop Support**: XFCE, GNOME, KDE Plasma, MATE, Cinnamon, i3, Sway
-- 🔄 **Automated Slideshow**: C-based daemon for minimal resource usage
-- 📥 **Repository Downloads**: Curated wallpaper collections from GitHub
-- ⚙️ **Systemd Integration**: Service and timer-based slideshow control
-- 🖥️ **Display Manager Support**: SDDM, LightDM, GDM/GDM3
-- 🎯 **Terminal-Driven**: Clean, organized menu system
-- 🚀 **Auto-Detection**: Automatically detects distribution, DE, and display manager
-- 💾 **Low Resource Usage**: Efficient C daemon for slideshow functionality
+- Multi-Desktop Support: XFCE, GNOME, KDE Plasma, MATE, Cinnamon, i3, Sway
+- Automated Slideshow: C-based daemon for minimal resource usage
+- Repository Downloads: Curated wallpaper collections from GitHub
+- Smart Download: Uses git clone to avoid API rate limits
+- Download Caching: Tracks downloaded files, skips duplicates
+- Systemd Integration: Service and timer-based slideshow control
+- Display Manager Support: SDDM, LightDM, GDM/GDM3
+- Terminal-Driven: Clean, organized menu system
+- Auto-Detection: Automatically detects distribution, DE, and display manager
+- Low Resource Usage: Efficient C daemon for slideshow functionality
 
 ## System Requirements
 
@@ -223,6 +225,31 @@ The slideshow functionality uses a lightweight C daemon that:
 ```
 
 ## Troubleshooting
+
+### GitHub Rate Limits
+
+GitHub API limits unauthenticated requests to 60/hour. WallPimp handles this automatically:
+
+**Automatic Solutions:**
+- Uses `git clone` when git is installed (no rate limits!)
+- Caches API responses for 24 hours
+- Tracks downloaded files to avoid re-downloading
+- Shows rate limit status and wait times
+
+**Check Rate Limit:**
+```bash
+wallpimp
+# Downloads → Check rate limit status
+```
+
+**Manual Solution:**
+```bash
+# Install git to bypass rate limits entirely
+sudo pacman -S git  # Arch
+sudo apt install git  # Debian/Ubuntu
+```
+
+When git is installed, WallPimp automatically uses `git clone` instead of the API, completely avoiding rate limits.
 
 ### Slideshow not working
 
