@@ -199,6 +199,88 @@ class RepositoryManager:
         self.session.headers.update({
             'User-Agent': 'WallPimp/1.0 (https://github.com/0xb0rn3/wallpimp)'
         })
+        
+        # Rate limit tracking
+        self.api_calls = 0
+        self.rate_limit_remaining = 60
+        self.rate_limit_reset = 0
+        
+        # Cache for API responses
+        self.cache_dir = Path(config.config_dir) / 'cache'
+        self.cache_dir.mkdir(exist_ok=True)
+        
+        # Download tracking
+        self.download_cache_file = self.cache_dir / 'downloaded.json'
+        self.downloaded_files = self._load_download_cache()
+    
+    def _load_download_cache(self) -> set:
+        """Load cache of already downloaded files"""
+        if self.download_cache_file.exists():
+            try:
+                with open(self.download_cache_file, 'r') as f:
+                    return set(json.load(f))
+            except:
+                pass
+        return set()
+    
+    def _save_download_cache(self):
+        """Save download cache"""
+        try:
+            with open(self.download_cache_file, 'w') as f:
+                json.dump(list(self.downloaded_files), f)
+        except:
+            pass
+    
+    def _check_rate_limit(self):
+        """Check and handle GitHub API rate limits"""
+        import time
+        
+        if self.rate_limit_remaining <= 5:
+            if self.rate_limit_reset > time.time():
+                wait_time = int(self.rate_limit_reset - time.time()) + 1
+                print(f"{Fore.YELLOW}Rate limit approaching. Waiting {wait_time}s...{Style.RESET_ALL}")
+                time.sleep(wait_time)
+                self.rate_limit_remaining = 60
+    
+    def _update_rate_limit(self, response):
+        """Update rate limit info from response headers"""
+        try:
+            self.rate_limit_remaining = int(response.headers.get('X-RateLimit-Remaining', 60))
+            self.rate_limit_reset = int(response.headers.get('X-RateLimit-Reset', 0))
+        except:
+            pass
+    
+    def _get_cache_key(self, url: str) -> str:
+        """Generate cache key for URL"""
+        import hashlib
+        return hashlib.md5(url.encode()).hexdigest()
+    
+    def _get_cached_response(self, url: str) -> Optional[List[Dict]]:
+        """Get cached API response"""
+        cache_key = self._get_cache_key(url)
+        cache_file = self.cache_dir / f"{cache_key}.json"
+        
+        if cache_file.exists():
+            try:
+                # Check if cache is less than 24 hours old
+                import time
+                if time.time() - cache_file.stat().st_mtime < 86400:
+                    with open(cache_file, 'r') as f:
+                        return json.load(f)
+            except:
+                pass
+        return None
+    
+    def _cache_response(self, url: str, data: List[Dict]):
+        """Cache API response"""
+        cache_key = self._get_cache_key(url)
+        cache_file = self.cache_dir / f"{cache_key}.json"
+        
+        try:
+            with open(cache_file, 'w') as f:
+                json.dump(data, f)
+        except:
+            pass
     
     def list_repositories(self):
         print(f"\n{Fore.CYAN}Available Repositories:{Style.RESET_ALL}")
@@ -214,6 +296,14 @@ class RepositoryManager:
         repo_info = self.REPOSITORIES[repo_name]
         print(f"\n{Fore.CYAN}Downloading from {repo_name}...{Style.RESET_ALL}")
         
+        # Try to use git clone first (no rate limits!)
+        if self._try_git_clone(repo_info['url'], repo_name):
+            print(f"{Fore.GREEN}Successfully cloned repository using git{Style.RESET_ALL}")
+            self._cleanup_git_files(repo_name)
+            return True
+        
+        # Fallback to API method
+        print(f"{Fore.YELLOW}Git not available, using API method{Style.RESET_ALL}")
         files = self._fetch_repo_contents(repo_info['url'], repo_info['branch'])
         if not files:
             return False
@@ -223,19 +313,60 @@ class RepositoryManager:
         repo_dir = Path(self.config.get('wallpaper_dir')) / repo_name
         repo_dir.mkdir(parents=True, exist_ok=True)
         
+        # Filter out already downloaded files
+        new_files = [f for f in files if f['path'] not in self.downloaded_files]
+        if new_files:
+            print(f"{Fore.CYAN}Downloading {len(new_files)} new files (skipping {len(files) - len(new_files)} existing){Style.RESET_ALL}")
+        else:
+            print(f"{Fore.GREEN}All files already downloaded!{Style.RESET_ALL}")
+            return True
+        
         downloaded = 0
         with ThreadPoolExecutor(max_workers=workers) as executor:
             futures = {
                 executor.submit(self._download_file, f, repo_dir): f 
-                for f in files
+                for f in new_files
             }
             
-            for future in tqdm(as_completed(futures), total=len(files), desc="Downloading"):
+            for future in tqdm(as_completed(futures), total=len(new_files), desc="Downloading"):
                 if future.result():
                     downloaded += 1
+                    # Save cache periodically
+                    if downloaded % 10 == 0:
+                        self._save_download_cache()
         
-        print(f"{Fore.GREEN}Downloaded {downloaded}/{len(files)} wallpapers{Style.RESET_ALL}")
+        self._save_download_cache()
+        print(f"{Fore.GREEN}Downloaded {downloaded}/{len(new_files)} wallpapers{Style.RESET_ALL}")
         return True
+    
+    def _try_git_clone(self, url: str, repo_name: str) -> bool:
+        """Try to clone repository using git (avoids rate limits)"""
+        if not shutil.which('git'):
+            return False
+        
+        repo_dir = Path(self.config.get('wallpaper_dir')) / repo_name
+        
+        try:
+            # Clone with depth 1 for speed
+            result = subprocess.run(
+                ['git', 'clone', '--depth', '1', url, str(repo_dir)],
+                capture_output=True,
+                timeout=300
+            )
+            return result.returncode == 0
+        except:
+            return False
+    
+    def _cleanup_git_files(self, repo_name: str):
+        """Remove .git directory after cloning"""
+        repo_dir = Path(self.config.get('wallpaper_dir')) / repo_name
+        git_dir = repo_dir / '.git'
+        
+        if git_dir.exists():
+            try:
+                shutil.rmtree(git_dir)
+            except:
+                pass
     
     def _fetch_repo_contents(self, url: str, branch: str) -> List[Dict]:
         parsed = urlparse(url)
@@ -251,9 +382,22 @@ class RepositoryManager:
     def _fetch_recursive(self, api_url: str, path: str = "") -> List[Dict]:
         files = []
         
+        # Check cache first
+        cached = self._get_cached_response(api_url)
+        if cached:
+            print(f"{Fore.CYAN}Using cached data for {api_url.split('/')[-1]}{Style.RESET_ALL}")
+            return cached
+        
+        # Check rate limit before making request
+        self._check_rate_limit()
+        
         try:
             response = self.session.get(api_url, timeout=30)
             response.raise_for_status()
+            
+            # Update rate limit info
+            self._update_rate_limit(response)
+            
             items = response.json()
             
             if not isinstance(items, list):
@@ -267,8 +411,21 @@ class RepositoryManager:
                         'path': path + item['name'] if path else item['name']
                     })
                 elif item['type'] == 'dir':
+                    # Add small delay between directory requests
+                    import time
+                    time.sleep(0.5)
                     subfiles = self._fetch_recursive(item['url'], path + item['name'] + "/")
                     files.extend(subfiles)
+            
+            # Cache the response
+            self._cache_response(api_url, files)
+            
+        except requests.exceptions.HTTPError as e:
+            if e.response.status_code == 403:
+                print(f"{Fore.RED}Rate limit exceeded! Using git clone method instead.{Style.RESET_ALL}")
+                return []
+            else:
+                print(f"{Fore.RED}HTTP Error {e.response.status_code}: {api_url}{Style.RESET_ALL}")
         except Exception as e:
             print(f"{Fore.RED}Error fetching {api_url}: {e}{Style.RESET_ALL}")
         
@@ -281,7 +438,13 @@ class RepositoryManager:
     def _download_file(self, file_info: Dict, dest_dir: Path) -> bool:
         dest_path = dest_dir / file_info['name']
         
+        # Check if already downloaded
+        if file_info['path'] in self.downloaded_files and dest_path.exists():
+            return True
+        
         if dest_path.exists():
+            # File exists, mark as downloaded
+            self.downloaded_files.add(file_info['path'])
             return True
         
         try:
@@ -296,11 +459,14 @@ class RepositoryManager:
             try:
                 with Image.open(dest_path) as img:
                     img.verify()
+                self.downloaded_files.add(file_info['path'])
                 return True
             except:
                 dest_path.unlink()
                 return False
-        except:
+        except Exception as e:
+            if dest_path.exists():
+                dest_path.unlink()
             return False
 
 
@@ -363,6 +529,8 @@ class WallpaperManager:
             print(f"{Fore.YELLOW}2.{Style.RESET_ALL} Download from repository")
             print(f"{Fore.YELLOW}3.{Style.RESET_ALL} Download all repositories")
             print(f"{Fore.YELLOW}4.{Style.RESET_ALL} Download from custom URL")
+            print(f"{Fore.YELLOW}5.{Style.RESET_ALL} Clear download cache")
+            print(f"{Fore.YELLOW}6.{Style.RESET_ALL} Check rate limit status")
             print(f"{Fore.YELLOW}0.{Style.RESET_ALL} Back")
             
             choice = input(f"\n{Fore.GREEN}Select option: {Style.RESET_ALL}").strip()
@@ -375,6 +543,10 @@ class WallpaperManager:
                 self.download_all_repos()
             elif choice == '4':
                 self.download_custom_url()
+            elif choice == '5':
+                self.clear_download_cache()
+            elif choice == '6':
+                self.check_rate_limit()
             elif choice == '0':
                 break
     
@@ -441,6 +613,38 @@ class WallpaperManager:
         url = input(f"{Fore.GREEN}Enter GitHub repository URL: {Style.RESET_ALL}").strip()
         if url:
             print(f"{Fore.YELLOW}Custom URL download not yet implemented{Style.RESET_ALL}")
+    
+    def clear_download_cache(self):
+        """Clear download cache"""
+        confirm = input(f"{Fore.YELLOW}Clear download cache? Files won't be deleted. (y/N): {Style.RESET_ALL}").strip().lower()
+        if confirm == 'y':
+            self.repo_manager.downloaded_files.clear()
+            self.repo_manager._save_download_cache()
+            print(f"{Fore.GREEN}Download cache cleared{Style.RESET_ALL}")
+    
+    def check_rate_limit(self):
+        """Check GitHub API rate limit status"""
+        try:
+            response = requests.get('https://api.github.com/rate_limit')
+            if response.status_code == 200:
+                data = response.json()
+                core = data['resources']['core']
+                
+                print(f"\n{Fore.CYAN}GitHub API Rate Limit Status:{Style.RESET_ALL}")
+                print(f"  Remaining: {Fore.YELLOW}{core['remaining']}/{core['limit']}{Style.RESET_ALL}")
+                
+                if core['remaining'] > 0:
+                    print(f"  Status: {Fore.GREEN}OK{Style.RESET_ALL}")
+                else:
+                    from datetime import datetime
+                    reset_time = datetime.fromtimestamp(core['reset'])
+                    print(f"  Status: {Fore.RED}RATE LIMITED{Style.RESET_ALL}")
+                    print(f"  Reset at: {Fore.YELLOW}{reset_time.strftime('%H:%M:%S')}{Style.RESET_ALL}")
+                    print(f"\n{Fore.CYAN}Tip: Use 'git clone' method by having git installed{Style.RESET_ALL}")
+            else:
+                print(f"{Fore.RED}Could not check rate limit{Style.RESET_ALL}")
+        except Exception as e:
+            print(f"{Fore.RED}Error checking rate limit: {e}{Style.RESET_ALL}")
     
     def change_wallpaper_dir(self):
         current = self.config.get('wallpaper_dir')
