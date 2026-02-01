@@ -3,7 +3,7 @@
 WallPimp - Modern Linux Wallpaper Manager
 A terminal-driven wallpaper manager with slideshow support for XFCE and other Linux desktop environments
 Developer: 0xb0rn3
-Email: q4n0@proton.me
+Email: oxbv1@proton.me
 """
 
 import os
@@ -685,7 +685,7 @@ class WallpaperManager:
   Display Mgr:  {Fore.YELLOW}{self.dm}{Style.RESET_ALL}
   Wallpaper:    {Fore.YELLOW}{self.config.get('wallpaper_dir')}{Style.RESET_ALL}
 
-{Fore.MAGENTA}Developer: 0xb0rn3 | q4n0@proton.me{Style.RESET_ALL}
+{Fore.MAGENTA}Developer: 0xb0rn3 | oxbv1@proton.me{Style.RESET_ALL}
 """
         print(banner)
     
