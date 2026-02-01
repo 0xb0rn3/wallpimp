@@ -54,7 +54,7 @@ install_dependencies() {
             sudo pacman -S --needed --noconfirm \
                 python python-pip \
                 python-requests python-tqdm python-pillow python-colorama \
-                gcc make \
+                gcc make git \
                 feh \
                 xfce4-settings xfconf || true
             
@@ -68,7 +68,7 @@ install_dependencies() {
             sudo apt install -y \
                 python3 python3-pip \
                 python3-requests python3-tqdm python3-pil python3-colorama \
-                gcc make feh nitrogen imagemagick ffmpeg || true
+                gcc make git feh nitrogen imagemagick ffmpeg || true
             ;;
             
         dnf)
@@ -76,7 +76,7 @@ install_dependencies() {
             sudo dnf install -y \
                 python3 python3-pip \
                 python3-requests python3-tqdm python3-pillow python3-colorama \
-                gcc make feh nitrogen ImageMagick ffmpeg || true
+                gcc make git feh nitrogen ImageMagick ffmpeg || true
             ;;
             
         zypper)
@@ -84,7 +84,7 @@ install_dependencies() {
             sudo zypper install -y \
                 python3 python3-pip \
                 python3-requests python3-tqdm python3-Pillow python3-colorama \
-                gcc make feh nitrogen ImageMagick ffmpeg || true
+                gcc make git feh nitrogen ImageMagick ffmpeg || true
             ;;
             
         *)
