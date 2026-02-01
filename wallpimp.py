@@ -3,7 +3,7 @@
 WallPimp - Modern Linux Wallpaper Manager
 A terminal-driven wallpaper manager with slideshow support for XFCE and other Linux desktop environments
 Developer: 0xb0rn3
-Email: q4n0@proton.me
+Email: oxbv1@proton.me
 """
 
 import os
@@ -12,6 +12,8 @@ import json
 import subprocess
 import shutil
 import random
+import zipfile
+import tempfile
 from pathlib import Path
 from typing import Dict, List
 from urllib.parse import urlparse
@@ -196,9 +198,17 @@ class RepositoryManager:
     def __init__(self, config: Config):
         self.config = config
         self.session = requests.Session()
-        self.session.headers.update({
-            'User-Agent': 'WallPimp/1.0 (https://github.com/0xb0rn3/wallpimp)'
-        })
+        
+        # Rotating user agents for obfuscation
+        self.user_agents = [
+            'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Mozilla/5.0 (X11; Linux x86_64; rv:121.0) Gecko/20100101 Firefox/121.0',
+            'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36',
+            'Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:120.0) Gecko/20100101 Firefox/120.0',
+            'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36',
+        ]
+        
+        self._rotate_user_agent()
         
         # Rate limit tracking
         self.api_calls = 0
@@ -212,6 +222,41 @@ class RepositoryManager:
         # Download tracking
         self.download_cache_file = self.cache_dir / 'downloaded.json'
         self.downloaded_files = self._load_download_cache()
+    
+    def _rotate_user_agent(self):
+        """Rotate user agent to avoid fingerprinting"""
+        import random
+        ua = random.choice(self.user_agents)
+        self.session.headers.update({
+            'User-Agent': ua,
+            'Accept': 'application/vnd.github.v3+json',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Accept-Encoding': 'gzip, deflate, br',
+            'DNT': '1',
+            'Connection': 'keep-alive',
+            'Upgrade-Insecure-Requests': '1'
+        })
+        
+        # Configure connection pooling for speed
+        from requests.adapters import HTTPAdapter
+        from urllib3.util.retry import Retry
+        
+        # Retry strategy
+        retry_strategy = Retry(
+            total=3,
+            backoff_factor=0.5,
+            status_forcelist=[429, 500, 502, 503, 504],
+        )
+        
+        # Mount adapter with connection pooling
+        adapter = HTTPAdapter(
+            max_retries=retry_strategy,
+            pool_connections=10,
+            pool_maxsize=20
+        )
+        
+        self.session.mount("http://", adapter)
+        self.session.mount("https://", adapter)
     
     def _load_download_cache(self) -> set:
         """Load cache of already downloaded files"""
@@ -296,16 +341,22 @@ class RepositoryManager:
         repo_info = self.REPOSITORIES[repo_name]
         print(f"\n{Fore.CYAN}Downloading from {repo_name}...{Style.RESET_ALL}")
         
-        # Try to use git clone first (no rate limits!)
-        if self._try_git_clone(repo_info['url'], repo_name):
+        # Try git clone first (no rate limits!)
+        git_result = self._try_git_clone(repo_info['url'], repo_name)
+        if git_result:
             print(f"{Fore.GREEN}Successfully cloned repository using git{Style.RESET_ALL}")
             self._cleanup_git_files(repo_name)
             return True
         
-        # Fallback to API method
-        print(f"{Fore.YELLOW}Git not available, using API method{Style.RESET_ALL}")
+        # Fallback to API method with obfuscation
+        print(f"{Fore.YELLOW}Falling back to API download method{Style.RESET_ALL}")
         files = self._fetch_repo_contents(repo_info['url'], repo_info['branch'])
         if not files:
+            # Try alternative: download repo as ZIP
+            print(f"{Fore.YELLOW}Trying ZIP download method...{Style.RESET_ALL}")
+            if self._try_zip_download(repo_info['url'], repo_name, repo_info['branch']):
+                print(f"{Fore.GREEN}Successfully downloaded via ZIP method{Style.RESET_ALL}")
+                return True
             return False
         
         print(f"{Fore.GREEN}Found {len(files)} files{Style.RESET_ALL}")
@@ -341,20 +392,116 @@ class RepositoryManager:
     
     def _try_git_clone(self, url: str, repo_name: str) -> bool:
         """Try to clone repository using git (avoids rate limits)"""
-        if not shutil.which('git'):
+        # Check if git is available
+        git_path = shutil.which('git')
+        if not git_path:
+            print(f"{Fore.YELLOW}Git not found in PATH. Install with: sudo pacman -S git{Style.RESET_ALL}")
             return False
+        
+        print(f"{Fore.CYAN}Using git clone method (git found at {git_path}){Style.RESET_ALL}")
         
         repo_dir = Path(self.config.get('wallpaper_dir')) / repo_name
         
+        # Remove existing directory if it exists
+        if repo_dir.exists():
+            try:
+                shutil.rmtree(repo_dir)
+            except:
+                pass
+        
         try:
-            # Clone with depth 1 for speed
+            # Clone with depth 1 for speed, quiet mode
             result = subprocess.run(
-                ['git', 'clone', '--depth', '1', url, str(repo_dir)],
+                ['git', 'clone', '--depth', '1', '--quiet', url, str(repo_dir)],
                 capture_output=True,
-                timeout=300
+                timeout=600,
+                text=True
             )
-            return result.returncode == 0
-        except:
+            
+            if result.returncode == 0:
+                return True
+            else:
+                print(f"{Fore.YELLOW}Git clone failed: {result.stderr.strip()}{Style.RESET_ALL}")
+                return False
+        except subprocess.TimeoutExpired:
+            print(f"{Fore.RED}Git clone timeout after 10 minutes{Style.RESET_ALL}")
+            return False
+        except Exception as e:
+            print(f"{Fore.YELLOW}Git clone error: {e}{Style.RESET_ALL}")
+            return False
+    
+    def _try_zip_download(self, url: str, repo_name: str, branch: str) -> bool:
+        """Download repository as ZIP file (alternative to API)"""
+        import zipfile
+        import tempfile
+        
+        # Construct ZIP download URL
+        zip_url = f"{url}/archive/refs/heads/{branch}.zip"
+        
+        try:
+            print(f"{Fore.CYAN}Downloading ZIP archive...{Style.RESET_ALL}")
+            
+            # Download with progress bar
+            response = self.session.get(zip_url, stream=True, timeout=60)
+            response.raise_for_status()
+            
+            total_size = int(response.headers.get('content-length', 0))
+            
+            # Save to temporary file
+            with tempfile.NamedTemporaryFile(delete=False, suffix='.zip') as tmp_file:
+                tmp_path = tmp_file.name
+                
+                if total_size > 0:
+                    with tqdm(total=total_size, unit='B', unit_scale=True, desc="Downloading ZIP") as pbar:
+                        for chunk in response.iter_content(chunk_size=8192):
+                            if chunk:
+                                tmp_file.write(chunk)
+                                pbar.update(len(chunk))
+                else:
+                    for chunk in response.iter_content(chunk_size=8192):
+                        if chunk:
+                            tmp_file.write(chunk)
+            
+            # Extract ZIP
+            print(f"{Fore.CYAN}Extracting wallpapers...{Style.RESET_ALL}")
+            repo_dir = Path(self.config.get('wallpaper_dir')) / repo_name
+            
+            with zipfile.ZipFile(tmp_path, 'r') as zip_ref:
+                # Get the root folder name (usually repo-branch)
+                members = zip_ref.namelist()
+                root_folder = members[0].split('/')[0] if members else ''
+                
+                # Extract only image files
+                image_exts = {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.tiff', '.svg'}
+                extracted = 0
+                
+                for member in members:
+                    if any(member.lower().endswith(ext) for ext in image_exts):
+                        # Remove root folder from path
+                        target_path = '/'.join(member.split('/')[1:])
+                        if target_path:
+                            zip_ref.extract(member, path=str(repo_dir))
+                            # Move from extracted folder to repo dir
+                            src = repo_dir / member
+                            dst = repo_dir / target_path
+                            dst.parent.mkdir(parents=True, exist_ok=True)
+                            if src.exists():
+                                shutil.move(str(src), str(dst))
+                            extracted += 1
+                
+                # Clean up extracted root folder
+                root_path = repo_dir / root_folder
+                if root_path.exists():
+                    shutil.rmtree(root_path)
+            
+            # Clean up temp file
+            os.unlink(tmp_path)
+            
+            print(f"{Fore.GREEN}Extracted {extracted} wallpapers{Style.RESET_ALL}")
+            return extracted > 0
+            
+        except Exception as e:
+            print(f"{Fore.RED}ZIP download failed: {e}{Style.RESET_ALL}")
             return False
     
     def _cleanup_git_files(self, repo_name: str):
@@ -367,6 +514,18 @@ class RepositoryManager:
                 shutil.rmtree(git_dir)
             except:
                 pass
+        
+        # Also remove .gitignore, .github, etc.
+        for item in ['.gitignore', '.gitattributes', '.github', 'README.md', 'LICENSE']:
+            item_path = repo_dir / item
+            if item_path.exists():
+                try:
+                    if item_path.is_dir():
+                        shutil.rmtree(item_path)
+                    else:
+                        item_path.unlink()
+                except:
+                    pass
     
     def _fetch_repo_contents(self, url: str, branch: str) -> List[Dict]:
         parsed = urlparse(url)
@@ -388,8 +547,18 @@ class RepositoryManager:
             print(f"{Fore.CYAN}Using cached data for {api_url.split('/')[-1]}{Style.RESET_ALL}")
             return cached
         
+        # Rotate user agent occasionally
+        import random
+        if random.random() < 0.3:  # 30% chance to rotate
+            self._rotate_user_agent()
+        
         # Check rate limit before making request
         self._check_rate_limit()
+        
+        # Add random jitter to avoid pattern detection
+        import time
+        jitter = random.uniform(0.1, 0.5)
+        time.sleep(jitter)
         
         try:
             response = self.session.get(api_url, timeout=30)
@@ -411,9 +580,9 @@ class RepositoryManager:
                         'path': path + item['name'] if path else item['name']
                     })
                 elif item['type'] == 'dir':
-                    # Add small delay between directory requests
-                    import time
-                    time.sleep(0.5)
+                    # Variable delay between directory requests (0.3-1.0s)
+                    delay = random.uniform(0.3, 1.0)
+                    time.sleep(delay)
                     subfiles = self._fetch_recursive(item['url'], path + item['name'] + "/")
                     files.extend(subfiles)
             
@@ -422,7 +591,7 @@ class RepositoryManager:
             
         except requests.exceptions.HTTPError as e:
             if e.response.status_code == 403:
-                print(f"{Fore.RED}Rate limit exceeded! Using git clone method instead.{Style.RESET_ALL}")
+                print(f"{Fore.RED}Rate limit exceeded! Trying alternative methods...{Style.RESET_ALL}")
                 return []
             else:
                 print(f"{Fore.RED}HTTP Error {e.response.status_code}: {api_url}{Style.RESET_ALL}")
@@ -495,7 +664,7 @@ class WallpaperManager:
   Display Mgr:  {Fore.YELLOW}{self.dm}{Style.RESET_ALL}
   Wallpaper:    {Fore.YELLOW}{self.config.get('wallpaper_dir')}{Style.RESET_ALL}
 
-{Fore.MAGENTA}Developer: 0xb0rn3 | q4n0@proton.me{Style.RESET_ALL}
+{Fore.MAGENTA}Developer: 0xb0rn3 | oxbv1@proton.me{Style.RESET_ALL}
 """
         print(banner)
     
@@ -680,11 +849,18 @@ class WallpaperManager:
     def set_workers(self):
         current = self.config.get('download_workers', 4)
         print(f"Current workers: {Fore.BLUE}{current}{Style.RESET_ALL}")
+        print(f"{Fore.CYAN}Recommended: 8-16 for maximum speed{Style.RESET_ALL}")
         
-        new_workers = input(f"{Fore.GREEN}Enter number of workers: {Style.RESET_ALL}").strip()
+        new_workers = input(f"{Fore.GREEN}Enter number of workers (1-32): {Style.RESET_ALL}").strip()
         if new_workers.isdigit():
-            self.config.set('download_workers', int(new_workers))
-            print(f"{Fore.GREEN}Workers updated{Style.RESET_ALL}")
+            workers = int(new_workers)
+            if 1 <= workers <= 32:
+                self.config.set('download_workers', workers)
+                print(f"{Fore.GREEN}Workers updated to {workers}{Style.RESET_ALL}")
+            else:
+                print(f"{Fore.RED}Workers must be between 1 and 32{Style.RESET_ALL}")
+        else:
+            print(f"{Fore.RED}Invalid input{Style.RESET_ALL}")
     
     def view_settings(self):
         print(f"\n{Fore.CYAN}Current Settings:{Style.RESET_ALL}")
