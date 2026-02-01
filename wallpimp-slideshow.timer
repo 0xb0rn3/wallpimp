@@ -1,0 +1,11 @@
+[Unit]
+Description=WallPimp Slideshow Timer
+Requires=wallpimp-slideshow.service
+
+[Timer]
+OnBootSec=30sec
+OnUnitActiveSec=300sec
+Persistent=true
+
+[Install]
+WantedBy=timers.target
