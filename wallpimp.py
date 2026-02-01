@@ -3,7 +3,7 @@
 WallPimp - Modern Linux Wallpaper Manager
 A terminal-driven wallpaper manager with slideshow support for XFCE and other Linux desktop environments
 Developer: 0xb0rn3
-Email: oxbv1@proton.me
+Email: q4n0@proton.me
 """
 
 import os
@@ -74,7 +74,7 @@ class Config:
         defaults = {
             'wallpaper_dir': str(Path.home() / 'Pictures' / 'Wallpapers'),
             'slideshow_interval': 300,
-            'download_workers': 4,
+            'download_workers': 16,  # AGGRESSIVE: More workers by default
         }
         
         if self.config_file.exists():
@@ -237,22 +237,22 @@ class RepositoryManager:
             'Upgrade-Insecure-Requests': '1'
         })
         
-        # Configure connection pooling for speed
+        # AGGRESSIVE: Maximum connection pooling
         from requests.adapters import HTTPAdapter
         from urllib3.util.retry import Retry
         
-        # Retry strategy
+        # Faster retry with less backoff
         retry_strategy = Retry(
-            total=3,
-            backoff_factor=0.5,
+            total=5,
+            backoff_factor=0.1,  # Very aggressive
             status_forcelist=[429, 500, 502, 503, 504],
         )
         
-        # Mount adapter with connection pooling
+        # AGGRESSIVE: Large connection pool
         adapter = HTTPAdapter(
             max_retries=retry_strategy,
-            pool_connections=10,
-            pool_maxsize=20
+            pool_connections=50,   # High concurrency
+            pool_maxsize=100       # Maximum connections
         )
         
         self.session.mount("http://", adapter)
@@ -341,22 +341,45 @@ class RepositoryManager:
         repo_info = self.REPOSITORIES[repo_name]
         print(f"\n{Fore.CYAN}Downloading from {repo_name}...{Style.RESET_ALL}")
         
-        # Try git clone first (no rate limits!)
-        git_result = self._try_git_clone(repo_info['url'], repo_name)
-        if git_result:
-            print(f"{Fore.GREEN}Successfully cloned repository using git{Style.RESET_ALL}")
-            self._cleanup_git_files(repo_name)
-            return True
+        # AGGRESSIVE: Try multiple methods in parallel
+        import threading
+        from queue import Queue
         
-        # Fallback to API method with obfuscation
-        print(f"{Fore.YELLOW}Falling back to API download method{Style.RESET_ALL}")
+        result_queue = Queue()
+        
+        def try_git():
+            if self._try_git_clone(repo_info['url'], repo_name):
+                result_queue.put(('git', True))
+        
+        def try_zip():
+            if self._try_zip_download(repo_info['url'], repo_name, repo_info['branch']):
+                result_queue.put(('zip', True))
+        
+        # Start both methods simultaneously
+        git_thread = threading.Thread(target=try_git, daemon=True)
+        zip_thread = threading.Thread(target=try_zip, daemon=True)
+        
+        git_thread.start()
+        zip_thread.start()
+        
+        # Wait for first successful completion (race condition)
+        import time
+        timeout = 120  # 2 minutes max
+        start_time = time.time()
+        
+        while time.time() - start_time < timeout:
+            if not result_queue.empty():
+                method, success = result_queue.get()
+                if success:
+                    print(f"{Fore.GREEN}Successfully downloaded via {method} method{Style.RESET_ALL}")
+                    self._cleanup_git_files(repo_name)
+                    return True
+            time.sleep(0.1)
+        
+        # If both parallel methods fail or timeout, use API
+        print(f"{Fore.YELLOW}Parallel methods failed/timed out, using API{Style.RESET_ALL}")
         files = self._fetch_repo_contents(repo_info['url'], repo_info['branch'])
         if not files:
-            # Try alternative: download repo as ZIP
-            print(f"{Fore.YELLOW}Trying ZIP download method...{Style.RESET_ALL}")
-            if self._try_zip_download(repo_info['url'], repo_name, repo_info['branch']):
-                print(f"{Fore.GREEN}Successfully downloaded via ZIP method{Style.RESET_ALL}")
-                return True
             return False
         
         print(f"{Fore.GREEN}Found {len(files)} files{Style.RESET_ALL}")
@@ -372,8 +395,11 @@ class RepositoryManager:
             print(f"{Fore.GREEN}All files already downloaded!{Style.RESET_ALL}")
             return True
         
+        # AGGRESSIVE: Use maximum workers for API fallback
+        max_workers = max(workers, 16)
+        
         downloaded = 0
-        with ThreadPoolExecutor(max_workers=workers) as executor:
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
             futures = {
                 executor.submit(self._download_file, f, repo_dir): f 
                 for f in new_files
@@ -382,8 +408,8 @@ class RepositoryManager:
             for future in tqdm(as_completed(futures), total=len(new_files), desc="Downloading"):
                 if future.result():
                     downloaded += 1
-                    # Save cache periodically
-                    if downloaded % 10 == 0:
+                    # Save cache less frequently for speed
+                    if downloaded % 50 == 0:
                         self._save_download_cache()
         
         self._save_download_cache()
@@ -544,23 +570,18 @@ class RepositoryManager:
         # Check cache first
         cached = self._get_cached_response(api_url)
         if cached:
-            print(f"{Fore.CYAN}Using cached data for {api_url.split('/')[-1]}{Style.RESET_ALL}")
             return cached
         
         # Rotate user agent occasionally
         import random
-        if random.random() < 0.3:  # 30% chance to rotate
+        if random.random() < 0.3:
             self._rotate_user_agent()
         
         # Check rate limit before making request
         self._check_rate_limit()
         
-        # Add random jitter to avoid pattern detection
-        import time
-        jitter = random.uniform(0.1, 0.5)
-        time.sleep(jitter)
-        
         try:
+            # AGGRESSIVE: No jitter, immediate requests
             response = self.session.get(api_url, timeout=30)
             response.raise_for_status()
             
@@ -580,9 +601,9 @@ class RepositoryManager:
                         'path': path + item['name'] if path else item['name']
                     })
                 elif item['type'] == 'dir':
-                    # Variable delay between directory requests (0.3-1.0s)
-                    delay = random.uniform(0.3, 1.0)
-                    time.sleep(delay)
+                    # AGGRESSIVE: Minimal delay (100ms only)
+                    import time
+                    time.sleep(0.1)
                     subfiles = self._fetch_recursive(item['url'], path + item['name'] + "/")
                     files.extend(subfiles)
             
@@ -591,12 +612,12 @@ class RepositoryManager:
             
         except requests.exceptions.HTTPError as e:
             if e.response.status_code == 403:
-                print(f"{Fore.RED}Rate limit exceeded! Trying alternative methods...{Style.RESET_ALL}")
+                print(f"{Fore.RED}Rate limit hit{Style.RESET_ALL}")
                 return []
             else:
-                print(f"{Fore.RED}HTTP Error {e.response.status_code}: {api_url}{Style.RESET_ALL}")
+                print(f"{Fore.RED}HTTP Error {e.response.status_code}{Style.RESET_ALL}")
         except Exception as e:
-            print(f"{Fore.RED}Error fetching {api_url}: {e}{Style.RESET_ALL}")
+            print(f"{Fore.RED}Error: {e}{Style.RESET_ALL}")
         
         return files
     
@@ -664,7 +685,7 @@ class WallpaperManager:
   Display Mgr:  {Fore.YELLOW}{self.dm}{Style.RESET_ALL}
   Wallpaper:    {Fore.YELLOW}{self.config.get('wallpaper_dir')}{Style.RESET_ALL}
 
-{Fore.MAGENTA}Developer: 0xb0rn3 | oxbv1@proton.me{Style.RESET_ALL}
+{Fore.MAGENTA}Developer: 0xb0rn3 | q4n0@proton.me{Style.RESET_ALL}
 """
         print(banner)
     
