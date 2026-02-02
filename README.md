@@ -1,255 +1,193 @@
-# WallPimp - Modern Linux Wallpaper Manager
+# WallPimp - Linux Wallpaper Manager
 
-A powerful, terminal-driven wallpaper manager with slideshow support for Linux desktop environments, featuring a minimal-overhead C daemon and comprehensive desktop environment support.
+Single-file wallpaper manager with automated slideshow support for GNOME and XFCE4.
 
 ## Features
 
-- Multi-Desktop Support: XFCE, GNOME, KDE Plasma, MATE, Cinnamon, i3, Sway
-- Automated Slideshow: C-based daemon for minimal resource usage
-- Repository Downloads: Curated wallpaper collections from GitHub
-- Smart Download: Uses git clone to avoid API rate limits
-- Download Caching: Tracks downloaded files, skips duplicates
-- Systemd Integration: Service and timer-based slideshow control
-- Display Manager Support: SDDM, LightDM, GDM/GDM3
-- Terminal-Driven: Clean, organized menu system
-- Auto-Detection: Automatically detects distribution, DE, and display manager
-- Low Resource Usage: Efficient C daemon for slideshow functionality
+- Single executable Python script
+- GitHub repository downloads with rate limit bypass
+- GNOME and XFCE4 slideshow support
+- Systemd service integration
+- Repository validation and error handling
+- Parallel downloads with progress tracking
+- Minimal terminal interface
 
-## System Requirements
+## Requirements
 
-- Linux distribution (Arch, Debian, Ubuntu, Fedora, openSUSE, etc.)
 - Python 3.6+
-- GCC compiler
-- systemd
-- One of: XFCE, GNOME, KDE, or window manager with feh support
+- GNOME or XFCE4 desktop environment (for slideshow)
+- systemd (for slideshow service)
 
 ## Installation
 
-### Automatic Installation
-
 ```bash
-chmod +x install.sh
-./install.sh
+chmod +x wallpimp
+sudo mv wallpimp /usr/local/bin/
+wallpimp
 ```
 
-The installer will:
-1. Detect your distribution and package manager
-2. Install required dependencies
-3. Compile the C slideshow daemon
-4. Install binaries to `~/.local/bin`
-5. Set up systemd user services
-6. Configure your shell PATH
-
-### Manual Installation
-
-#### Dependencies
-
-**Arch Linux:**
-```bash
-sudo pacman -S python python-pip python-requests python-tqdm \
-               python-pillow python-colorama gcc make feh
-```
-
-**Debian/Ubuntu:**
-```bash
-sudo apt install python3 python3-pip python3-requests python3-tqdm \
-                 python3-pil python3-colorama gcc make feh
-```
-
-**Fedora:**
-```bash
-sudo dnf install python3 python3-pip python3-requests python3-tqdm \
-                 python3-pillow python3-colorama gcc make feh
-```
-
-#### Build and Install
-
-```bash
-# Compile daemon
-gcc -O2 -Wall -o wallpimp_daemon wallpimp_daemon.c
-
-# Copy files
-mkdir -p ~/.local/bin ~/.config/systemd/user
-cp wallpimp.py ~/.local/bin/wallpimp
-cp wallpimp_daemon ~/.local/bin/
-chmod +x ~/.local/bin/wallpimp ~/.local/bin/wallpimp_daemon
-
-# Install systemd services
-cp wallpimp-slideshow.service ~/.config/systemd/user/
-cp wallpimp-slideshow.timer ~/.config/systemd/user/
-systemctl --user daemon-reload
-
-# Add to PATH
-echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
-source ~/.bashrc
-```
+Dependencies (requests, tqdm) are auto-installed on first run.
 
 ## Usage
 
 ### Interactive Menu
 
-Simply run:
 ```bash
 wallpimp
 ```
 
-This launches the interactive terminal menu with options for:
+Main menu options:
+1. Download wallpapers - Access repository downloads
+2. Settings - Configure directories and intervals
+3. Slideshow control - Start/stop/manage slideshow
+4. Set random wallpaper - Apply single wallpaper
+5. Exit
 
-**1. Downloads**
-- List available repositories
-- Download from specific repository
-- Download all repositories
-- Download from custom GitHub URL
+### Download Repositories
 
-**2. Settings**
-- Change wallpaper directory
-- Set slideshow interval
-- Configure download workers
-- View current settings
-- Use existing wallpaper directory
+Built-in repositories:
+- minimalist - Clean minimalist designs
+- anime - Anime & manga artwork
+- nature - Nature landscapes
+- scenic - Scenic vistas
+- artistic - Artistic styles
 
-**3. Slideshow Control**
-- Start/stop slideshow
-- Enable/disable autostart
-- Check slideshow status
+Custom repository download supported via GitHub URL.
 
-**4. Set Static Wallpaper**
-- Randomly select and set a wallpaper
+### Slideshow Control
 
-### Command Line Control
+**GNOME and XFCE4 only**
 
-Start slideshow:
+Start slideshow service:
 ```bash
-systemctl --user start wallpimp-slideshow.timer
+wallpimp → Slideshow control → Start slideshow
 ```
 
-Enable autostart on login:
+Enable autostart on boot:
 ```bash
-systemctl --user enable wallpimp-slideshow.timer
+wallpimp → Slideshow control → Enable autostart
 ```
 
-Stop slideshow:
+Run in foreground (testing):
 ```bash
-systemctl --user stop wallpimp-slideshow.timer
+wallpimp → Slideshow control → Run slideshow now
 ```
 
-Check status:
+### Direct Daemon Mode
+
 ```bash
-systemctl --user status wallpimp-slideshow.timer
+wallpimp --daemon
 ```
+
+Runs slideshow in foreground with signal handling (SIGINT/SIGTERM).
 
 ## Configuration
 
-Configuration is stored in `~/.config/wallpimp/config.json`:
+Config location: `~/.config/wallpimp/config.json`
 
 ```json
 {
   "wallpaper_dir": "/home/user/Pictures/Wallpapers",
   "slideshow_interval": 300,
-  "download_workers": 4
+  "download_workers": 8
 }
 ```
 
-- `wallpaper_dir`: Directory containing wallpapers
-- `slideshow_interval`: Seconds between wallpaper changes
-- `download_workers`: Parallel downloads (1-8 recommended)
+- `wallpaper_dir` - Wallpaper storage location
+- `slideshow_interval` - Seconds between changes
+- `download_workers` - Parallel download threads (1-32)
 
-## Available Wallpaper Repositories
+## Rate Limit Bypass
 
-- **minimalist**: Clean minimalist designs
-- **anime**: Anime & manga artwork
-- **nature**: Nature landscapes
-- **scenic**: Scenic vistas
-- **artistic**: Artistic styles
-- **animated**: Animated GIF wallpapers
+WallPimp bypasses GitHub API rate limits using:
+
+1. **Direct archive downloads** - Primary method using `https://github.com/owner/repo/archive/branch.zip`
+2. **Git clone fallback** - Uses git operations (no API limits)
+3. **Repository validation** - Pre-validates repos before download
+
+No API tokens required.
+
+## Error Handling
+
+### Non-Existent Repositories
+
+```
+Error: Repo faulty or non-existent. Please verify the repository exists.
+```
+
+Repository URLs are validated before download. Invalid repos are skipped with error message.
+
+### Network Errors
+
+Automatic retry with alternative download methods (archive → git clone).
+
+### Missing Wallpapers
+
+Slideshow checks for wallpapers before starting. Exit with error if none found.
+
+### Unsupported Desktop Environments
+
+```
+Error: Slideshow only supports XFCE and GNOME
+Detected: kde
+```
+
+Slideshow menu blocks non-GNOME/XFCE systems.
+
+## Systemd Service
+
+Service files are auto-generated when starting slideshow:
+
+- `~/.config/systemd/user/wallpimp-slideshow.service`
+- `~/.config/systemd/user/wallpimp-slideshow.timer`
+
+Manual control:
+```bash
+systemctl --user start wallpimp-slideshow.service
+systemctl --user stop wallpimp-slideshow.service
+systemctl --user enable wallpimp-slideshow.service
+systemctl --user status wallpimp-slideshow.service
+```
 
 ## Desktop Environment Support
 
-### XFCE
+### XFCE4
 Uses `xfconf-query` to set wallpaper across all monitors and workspaces.
 
 ### GNOME
 Uses `gsettings` for both light and dark mode wallpapers.
 
-### KDE Plasma
-Uses `qdbus` to interact with Plasma desktop.
-
-### i3/Sway/Other WMs
-Uses `feh` as fallback wallpaper setter.
-
-## Display Manager Support
-
-WallPimp can set wallpapers for login screens:
-
-### SDDM (KDE)
-Modify theme configuration in `/usr/share/sddm/themes/[theme-name]/theme.conf`
-
-### LightDM
-Edit `/etc/lightdm/lightdm-gtk-greeter.conf`:
-```ini
-[greeter]
-background=/path/to/wallpaper.jpg
-```
-
-### GDM/GDM3 (GNOME)
-Uses GNOME's wallpaper settings which sync with GDM.
-
-## Slideshow Daemon
-
-The slideshow functionality uses a lightweight C daemon that:
-- Scans wallpaper directory recursively
-- Randomly selects wallpapers
-- Sets wallpapers at configured intervals
-- Consumes minimal system resources (~2MB RAM)
-- Respects systemd signals for clean shutdown
+### Others
+Slideshow feature disabled. Static wallpaper setting unavailable.
 
 ## Directory Structure
 
 ```
 ~/.config/wallpimp/
-  ├── config.json                    # Configuration file
-
-~/.local/bin/
-  ├── wallpimp                       # Main Python script
-  └── wallpimp_daemon                # C slideshow daemon
+  └── config.json
 
 ~/.config/systemd/user/
-  ├── wallpimp-slideshow.service     # Systemd service
-  └── wallpimp-slideshow.timer       # Systemd timer
+  ├── wallpimp-slideshow.service
+  └── wallpimp-slideshow.timer
 
-~/Pictures/Wallpapers/               # Default wallpaper directory
+~/Pictures/Wallpapers/
   ├── minimalist/
   ├── anime/
   ├── nature/
   └── ...
 ```
 
+## Custom Repository Download
+
+1. Go to Downloads menu
+2. Select "Download custom URL"
+3. Enter GitHub repository URL
+4. Repository is validated before download
+5. Wallpapers extracted to subdirectory
+
+Invalid repositories display error and continue.
+
 ## Troubleshooting
-
-### GitHub Rate Limits
-
-GitHub API limits unauthenticated requests to 60/hour. WallPimp handles this automatically:
-
-**Automatic Solutions:**
-- Uses `git clone` when git is installed (no rate limits!)
-- Caches API responses for 24 hours
-- Tracks downloaded files to avoid re-downloading
-- Shows rate limit status and wait times
-
-**Check Rate Limit:**
-```bash
-wallpimp
-# Downloads → Check rate limit status
-```
-
-**Manual Solution:**
-```bash
-# Install git to bypass rate limits entirely
-sudo pacman -S git  # Arch
-sudo apt install git  # Debian/Ubuntu
-```
-
-When git is installed, WallPimp automatically uses `git clone` instead of the API, completely avoiding rate limits.
 
 ### Slideshow not working
 
@@ -259,68 +197,47 @@ systemctl --user status wallpimp-slideshow.service
 journalctl --user -u wallpimp-slideshow.service
 ```
 
-Ensure daemon is executable:
+Verify desktop environment:
 ```bash
-chmod +x ~/.local/bin/wallpimp_daemon
+echo $XDG_CURRENT_DESKTOP
 ```
 
-### Wallpaper not changing
+### No wallpapers found
 
-Verify wallpapers exist:
+Check directory:
 ```bash
 ls ~/Pictures/Wallpapers/
 ```
 
-Check desktop environment detection:
+Download repositories via menu.
+
+### Repository download fails
+
+Verify repository exists on GitHub. Check network connection. Install git for fallback method:
 ```bash
-echo $XDG_CURRENT_DESKTOP
-echo $DESKTOP_SESSION
+sudo apt install git
 ```
 
-### PATH issues
+### Dependencies not installing
 
-Reload shell configuration:
+Manual installation:
 ```bash
-source ~/.bashrc
-# or
-source ~/.zshrc
+pip install --break-system-packages requests tqdm
 ```
 
-Manually add to PATH:
-```bash
-export PATH="$HOME/.local/bin:$PATH"
-```
+## Performance
 
-## Advanced Usage
+- Parallel downloads: 8 workers default (configurable 1-32)
+- Archive extraction: Filters image files only
+- Memory usage: ~50MB during operation
+- CPU usage: Minimal (slideshow daemon)
 
-### Custom Wallpaper Directory
+## Security
 
-1. Create your directory structure
-2. Run `wallpimp`
-3. Go to Settings → Use existing wallpaper directory
-4. Enter your directory path
-
-### Custom Slideshow Interval
-
-1. Run `wallpimp`
-2. Go to Settings → Set slideshow interval
-3. Enter interval in seconds (e.g., 600 for 10 minutes)
-4. Restart slideshow service
-
-### Download from Custom Repository
-
-1. Run `wallpimp`
-2. Go to Downloads → Download from custom URL
-3. Enter GitHub repository URL
-4. Wallpapers will be downloaded to a subdirectory
-
-## Contributing
-
-Contributions welcome! This is an open-source cybersecurity student project.
-
-## License
-
-Open source - feel free to modify and distribute
+- No authentication required
+- No API tokens stored
+- Public repository access only
+- Repository validation before download
 
 ## Developer
 
@@ -328,6 +245,10 @@ Open source - feel free to modify and distribute
 - **Email**: q4n0@proton.me
 - **GitHub**: https://github.com/0xb0rn3/wallpimp
 
-## Acknowledgments
+## License
 
-Built as part of cybersecurity research and Linux desktop customization studies.
+Open source - Cybersecurity research and educational purposes
+
+## Contributing
+
+Bug reports and feature requests welcome via GitHub issues.
