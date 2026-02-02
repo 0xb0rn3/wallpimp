@@ -187,11 +187,7 @@ class RepositoryManager:
             'url': 'https://github.com/D3Ext/aesthetic-wallpapers',
             'branch': 'main',
             'description': 'Artistic styles'
-        },
-        'animated': {
-            'url': 'https://github.com/0xb0rn3/animated-wallpapers',
-            'branch': 'main',
-            'description': 'Animated GIF wallpapers'
+
         }
     }
     
