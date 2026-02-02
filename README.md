@@ -6,6 +6,8 @@ Single-file wallpaper manager with automated slideshow support for GNOME and XFC
 
 - Single executable Python script
 - GitHub repository downloads with rate limit bypass
+- Hash-based duplicate detection across downloads
+- Real-time loading animations
 - GNOME and XFCE4 slideshow support
 - Systemd service integration
 - Repository validation and error handling
@@ -54,6 +56,21 @@ Built-in repositories:
 
 Custom repository download supported via GitHub URL.
 
+### Duplicate Detection
+
+WallPimp automatically detects and skips duplicate wallpapers:
+
+- MD5 hash calculated for every downloaded image
+- Hash database stored in `~/.config/wallpimp/hashes.json`
+- Duplicates skipped during download with counter
+- Works across interrupted downloads and re-runs
+- Cleanup orphaned hashes via Settings menu
+
+Example output:
+```
+✓ anime: 847 new, 132 duplicates skipped
+```
+
 ### Slideshow Control
 
 **GNOME and XFCE4 only**
@@ -93,6 +110,15 @@ Config location: `~/.config/wallpimp/config.json`
 }
 ```
 
+Hash database: `~/.config/wallpimp/hashes.json`
+
+```json
+{
+  "a1b2c3d4e5f6...": "/home/user/Pictures/Wallpapers/anime/image1.jpg",
+  "f6e5d4c3b2a1...": "/home/user/Pictures/Wallpapers/nature/image2.png"
+}
+```
+
 - `wallpaper_dir` - Wallpaper storage location
 - `slideshow_interval` - Seconds between changes
 - `download_workers` - Parallel download threads (1-32)
@@ -106,6 +132,52 @@ WallPimp bypasses GitHub API rate limits using:
 3. **Repository validation** - Pre-validates repos before download
 
 No API tokens required.
+
+## Real-Time Loaders
+
+Animated loading indicators during operations:
+
+- Scanning for images: Spinner animation
+- Cleaning hash database: Spinner animation
+- Processing downloads: Progress bar with counters
+
+## Hash Database Management
+
+### Automatic Cleanup
+
+Remove orphaned hashes (files no longer exist):
+
+```bash
+wallpimp → Settings → Cleanup hash database
+```
+
+### Manual Management
+
+View hash count:
+```bash
+wallpimp → Settings → View settings
+```
+
+Hash database location:
+```bash
+~/.config/wallpimp/hashes.json
+```
+
+### How It Works
+
+1. Download starts, archive extracted
+2. Each image file hashed (MD5)
+3. Hash checked against database
+4. If exists: Skip file, increment duplicate counter
+5. If new: Save file, add hash to database
+6. Progress bar shows: "847 new, 132 duplicates skipped"
+
+### Benefits
+
+- Resume interrupted downloads without re-downloading
+- Multiple repositories can share same images (no duplicates)
+- Hash cleanup removes entries for deleted files
+- Persistent across tool restarts and system reboots
 
 ## Error Handling
 
@@ -164,7 +236,8 @@ Slideshow feature disabled. Static wallpaper setting unavailable.
 
 ```
 ~/.config/wallpimp/
-  └── config.json
+  ├── config.json
+  └── hashes.json
 
 ~/.config/systemd/user/
   ├── wallpimp-slideshow.service
@@ -184,6 +257,7 @@ Slideshow feature disabled. Static wallpaper setting unavailable.
 3. Enter GitHub repository URL
 4. Repository is validated before download
 5. Wallpapers extracted to subdirectory
+6. Duplicates automatically skipped
 
 Invalid repositories display error and continue.
 
@@ -218,6 +292,15 @@ Verify repository exists on GitHub. Check network connection. Install git for fa
 sudo apt install git
 ```
 
+### Hash database corruption
+
+Delete and rebuild:
+```bash
+rm ~/.config/wallpimp/hashes.json
+wallpimp
+# Re-download or run cleanup
+```
+
 ### Dependencies not installing
 
 Manual installation:
@@ -229,8 +312,11 @@ pip install --break-system-packages requests tqdm
 
 - Parallel downloads: 8 workers default (configurable 1-32)
 - Archive extraction: Filters image files only
+- Hash calculation: MD5 streaming (4KB chunks)
+- Duplicate detection: O(1) hash lookup
 - Memory usage: ~50MB during operation
 - CPU usage: Minimal (slideshow daemon)
+- Storage: ~1KB per 1000 tracked hashes
 
 ## Security
 
@@ -238,6 +324,7 @@ pip install --break-system-packages requests tqdm
 - No API tokens stored
 - Public repository access only
 - Repository validation before download
+- MD5 hashing for duplicate detection (not cryptographic)
 
 ## Developer
 
