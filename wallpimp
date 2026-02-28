@@ -24,7 +24,6 @@ def install_deps():
             __import__(module)
         except ImportError:
             missing.append(spec)
-    
     if missing:
         print("Installing dependencies...")
         for dep in missing:
@@ -41,12 +40,13 @@ install_deps()
 import requests
 from tqdm import tqdm
 
+
 class Loader:
     def __init__(self, message="Processing"):
         self.message = message
         self.running = False
         self.thread = None
-    
+
     def _animate(self):
         chars = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
         idx = 0
@@ -57,33 +57,34 @@ class Loader:
             time.sleep(0.1)
         sys.stdout.write('\r' + ' ' * (len(self.message) + 2) + '\r')
         sys.stdout.flush()
-    
+
     def start(self):
         self.running = True
         self.thread = threading.Thread(target=self._animate, daemon=True)
         self.thread.start()
-    
+
     def stop(self):
         self.running = False
         if self.thread:
             self.thread.join()
+
 
 class Config:
     def __init__(self):
         self.config_dir = Path.home() / '.config' / 'wallpimp'
         self.config_file = self.config_dir / 'config.json'
         self.hash_db_file = self.config_dir / 'hashes.json'
+        self.env_file = self.config_dir / 'session.env'
         self.config_dir.mkdir(parents=True, exist_ok=True)
         self.load()
         self.hash_db = self._load_hash_db()
-    
+
     def load(self):
         defaults = {
             'wallpaper_dir': str(Path.home() / 'Pictures' / 'Wallpapers'),
             'slideshow_interval': 300,
             'download_workers': 8,
         }
-        
         if self.config_file.exists():
             try:
                 with open(self.config_file, 'r') as f:
@@ -92,20 +93,19 @@ class Config:
                 self.data = defaults
         else:
             self.data = defaults
-        
         Path(self.data['wallpaper_dir']).mkdir(parents=True, exist_ok=True)
-    
+
     def save(self):
         with open(self.config_file, 'w') as f:
             json.dump(self.data, f, indent=2)
-    
+
     def get(self, key, default=None):
         return self.data.get(key, default)
-    
+
     def set(self, key, value):
         self.data[key] = value
         self.save()
-    
+
     def _load_hash_db(self):
         if self.hash_db_file.exists():
             try:
@@ -114,403 +114,565 @@ class Config:
             except:
                 return {}
         return {}
-    
+
     def _save_hash_db(self):
         with open(self.hash_db_file, 'w') as f:
             json.dump(self.hash_db, f, indent=2)
-    
+
     def add_hash(self, file_hash, file_path):
         self.hash_db[file_hash] = str(file_path)
         self._save_hash_db()
-    
+
     def hash_exists(self, file_hash):
         return file_hash in self.hash_db
-    
+
     def get_hash_path(self, file_hash):
         return self.hash_db.get(file_hash)
-    
+
     def cleanup_missing_hashes(self):
         cleaned = 0
         to_remove = []
-        
         for file_hash, file_path in self.hash_db.items():
             if not Path(file_path).exists():
                 to_remove.append(file_hash)
                 cleaned += 1
-        
         for file_hash in to_remove:
             del self.hash_db[file_hash]
-        
         if cleaned > 0:
             self._save_hash_db()
-        
         return cleaned
+
+    def save_session_env(self):
+        """
+        Capture display/D-Bus session variables and persist them to
+        ~/.config/wallpimp/session.env so the systemd daemon can load them.
+        """
+        keys = [
+            'DISPLAY', 'WAYLAND_DISPLAY', 'DBUS_SESSION_BUS_ADDRESS',
+            'XDG_RUNTIME_DIR', 'XDG_SESSION_TYPE', 'XDG_CURRENT_DESKTOP',
+            'DESKTOP_SESSION', 'XAUTHORITY', 'HOME', 'USER',
+        ]
+        env_data = {k: os.environ[k] for k in keys if k in os.environ}
+
+        if 'DBUS_SESSION_BUS_ADDRESS' not in env_data:
+            addr = _find_dbus_address()
+            if addr:
+                env_data['DBUS_SESSION_BUS_ADDRESS'] = addr
+
+        with open(self.env_file, 'w') as f:
+            for k, v in env_data.items():
+                f.write(f'{k}={v}\n')
+        return env_data
+
+    def load_session_env(self):
+        """Load session.env into the current process environment."""
+        if not self.env_file.exists():
+            return False
+        loaded = 0
+        try:
+            with open(self.env_file, 'r') as f:
+                for line in f:
+                    line = line.strip()
+                    if '=' in line and not line.startswith('#'):
+                        k, _, v = line.partition('=')
+                        os.environ.setdefault(k, v)
+                        loaded += 1
+        except Exception as e:
+            print(f"Warning: could not load session env: {e}", file=sys.stderr)
+            return False
+        return loaded > 0
+
+
+def _find_dbus_address():
+    """Discover DBUS_SESSION_BUS_ADDRESS for the current user via multiple methods."""
+    uid = os.getuid()
+
+    try:
+        r = subprocess.run(
+            ['systemctl', '--user', 'show-environment'],
+            capture_output=True, text=True, timeout=3
+        )
+        for line in r.stdout.splitlines():
+            if line.startswith('DBUS_SESSION_BUS_ADDRESS='):
+                return line.split('=', 1)[1]
+    except Exception:
+        pass
+
+    socket_path = f'/run/user/{uid}/bus'
+    if os.path.exists(socket_path):
+        return f'unix:path={socket_path}'
+
+    try:
+        for pid_dir in sorted(Path('/proc').iterdir()):
+            if not pid_dir.name.isdigit():
+                continue
+            environ_file = pid_dir / 'environ'
+            try:
+                if environ_file.stat().st_uid != uid:
+                    continue
+                data = environ_file.read_bytes()
+                for part in data.split(b'\x00'):
+                    if part.startswith(b'DBUS_SESSION_BUS_ADDRESS='):
+                        return part.split(b'=', 1)[1].decode()
+            except (PermissionError, ProcessLookupError, OSError):
+                continue
+    except Exception:
+        pass
+
+    return None
+
 
 class SystemDetector:
     @staticmethod
     def detect_de():
-        de_vars = ['DESKTOP_SESSION', 'XDG_CURRENT_DESKTOP', 'GDMSESSION']
-        
-        for var in de_vars:
-            value = os.environ.get(var, '').lower()
-            if 'xfce' in value:
+        for var in ['DESKTOP_SESSION', 'XDG_CURRENT_DESKTOP', 'GDMSESSION']:
+            v = os.environ.get(var, '').lower()
+            if 'xfce' in v:
                 return 'xfce'
-            elif 'gnome' in value:
+            elif 'gnome' in v:
                 return 'gnome'
-        
         try:
-            processes = subprocess.check_output(['ps', 'aux'], universal_newlines=True)
-            if 'xfce' in processes.lower():
+            procs = subprocess.check_output(['ps', 'aux'], universal_newlines=True,
+                                            stderr=subprocess.DEVNULL)
+            if 'xfce4-session' in procs:
                 return 'xfce'
-            elif 'gnome' in processes.lower():
+            elif 'gnome-session' in procs or 'gnome-shell' in procs:
                 return 'gnome'
-        except:
+        except Exception:
             pass
-        
         return 'unknown'
 
+
 def calculate_file_hash(file_path):
-    hash_md5 = hashlib.md5()
+    h = hashlib.md5()
     try:
         with open(file_path, 'rb') as f:
             for chunk in iter(lambda: f.read(4096), b""):
-                hash_md5.update(chunk)
-        return hash_md5.hexdigest()
-    except:
+                h.update(chunk)
+        return h.hexdigest()
+    except Exception:
         return None
+
+
+IMAGE_EXTS = ('.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp')
+
 
 class RepoManager:
     REPOS = {
-        'minimalist': {
-            'url': 'https://github.com/dharmx/walls',
-            'branch': 'main',
-        },
-        'anime': {
-            'url': 'https://github.com/HENTAI-CODER/Anime-Wallpaper',
-            'branch': 'main',
-        },
-        'nature': {
-            'url': 'https://github.com/FrenzyExists/wallpapers',
-            'branch': 'main',
-        },
-        'scenic': {
-            'url': 'https://github.com/michaelScopic/Wallpapers',
-            'branch': 'main',
-        },
-        'scenic': {
-            'url': 'https://github.com/menhoudj/Anime-wallpaper-for-hyprland.git',
-            'branch': 'main',
-        },
-        'scenic': {
-            'url': 'https://github.com/menhoudj/catppuccin-wallpapers.git',
-            'branch': 'main',
-         },
-        'scenic': {
-            'url': 'https://github.com/menhoudj/cachyos-wallpaper.git',
-            'branch': 'main',
-        },
-        'artistic': {
-            'url': 'https://github.com/D3Ext/aesthetic-wallpapers',
-            'branch': 'main',
-        }
+        'minimalist': {'url': 'https://github.com/dharmx/walls', 'branch': 'main'},
+        'anime':      {'url': 'https://github.com/HENTAI-CODER/Anime-Wallpaper', 'branch': 'main'},
+        'nature':     {'url': 'https://github.com/FrenzyExists/wallpapers', 'branch': 'main'},
+        'scenic':     {'url': 'https://github.com/michaelScopic/Wallpapers', 'branch': 'main'},
+        'artistic':   {'url': 'https://github.com/D3Ext/aesthetic-wallpapers', 'branch': 'main'},
     }
-    
+
     def __init__(self, config):
         self.config = config
-    
+
     def _validate_repo_url(self, url):
         try:
             if 'github.com' not in url:
                 return False
-            
             parsed = urlparse(url)
-            path_parts = parsed.path.strip('/').split('/')
-            if len(path_parts) < 2:
+            parts = parsed.path.strip('/').split('/')
+            if len(parts) < 2:
                 return False
-            
-            owner, repo = path_parts[0], path_parts[1]
-            
-            check_url = f"https://api.github.com/repos/{owner}/{repo}"
-            resp = requests.head(check_url, timeout=5)
+            owner, repo = parts[0], parts[1]
+            resp = requests.head(f"https://api.github.com/repos/{owner}/{repo}", timeout=5)
             return resp.status_code == 200
-        except:
+        except Exception:
             return False
-    
+
     def _extract_repo_info(self, url):
         parsed = urlparse(url)
-        path_parts = parsed.path.strip('/').split('/')
-        owner = path_parts[0]
-        repo = path_parts[1].replace('.git', '')
-        return owner, repo
-    
+        parts = parsed.path.strip('/').split('/')
+        return parts[0], parts[1].replace('.git', '')
+
     def download_via_archive(self, url, branch, dest_dir):
         try:
             owner, repo = self._extract_repo_info(url)
             archive_url = f"https://github.com/{owner}/{repo}/archive/{branch}.zip"
-            
             print(f"Downloading {repo}...")
-            
             resp = requests.get(archive_url, stream=True, timeout=30)
             if resp.status_code == 404:
-                print(f"Error: Repo faulty or non-existent. Please verify the repository exists.")
+                print("Error: Repo faulty or non-existent.")
                 return False
-            
             resp.raise_for_status()
-            
-            total_size = int(resp.headers.get('content-length', 0))
-            
-            with tempfile.NamedTemporaryFile(delete=False, suffix='.zip') as tmp_file:
-                tmp_path = tmp_file.name
-                
-                with tqdm(total=total_size, unit='B', unit_scale=True, desc=repo) as pbar:
+            total = int(resp.headers.get('content-length', 0))
+            with tempfile.NamedTemporaryFile(delete=False, suffix='.zip') as tmp:
+                tmp_path = tmp.name
+                with tqdm(total=total, unit='B', unit_scale=True, desc=repo) as pbar:
                     for chunk in resp.iter_content(chunk_size=8192):
-                        tmp_file.write(chunk)
+                        tmp.write(chunk)
                         pbar.update(len(chunk))
-            
             print(f"Extracting {repo}...")
-            extracted = 0
-            duplicates = 0
-            
-            with zipfile.ZipFile(tmp_path, 'r') as zip_ref:
-                members = zip_ref.namelist()
+            extracted = duplicates = 0
+            with zipfile.ZipFile(tmp_path, 'r') as zf:
+                members = zf.namelist()
                 root_dir = members[0].split('/')[0] if members else None
-                
-                image_members = [m for m in members if m.lower().endswith(('.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp'))]
-                
-                with tqdm(total=len(image_members), desc="Processing", unit="img") as pbar:
-                    for member in image_members:
-                        member_path = member
+                imgs = [m for m in members if m.lower().endswith(IMAGE_EXTS)]
+                with tqdm(total=len(imgs), desc="Processing", unit="img") as pbar:
+                    for member in imgs:
+                        mp = member
                         if root_dir and member.startswith(root_dir + '/'):
-                            member_path = member[len(root_dir) + 1:]
-                        
-                        if not member_path:
+                            mp = member[len(root_dir)+1:]
+                        if not mp:
                             pbar.update(1)
                             continue
-                        
-                        target_path = dest_dir / member_path
-                        
-                        with zip_ref.open(member) as source:
-                            temp_file = tempfile.NamedTemporaryFile(delete=False)
-                            temp_file.write(source.read())
-                            temp_file.close()
-                            
-                            file_hash = calculate_file_hash(temp_file.name)
-                            
-                            if file_hash and self.config.hash_exists(file_hash):
-                                os.unlink(temp_file.name)
+                        target = dest_dir / mp
+                        with zf.open(member) as src:
+                            tf = tempfile.NamedTemporaryFile(delete=False)
+                            tf.write(src.read())
+                            tf.close()
+                            h = calculate_file_hash(tf.name)
+                            if h and self.config.hash_exists(h):
+                                os.unlink(tf.name)
                                 duplicates += 1
                             else:
-                                target_path.parent.mkdir(parents=True, exist_ok=True)
-                                shutil.move(temp_file.name, target_path)
-                                if file_hash:
-                                    self.config.add_hash(file_hash, target_path)
+                                target.parent.mkdir(parents=True, exist_ok=True)
+                                shutil.move(tf.name, target)
+                                if h:
+                                    self.config.add_hash(h, target)
                                 extracted += 1
-                        
                         pbar.update(1)
-            
             os.unlink(tmp_path)
             print(f"✓ {repo}: {extracted} new, {duplicates} duplicates skipped")
             return True
-            
         except requests.exceptions.RequestException as e:
             print(f"Error: Network issue - {e}")
             return False
         except zipfile.BadZipFile:
-            print(f"Error: Downloaded file is corrupted")
+            print("Error: Downloaded file is corrupted")
             return False
         except Exception as e:
             print(f"Error: {e}")
             return False
-    
+
     def download_via_git(self, url, dest_dir):
         try:
             _, repo = self._extract_repo_info(url)
-            
-            temp_dir = tempfile.mkdtemp()
-            
+            tmp = tempfile.mkdtemp()
             print(f"Cloning {repo} via git...")
-            
-            subprocess.run(
-                ['git', 'clone', '--depth', '1', '--quiet', url, temp_dir],
-                check=True,
-                stderr=subprocess.PIPE
-            )
-            
-            shutil.rmtree(Path(temp_dir) / '.git', ignore_errors=True)
-            
+            subprocess.run(['git', 'clone', '--depth', '1', '--quiet', url, tmp],
+                           check=True, stderr=subprocess.PIPE)
+            shutil.rmtree(Path(tmp) / '.git', ignore_errors=True)
             loader = Loader("Scanning for images")
             loader.start()
-            
             images = []
-            for ext in ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp']:
-                images.extend(Path(temp_dir).rglob(f'*{ext}'))
-            
+            for ext in IMAGE_EXTS:
+                images.extend(Path(tmp).rglob(f'*{ext}'))
             loader.stop()
-            
-            extracted = 0
-            duplicates = 0
-            
+            extracted = duplicates = 0
             print(f"Processing {len(images)} images...")
-            
             with tqdm(total=len(images), desc="Processing", unit="img") as pbar:
-                for img_path in images:
-                    file_hash = calculate_file_hash(img_path)
-                    
-                    if file_hash and self.config.hash_exists(file_hash):
+                for img in images:
+                    h = calculate_file_hash(img)
+                    if h and self.config.hash_exists(h):
                         duplicates += 1
                     else:
-                        rel_path = img_path.relative_to(temp_dir)
-                        target_path = dest_dir / rel_path
-                        target_path.parent.mkdir(parents=True, exist_ok=True)
-                        shutil.copy2(img_path, target_path)
-                        if file_hash:
-                            self.config.add_hash(file_hash, target_path)
+                        rel = img.relative_to(tmp)
+                        tgt = dest_dir / rel
+                        tgt.parent.mkdir(parents=True, exist_ok=True)
+                        shutil.copy2(img, tgt)
+                        if h:
+                            self.config.add_hash(h, tgt)
                         extracted += 1
-                    
                     pbar.update(1)
-            
-            shutil.rmtree(temp_dir, ignore_errors=True)
-            
+            shutil.rmtree(tmp, ignore_errors=True)
             print(f"✓ {repo}: {extracted} new, {duplicates} duplicates skipped")
             return True
-            
         except subprocess.CalledProcessError as e:
-            if b'not found' in e.stderr or b'does not exist' in e.stderr:
-                print(f"Error: Repo faulty or non-existent. Please verify the repository exists.")
+            err = e.stderr.decode() if e.stderr else ''
+            if 'not found' in err or 'does not exist' in err:
+                print("Error: Repo faulty or non-existent.")
             else:
-                print(f"Error: Git clone failed - {e.stderr.decode()}")
+                print(f"Error: Git clone failed - {err}")
             return False
         except Exception as e:
             print(f"Error: {e}")
             return False
-    
+
     def download_repo(self, repo_name):
         if repo_name not in self.REPOS:
             print(f"Error: Unknown repository '{repo_name}'")
             return False
-        
-        repo_info = self.REPOS[repo_name]
-        url = repo_info['url']
-        branch = repo_info['branch']
-        
-        dest_dir = Path(self.config.get('wallpaper_dir')) / repo_name
-        
-        if not self._validate_repo_url(url):
-            print(f"Error: Repo faulty or non-existent. Please verify {url} exists.")
+        info = self.REPOS[repo_name]
+        dest = Path(self.config.get('wallpaper_dir')) / repo_name
+        if not self._validate_repo_url(info['url']):
+            print(f"Error: Could not reach {info['url']}")
             return False
-        
         if shutil.which('git'):
-            success = self.download_via_git(url, dest_dir)
+            success = self.download_via_git(info['url'], dest)
         else:
-            success = self.download_via_archive(url, branch, dest_dir)
-        
-        if not success and shutil.which('git'):
+            success = self.download_via_archive(info['url'], info['branch'], dest)
+        if not success:
             print("Retrying with archive method...")
-            success = self.download_via_archive(url, branch, dest_dir)
-        
+            success = self.download_via_archive(info['url'], info['branch'], dest)
         return success
-    
+
     def download_custom(self, url):
         if not self._validate_repo_url(url):
-            print(f"Error: Repo faulty or non-existent. Please verify {url} exists.")
+            print(f"Error: Could not reach {url}")
             return False
-        
         owner, repo = self._extract_repo_info(url)
-        dest_dir = Path(self.config.get('wallpaper_dir')) / repo
-        
+        dest = Path(self.config.get('wallpaper_dir')) / repo
         if shutil.which('git'):
-            return self.download_via_git(url, dest_dir)
-        else:
-            return self.download_via_archive(url, 'main', dest_dir)
+            return self.download_via_git(url, dest)
+        return self.download_via_archive(url, 'main', dest)
+
+
+class WallpaperSetter:
+    """
+    Sets wallpapers on GNOME and XFCE4 reliably even from systemd context.
+
+    THE CORE PROBLEM WITH SYSTEMD SERVICES:
+    When systemd launches a user service it doesn't inherit the graphical
+    session's DISPLAY / WAYLAND_DISPLAY / DBUS_SESSION_BUS_ADDRESS variables.
+    gsettings and xfconf-query both require a running D-Bus session to work.
+    This class uses multiple fallback strategies to discover and supply those
+    variables so wallpaper setting actually works.
+    """
+
+    def __init__(self, de: str):
+        self.de = de
+
+    def set(self, path: str) -> bool:
+        path = str(Path(path).resolve())
+        if self.de == 'gnome':
+            return self._gnome(path)
+        elif self.de == 'xfce':
+            return self._xfce(path)
+        print(f"Unsupported DE: {self.de}", file=sys.stderr)
+        return False
+
+    def test(self) -> bool:
+        if self.de == 'gnome':
+            return bool(shutil.which('gsettings'))
+        elif self.de == 'xfce':
+            return bool(shutil.which('xfconf-query'))
+        return False
+
+    # ---- GNOME ----------------------------------------------------------------
+
+    def _gnome(self, path: str) -> bool:
+        uri = f'file://{path}'
+        env = self._env()
+
+        # Attempt 1: direct gsettings (works when env has correct DBUS address)
+        if self._gsettings(uri, env):
+            return True
+
+        # Attempt 2: dbus-launch spawns a private bus session as a last resort
+        if shutil.which('dbus-launch'):
+            try:
+                for key in ('picture-uri', 'picture-uri-dark'):
+                    subprocess.run(
+                        ['dbus-launch', '--exit-with-session', 'gsettings', 'set',
+                         'org.gnome.desktop.background', key, uri],
+                        env=env, timeout=8,
+                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+                    )
+                return True
+            except Exception as e:
+                print(f"dbus-launch fallback failed: {e}", file=sys.stderr)
+
+        print(
+            "Error: Could not set GNOME wallpaper.\n"
+            "  Fix: open wallpimp interactively from your desktop terminal →\n"
+            "  Slideshow control → Save session env, then restart the service.",
+            file=sys.stderr
+        )
+        return False
+
+    def _gsettings(self, uri: str, env: dict) -> bool:
+        try:
+            for key in ('picture-uri', 'picture-uri-dark'):
+                r = subprocess.run(
+                    ['gsettings', 'set', 'org.gnome.desktop.background', key, uri],
+                    env=env, timeout=6,
+                    stdout=subprocess.DEVNULL, stderr=subprocess.PIPE
+                )
+                if r.returncode != 0:
+                    err = r.stderr.decode(errors='replace').strip()
+                    if err:
+                        print(f"gsettings: {err}", file=sys.stderr)
+                    return False
+            return True
+        except Exception as e:
+            print(f"gsettings exception: {e}", file=sys.stderr)
+            return False
+
+    # ---- XFCE4 ----------------------------------------------------------------
+
+    def _xfce(self, path: str) -> bool:
+        env = self._env()
+        props = self._xfce_props(env) or self._xfce_guess_props(env)
+        ok = 0
+        for prop in props:
+            try:
+                r = subprocess.run(
+                    ['xfconf-query', '-c', 'xfce4-desktop', '-p', prop, '-s', path],
+                    env=env, timeout=5,
+                    stdout=subprocess.DEVNULL, stderr=subprocess.PIPE
+                )
+                if r.returncode == 0:
+                    ok += 1
+                else:
+                    err = r.stderr.decode(errors='replace').strip()
+                    if err:
+                        print(f"xfconf-query {prop}: {err}", file=sys.stderr)
+            except Exception as e:
+                print(f"xfconf-query exception ({prop}): {e}", file=sys.stderr)
+
+        if ok == 0:
+            print(
+                "Error: Could not set XFCE wallpaper.\n"
+                "  Fix: open wallpimp interactively from your desktop terminal →\n"
+                "  Slideshow control → Save session env, then restart the service.",
+                file=sys.stderr
+            )
+        return ok > 0
+
+    def _xfce_props(self, env: dict) -> list:
+        try:
+            r = subprocess.run(
+                ['xfconf-query', '-c', 'xfce4-desktop', '-l'],
+                capture_output=True, text=True, env=env, timeout=5
+            )
+            return [l.strip() for l in r.stdout.splitlines() if 'last-image' in l]
+        except Exception as e:
+            print(f"xfconf-query list: {e}", file=sys.stderr)
+            return []
+
+    def _xfce_guess_props(self, env: dict) -> list:
+        monitors = []
+        if shutil.which('xrandr') and env.get('DISPLAY'):
+            try:
+                r = subprocess.run(['xrandr', '--listmonitors'],
+                                   capture_output=True, text=True, env=env, timeout=3)
+                for line in r.stdout.splitlines()[1:]:
+                    parts = line.split()
+                    if parts:
+                        monitors.append(parts[-1])
+            except Exception:
+                pass
+        if not monitors:
+            monitors = ['monitor0', 'HDMI-0', 'eDP-1', 'VGA-0']
+        props = []
+        for mon in monitors:
+            for ws in range(4):
+                props.append(f'/backdrop/screen0/monitor{mon}/workspace{ws}/last-image')
+        return props
+
+    def _env(self) -> dict:
+        env = os.environ.copy()
+        if not env.get('DBUS_SESSION_BUS_ADDRESS'):
+            addr = _find_dbus_address()
+            if addr:
+                env['DBUS_SESSION_BUS_ADDRESS'] = addr
+        if not env.get('XDG_RUNTIME_DIR'):
+            candidate = f'/run/user/{os.getuid()}'
+            if Path(candidate).exists():
+                env['XDG_RUNTIME_DIR'] = candidate
+        return env
+
 
 class SlideshowDaemon:
-    def __init__(self, config, de):
+    """
+    Foreground wallpaper slideshow daemon.
+
+    Improvements over original:
+     - Loads session.env before any wallpaper calls so DBUS/DISPLAY are set
+       correctly when spawned by systemd.
+     - Shuffle queue: every image is shown once before any repeat; directory
+       is re-scanned on each full cycle so new downloads appear automatically.
+     - 1-second sleep ticks ensure SIGINT/SIGTERM are handled immediately.
+     - All output goes to stderr so it appears in journalctl.
+    """
+
+    def __init__(self, config: Config, de: str):
         self.config = config
         self.de = de
+        self.setter = WallpaperSetter(de)
         self.running = True
-        signal.signal(signal.SIGINT, self._signal_handler)
-        signal.signal(signal.SIGTERM, self._signal_handler)
-    
-    def _signal_handler(self, signum, frame):
+        signal.signal(signal.SIGINT, self._on_signal)
+        signal.signal(signal.SIGTERM, self._on_signal)
+
+    def _on_signal(self, signum, frame):
+        self._log("Signal received – shutting down")
         self.running = False
-    
-    def _get_wallpapers(self):
-        wallpaper_dir = Path(self.config.get('wallpaper_dir'))
-        images = []
-        
-        for ext in ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp']:
-            images.extend(wallpaper_dir.rglob(f'*{ext}'))
-        
-        return images
-    
-    def _set_xfce_wallpaper(self, path):
-        try:
-            result = subprocess.run(
-                ['xfconf-query', '-c', 'xfce4-desktop', '-l'],
-                capture_output=True, text=True, check=True
+
+    def _log(self, msg: str):
+        ts = time.strftime('%H:%M:%S')
+        print(f"[wallpimp {ts}] {msg}", file=sys.stderr, flush=True)
+
+    def _scan(self) -> list:
+        wdir = Path(self.config.get('wallpaper_dir'))
+        imgs = []
+        for ext in IMAGE_EXTS:
+            imgs.extend(wdir.rglob(f'*{ext}'))
+        return imgs
+
+    def _sleep(self, seconds: int):
+        for _ in range(seconds):
+            if not self.running:
+                break
+            time.sleep(1)
+
+    def run(self) -> int:
+        # Critical: load saved session env so wallpaper tools work from systemd
+        if self.config.load_session_env():
+            self._log("Loaded session env from file")
+        else:
+            self._log(
+                "WARNING: session.env not found – wallpaper setting may fail "
+                "if launched via systemd. Open wallpimp interactively and run "
+                "'Slideshow control → Save session env', then restart the service."
             )
-            properties = [line for line in result.stdout.split('\n') if 'last-image' in line]
-            
-            for prop in properties:
-                subprocess.run(
-                    ['xfconf-query', '-c', 'xfce4-desktop', '-p', prop, '-s', str(path)],
-                    stderr=subprocess.DEVNULL
-                )
-        except:
-            pass
-    
-    def _set_gnome_wallpaper(self, path):
-        try:
-            subprocess.run(
-                ['gsettings', 'set', 'org.gnome.desktop.background', 'picture-uri', f'file://{path}'],
-                stderr=subprocess.DEVNULL
-            )
-            subprocess.run(
-                ['gsettings', 'set', 'org.gnome.desktop.background', 'picture-uri-dark', f'file://{path}'],
-                stderr=subprocess.DEVNULL
-            )
-        except:
-            pass
-    
-    def set_wallpaper(self, path):
-        if self.de == 'xfce':
-            self._set_xfce_wallpaper(path)
-        elif self.de == 'gnome':
-            self._set_gnome_wallpaper(path)
-    
-    def run(self):
-        images = self._get_wallpapers()
-        
-        if not images:
-            print(f"Error: No wallpapers found in {self.config.get('wallpaper_dir')}")
+
+        if not self.setter.test():
+            self._log(f"ERROR: required tool not found for DE '{self.de}'")
             return 1
-        
-        print(f"WallPimp Slideshow Started")
-        print(f"Found {len(images)} wallpapers")
-        print(f"Interval: {self.config.get('slideshow_interval')}s")
-        print(f"Desktop: {self.de}")
-        
-        interval = self.config.get('slideshow_interval', 300)
-        
+
+        imgs = self._scan()
+        if not imgs:
+            self._log(f"ERROR: no wallpapers found in {self.config.get('wallpaper_dir')}")
+            return 1
+
+        interval = int(self.config.get('slideshow_interval', 300))
+        self._log(f"Started – {len(imgs)} wallpapers, interval={interval}s, DE={self.de}")
+
+        queue: list = []
+
         while self.running:
-            wallpaper = random.choice(images)
-            self.set_wallpaper(str(wallpaper))
-            print(f"Set: {wallpaper.name}")
-            
-            for _ in range(interval):
-                if not self.running:
-                    break
-                time.sleep(1)
-        
-        print("Slideshow stopped")
+            if not queue:
+                imgs = self._scan()
+                if not imgs:
+                    self._log("No wallpapers found – retrying in 30 s")
+                    self._sleep(30)
+                    continue
+                queue = imgs[:]
+                random.shuffle(queue)
+                self._log(f"New cycle – {len(queue)} wallpapers queued")
+
+            wall = queue.pop()
+            if self.setter.set(str(wall)):
+                self._log(f"Set: {wall.name}")
+            else:
+                self._log(f"Failed: {wall.name}")
+
+            self._sleep(interval)
+
+        self._log("Stopped")
         return 0
+
 
 class WallpaperManager:
     def __init__(self):
         self.config = Config()
         self.de = SystemDetector.detect_de()
         self.repo_manager = RepoManager(self.config)
-    
+
     def main_menu(self):
         while True:
             print("\n=== WallPimp ===")
@@ -519,9 +681,7 @@ class WallpaperManager:
             print("3. Slideshow control")
             print("4. Set random wallpaper")
             print("5. Exit")
-            
             choice = input("\nSelect: ").strip()
-            
             if choice == '1':
                 self.download_menu()
             elif choice == '2':
@@ -532,7 +692,7 @@ class WallpaperManager:
                 self.set_random_wallpaper()
             elif choice == '5':
                 break
-    
+
     def download_menu(self):
         while True:
             print("\n=== Downloads ===")
@@ -541,18 +701,16 @@ class WallpaperManager:
             print("3. Download all")
             print("4. Download custom URL")
             print("5. Back")
-            
             choice = input("\nSelect: ").strip()
-            
             if choice == '1':
                 print("\nAvailable repositories:")
-                for name in self.repo_manager.REPOS.keys():
+                for name in self.repo_manager.REPOS:
                     print(f"  - {name}")
             elif choice == '2':
                 repo = input("Repository name: ").strip()
                 self.repo_manager.download_repo(repo)
             elif choice == '3':
-                for repo_name in self.repo_manager.REPOS.keys():
+                for repo_name in self.repo_manager.REPOS:
                     self.repo_manager.download_repo(repo_name)
             elif choice == '4':
                 url = input("GitHub URL: ").strip()
@@ -560,7 +718,7 @@ class WallpaperManager:
                     self.repo_manager.download_custom(url)
             elif choice == '5':
                 break
-    
+
     def settings_menu(self):
         while True:
             print("\n=== Settings ===")
@@ -570,9 +728,7 @@ class WallpaperManager:
             print("4. View settings")
             print("5. Cleanup hash database")
             print("6. Back")
-            
             choice = input("\nSelect: ").strip()
-            
             if choice == '1':
                 new_dir = input(f"Current: {self.config.get('wallpaper_dir')}\nNew: ").strip()
                 if new_dir:
@@ -581,20 +737,22 @@ class WallpaperManager:
                     self.config.set('wallpaper_dir', str(path))
                     print(f"Updated to: {path}")
             elif choice == '2':
-                interval = input(f"Current: {self.config.get('slideshow_interval')}s\nNew (seconds): ").strip()
-                if interval.isdigit():
-                    self.config.set('slideshow_interval', int(interval))
+                v = input(f"Current: {self.config.get('slideshow_interval')}s\nNew (seconds): ").strip()
+                if v.isdigit():
+                    self.config.set('slideshow_interval', int(v))
                     print("Updated")
             elif choice == '3':
-                workers = input(f"Current: {self.config.get('download_workers')}\nNew (1-32): ").strip()
-                if workers.isdigit() and 1 <= int(workers) <= 32:
-                    self.config.set('download_workers', int(workers))
+                v = input(f"Current: {self.config.get('download_workers')}\nNew (1-32): ").strip()
+                if v.isdigit() and 1 <= int(v) <= 32:
+                    self.config.set('download_workers', int(v))
                     print("Updated")
             elif choice == '4':
-                print(f"\nWallpaper Dir: {self.config.get('wallpaper_dir')}")
-                print(f"Interval: {self.config.get('slideshow_interval')}s")
-                print(f"Workers: {self.config.get('download_workers')}")
+                print(f"\nWallpaper Dir:  {self.config.get('wallpaper_dir')}")
+                print(f"Interval:       {self.config.get('slideshow_interval')}s")
+                print(f"Workers:        {self.config.get('download_workers')}")
                 print(f"Tracked Hashes: {len(self.config.hash_db)}")
+                status = "✓ saved" if self.config.env_file.exists() else "✗ NOT saved (slideshow may fail)"
+                print(f"Session env:    {status}")
             elif choice == '5':
                 loader = Loader("Cleaning hash database")
                 loader.start()
@@ -603,167 +761,199 @@ class WallpaperManager:
                 print(f"Removed {cleaned} orphaned hashes")
             elif choice == '6':
                 break
-    
+
     def slideshow_menu(self):
         if self.de not in ['xfce', 'gnome']:
             print(f"\nError: Slideshow only supports XFCE and GNOME")
             print(f"Detected: {self.de}")
             return
-        
+
         while True:
-            print("\n=== Slideshow ===")
-            print("1. Start slideshow")
-            print("2. Stop slideshow")
-            print("3. Enable autostart")
-            print("4. Disable autostart")
-            print("5. Check status")
-            print("6. Run slideshow now (foreground)")
-            print("7. Back")
-            
+            env_ok = "✓ saved" if self.config.env_file.exists() else "✗ NOT saved"
+            print(f"\n=== Slideshow  [session env: {env_ok}] ===")
+            print("1. Save session env  ← run this FIRST from your desktop terminal")
+            print("2. Start slideshow service")
+            print("3. Stop slideshow service")
+            print("4. Enable autostart on login")
+            print("5. Disable autostart")
+            print("6. Check status & logs")
+            print("7. Run slideshow now (foreground / test)")
+            print("8. Back")
             choice = input("\nSelect: ").strip()
-            
             if choice == '1':
-                self._start_slideshow_service()
+                self._save_session_env()
             elif choice == '2':
-                self._stop_slideshow_service()
+                self._start_service()
             elif choice == '3':
-                self._enable_autostart()
+                self._stop_service()
             elif choice == '4':
-                self._disable_autostart()
+                self._enable_autostart()
             elif choice == '5':
-                self._check_status()
+                self._disable_autostart()
             elif choice == '6':
-                daemon = SlideshowDaemon(self.config, self.de)
-                daemon.run()
+                self._check_status()
             elif choice == '7':
+                SlideshowDaemon(self.config, self.de).run()
+            elif choice == '8':
                 break
-    
-    def _install_service(self):
-        service_dir = Path.home() / '.config' / 'systemd' / 'user'
-        service_dir.mkdir(parents=True, exist_ok=True)
-        
-        wallpimp_path = Path(__file__).resolve()
-        
-        service_content = f"""[Unit]
+
+    def _save_session_env(self):
+        print("Saving graphical session environment…")
+        env_data = self.config.save_session_env()
+        if not env_data:
+            print(
+                "Warning: no display/D-Bus variables found.\n"
+                "Make sure you are running wallpimp from a graphical desktop terminal (not SSH)."
+            )
+            return
+        print(f"Saved {len(env_data)} variables: {', '.join(env_data.keys())}")
+        print(f"File: {self.config.env_file}")
+        pushed = 0
+        for k, v in env_data.items():
+            try:
+                subprocess.run(
+                    ['systemctl', '--user', 'set-environment', f'{k}={v}'],
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=3
+                )
+                pushed += 1
+            except Exception:
+                pass
+        if pushed:
+            print(f"Also pushed {pushed} variables into systemd user environment.")
+        print("Done – you can now start the slideshow service.")
+
+    def _write_service(self):
+        svc_dir = Path.home() / '.config' / 'systemd' / 'user'
+        svc_dir.mkdir(parents=True, exist_ok=True)
+        script = Path(__file__).resolve()
+        env_line = (f'EnvironmentFile={self.config.env_file}'
+                    if self.config.env_file.exists() else '')
+
+        svc = f"""\
+[Unit]
 Description=WallPimp Slideshow
+Documentation=https://github.com/0xb0rn3/wallpimp
 After=graphical-session.target
+PartOf=graphical-session.target
 
 [Service]
 Type=simple
-ExecStart={sys.executable} {wallpimp_path} --daemon
-Restart=always
-RestartSec=10
+ExecStart={sys.executable} {script} --daemon
+Restart=on-failure
+RestartSec=15
+{env_line}
 
 [Install]
-WantedBy=default.target
+WantedBy=graphical-session.target
 """
-        
-        timer_content = """[Unit]
-Description=WallPimp Slideshow Timer
-After=graphical-session.target
-
-[Timer]
-OnBootSec=30
-OnUnitActiveSec=60
-Persistent=true
-
-[Install]
-WantedBy=timers.target
-"""
-        
-        (service_dir / 'wallpimp-slideshow.service').write_text(service_content)
-        (service_dir / 'wallpimp-slideshow.timer').write_text(timer_content)
-        
-        subprocess.run(['systemctl', '--user', 'daemon-reload'], stderr=subprocess.DEVNULL)
-    
-    def _start_slideshow_service(self):
-        self._install_service()
+        (svc_dir / 'wallpimp-slideshow.service').write_text(svc)
+        # Remove legacy timer if present
+        timer = svc_dir / 'wallpimp-slideshow.timer'
+        if timer.exists():
+            timer.unlink()
         try:
-            subprocess.run(['systemctl', '--user', 'start', 'wallpimp-slideshow.service'], check=True)
-            print("Slideshow started")
-        except:
-            print("Failed to start slideshow")
-    
-    def _stop_slideshow_service(self):
+            subprocess.run(['systemctl', '--user', 'daemon-reload'],
+                           timeout=5, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except Exception:
+            pass
+
+    def _start_service(self):
+        if not self.config.env_file.exists():
+            print("Warning: session env not saved – the service may fail to set wallpapers.")
+            print("Run option 1 first for reliable operation.")
+        self._write_service()
         try:
-            subprocess.run(['systemctl', '--user', 'stop', 'wallpimp-slideshow.service'], check=True)
-            print("Slideshow stopped")
-        except:
-            print("Failed to stop slideshow")
-    
+            subprocess.run(['systemctl', '--user', 'start', 'wallpimp-slideshow.service'],
+                           check=True, timeout=10)
+            print("Slideshow service started.")
+            print("Watch logs: journalctl --user -u wallpimp-slideshow.service -f")
+        except subprocess.CalledProcessError:
+            print("Failed to start service. Try option 7 (foreground) to diagnose.")
+
+    def _stop_service(self):
+        try:
+            subprocess.run(['systemctl', '--user', 'stop', 'wallpimp-slideshow.service'],
+                           check=True, timeout=10)
+            print("Slideshow service stopped.")
+        except subprocess.CalledProcessError:
+            print("Stop failed (service may not be running).")
+
     def _enable_autostart(self):
-        self._install_service()
+        self._write_service()
         try:
-            subprocess.run(['systemctl', '--user', 'enable', 'wallpimp-slideshow.service'], check=True)
-            print("Autostart enabled")
-        except:
-            print("Failed to enable autostart")
-    
+            subprocess.run(['systemctl', '--user', 'enable', 'wallpimp-slideshow.service'],
+                           check=True, timeout=10)
+            print("Autostart enabled.")
+            print("Tip: re-run 'Save session env' after each login if the service stops working.")
+        except subprocess.CalledProcessError:
+            print("Failed to enable autostart.")
+
     def _disable_autostart(self):
         try:
-            subprocess.run(['systemctl', '--user', 'disable', 'wallpimp-slideshow.service'], check=True)
-            print("Autostart disabled")
-        except:
-            print("Failed to disable autostart")
-    
+            subprocess.run(['systemctl', '--user', 'disable', 'wallpimp-slideshow.service'],
+                           check=True, timeout=10)
+            print("Autostart disabled.")
+        except subprocess.CalledProcessError:
+            print("Disable failed (service may not be enabled).")
+
     def _check_status(self):
+        print("\n─── Service status ───────────────────────────────────────")
         try:
-            subprocess.run(['systemctl', '--user', 'status', 'wallpimp-slideshow.service'])
-        except:
-            print("Service not found")
-    
-    def set_random_wallpaper(self):
-        wallpaper_dir = Path(self.config.get('wallpaper_dir'))
-        images = []
-        
-        for ext in ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp']:
-            images.extend(wallpaper_dir.rglob(f'*{ext}'))
-        
-        if not images:
-            print(f"No wallpapers found in {wallpaper_dir}")
-            return
-        
-        selected = random.choice(images)
-        
-        if self.de == 'xfce':
-            self._set_xfce(str(selected))
-        elif self.de == 'gnome':
-            self._set_gnome(str(selected))
+            subprocess.run(['systemctl', '--user', 'status', 'wallpimp-slideshow.service'],
+                           timeout=10)
+        except Exception:
+            print("Could not query service status.")
+
+        print("\n─── Last 30 log lines ────────────────────────────────────")
+        try:
+            subprocess.run(
+                ['journalctl', '--user', '-u', 'wallpimp-slideshow.service',
+                 '-n', '30', '--no-pager'],
+                timeout=10
+            )
+        except Exception:
+            print("Could not retrieve logs.")
+
+        print("\n─── Saved session env ────────────────────────────────────")
+        if self.config.env_file.exists():
+            print(f"File: {self.config.env_file}")
+            with open(self.config.env_file) as f:
+                for line in f:
+                    k = line.split('=', 1)[0]
+                    if k == 'DBUS_SESSION_BUS_ADDRESS':
+                        print(f"  {k}=<set>")
+                    else:
+                        print(f"  {line.rstrip()}")
         else:
+            print("NOT saved. Run option 1 from your desktop terminal.")
+
+    def set_random_wallpaper(self):
+        if self.de not in ['xfce', 'gnome']:
             print(f"Unsupported DE: {self.de}")
             return
-        
-        print(f"Set: {selected.name}")
-    
-    def _set_xfce(self, path):
-        try:
-            result = subprocess.run(['xfconf-query', '-c', 'xfce4-desktop', '-l'],
-                                  capture_output=True, text=True)
-            properties = [line for line in result.stdout.split('\n') if 'last-image' in line]
-            for prop in properties:
-                subprocess.run(['xfconf-query', '-c', 'xfce4-desktop', '-p', prop, '-s', path],
-                             stderr=subprocess.DEVNULL)
-        except:
-            pass
-    
-    def _set_gnome(self, path):
-        try:
-            subprocess.run(['gsettings', 'set', 'org.gnome.desktop.background',
-                          'picture-uri', f'file://{path}'], stderr=subprocess.DEVNULL)
-            subprocess.run(['gsettings', 'set', 'org.gnome.desktop.background',
-                          'picture-uri-dark', f'file://{path}'], stderr=subprocess.DEVNULL)
-        except:
-            pass
+        setter = WallpaperSetter(self.de)
+        wdir = Path(self.config.get('wallpaper_dir'))
+        imgs = []
+        for ext in IMAGE_EXTS:
+            imgs.extend(wdir.rglob(f'*{ext}'))
+        if not imgs:
+            print(f"No wallpapers found in {wdir}")
+            return
+        selected = random.choice(imgs)
+        if setter.set(str(selected)):
+            print(f"Set: {selected.name}")
+        else:
+            print("Failed to set wallpaper. Is your desktop session active?")
+
 
 def main():
     if len(sys.argv) > 1 and sys.argv[1] == '--daemon':
         config = Config()
         de = SystemDetector.detect_de()
-        daemon = SlideshowDaemon(config, de)
-        sys.exit(daemon.run())
+        sys.exit(SlideshowDaemon(config, de).run())
     else:
-        manager = WallpaperManager()
-        manager.main_menu()
+        WallpaperManager().main_menu()
+
 
 if __name__ == '__main__':
     main()
