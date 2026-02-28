@@ -8,8 +8,10 @@ Single-file wallpaper manager with automated slideshow support for GNOME and XFC
 - GitHub repository downloads with rate limit bypass
 - Hash-based duplicate detection across downloads
 - Real-time loading animations
-- GNOME and XFCE4 slideshow support
-- Systemd service integration
+- GNOME and XFCE4 slideshow support with reliable systemd integration
+- Session environment persistence (fixes slideshow in systemd context)
+- Automatic D-Bus session discovery for wallpaper tools
+- Shuffle-queue slideshow (every wallpaper shown once before repeating)
 - Repository validation and error handling
 - Parallel downloads with progress tracking
 - Minimal terminal interface
@@ -75,20 +77,28 @@ Example output:
 
 **GNOME and XFCE4 only**
 
-Start slideshow service:
-```bash
-wallpimp → Slideshow control → Start slideshow
+> **Important:** Always run **Save session env** (option 1) first, from a
+> graphical desktop terminal — not over SSH. This is a one-time setup step
+> that makes the slideshow work reliably when launched by systemd.
+
+#### First-time setup
+
+```
+wallpimp → Slideshow control → 1. Save session env
+wallpimp → Slideshow control → 2. Start slideshow service
 ```
 
-Enable autostart on boot:
-```bash
-wallpimp → Slideshow control → Enable autostart
-```
+#### Full slideshow menu options
 
-Run in foreground (testing):
-```bash
-wallpimp → Slideshow control → Run slideshow now
-```
+| # | Option | Description |
+|---|--------|-------------|
+| 1 | Save session env | Captures display/D-Bus variables from the running desktop session and saves them to `~/.config/wallpimp/session.env`. **Required before starting the service for the first time.** Re-run this after a system reboot if the service stops working. |
+| 2 | Start slideshow service | Writes the systemd unit and starts it immediately. |
+| 3 | Stop slideshow service | Stops the running service. |
+| 4 | Enable autostart on login | Enables the service to start automatically after login. |
+| 5 | Disable autostart | Disables automatic start. |
+| 6 | Check status & logs | Shows `systemctl status` output and the last 30 journal lines, plus the saved session env for diagnostics. |
+| 7 | Run slideshow now (foreground) | Runs the daemon directly in your terminal — useful for testing and diagnosing issues. |
 
 ### Direct Daemon Mode
 
@@ -96,7 +106,8 @@ wallpimp → Slideshow control → Run slideshow now
 wallpimp --daemon
 ```
 
-Runs slideshow in foreground with signal handling (SIGINT/SIGTERM).
+Runs the slideshow in the foreground with signal handling (SIGINT/SIGTERM).
+All output goes to stderr so it appears correctly in `journalctl`.
 
 ## Configuration
 
@@ -119,8 +130,18 @@ Hash database: `~/.config/wallpimp/hashes.json`
 }
 ```
 
+Session env: `~/.config/wallpimp/session.env`
+
+```
+DISPLAY=:0
+WAYLAND_DISPLAY=wayland-0
+DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus
+XDG_RUNTIME_DIR=/run/user/1000
+XDG_CURRENT_DESKTOP=GNOME
+```
+
 - `wallpaper_dir` - Wallpaper storage location
-- `slideshow_interval` - Seconds between changes
+- `slideshow_interval` - Seconds between wallpaper changes
 - `download_workers` - Parallel download threads (1-32)
 
 ## Rate Limit Bypass
@@ -179,6 +200,48 @@ Hash database location:
 - Hash cleanup removes entries for deleted files
 - Persistent across tool restarts and system reboots
 
+## How the Slideshow Works (Technical)
+
+### The systemd D-Bus Problem
+
+`gsettings` (GNOME) and `xfconf-query` (XFCE4) both require an active
+D-Bus session to set wallpapers. When systemd starts a user service it does
+**not** inherit the graphical session's environment variables (`DISPLAY`,
+`WAYLAND_DISPLAY`, `DBUS_SESSION_BUS_ADDRESS`, etc.), which causes wallpaper
+calls to silently fail.
+
+WallPimp solves this with a layered approach:
+
+1. **`session.env` file** - When you run *Save session env* from your desktop
+   terminal, WallPimp captures all required variables and writes them to
+   `~/.config/wallpimp/session.env`. The systemd service unit loads this file
+   via `EnvironmentFile=` so the variables are present from the start.
+
+2. **Automatic D-Bus discovery** - Even without the env file, the daemon
+   tries to find the D-Bus address automatically via:
+   - `systemctl --user show-environment`
+   - The well-known socket at `/run/user/<uid>/bus`
+   - Scanning `/proc` for a live graphical session process
+
+3. **`dbus-launch` fallback** (GNOME) - If `gsettings` still cannot connect,
+   it retries via `dbus-launch --exit-with-session` as a last resort.
+
+### Shuffle Queue
+
+The slideshow uses a shuffle queue instead of pure random selection:
+
+- All wallpapers are shuffled into a queue at the start of each cycle
+- Each wallpaper is shown exactly once before any image repeats
+- The wallpaper directory is re-scanned at the start of each new cycle,
+  so newly downloaded wallpapers appear automatically without restarting
+  the service
+
+### Signal Handling
+
+The daemon sleeps in 1-second ticks rather than a single long `time.sleep()`,
+so `SIGINT` (Ctrl-C) and `SIGTERM` (from `systemctl stop`) take effect
+immediately rather than waiting for the full interval to expire.
+
 ## Error Handling
 
 ### Non-Existent Repositories
@@ -191,11 +254,13 @@ Repository URLs are validated before download. Invalid repos are skipped with er
 
 ### Network Errors
 
-Automatic retry with alternative download methods (archive → git clone).
+Automatic retry with alternative download methods (git clone → archive).
 
 ### Missing Wallpapers
 
-Slideshow checks for wallpapers before starting. Exit with error if none found.
+Slideshow checks for wallpapers before starting. If none are found it waits
+30 seconds and retries, rather than exiting, so the service recovers
+automatically after a download completes.
 
 ### Unsupported Desktop Environments
 
@@ -208,26 +273,37 @@ Slideshow menu blocks non-GNOME/XFCE systems.
 
 ## Systemd Service
 
-Service files are auto-generated when starting slideshow:
+The service file is auto-generated when starting or enabling the slideshow.
+It uses `PartOf=graphical-session.target` so it starts and stops with
+your desktop session.
 
-- `~/.config/systemd/user/wallpimp-slideshow.service`
-- `~/.config/systemd/user/wallpimp-slideshow.timer`
+Service location: `~/.config/systemd/user/wallpimp-slideshow.service`
 
 Manual control:
 ```bash
-systemctl --user start wallpimp-slideshow.service
-systemctl --user stop wallpimp-slideshow.service
-systemctl --user enable wallpimp-slideshow.service
-systemctl --user status wallpimp-slideshow.service
+systemctl --user start   wallpimp-slideshow.service
+systemctl --user stop    wallpimp-slideshow.service
+systemctl --user enable  wallpimp-slideshow.service
+systemctl --user disable wallpimp-slideshow.service
+systemctl --user status  wallpimp-slideshow.service
+```
+
+View live logs:
+```bash
+journalctl --user -u wallpimp-slideshow.service -f
 ```
 
 ## Desktop Environment Support
 
 ### XFCE4
 Uses `xfconf-query` to set wallpaper across all monitors and workspaces.
+Monitor and workspace properties are queried dynamically; if the query
+fails, common property paths are guessed from `xrandr --listmonitors`.
 
 ### GNOME
-Uses `gsettings` for both light and dark mode wallpapers.
+Uses `gsettings` for both light and dark mode wallpapers
+(`picture-uri` and `picture-uri-dark`). Falls back to `dbus-launch` if
+the session bus is not reachable directly.
 
 ### Others
 Slideshow feature disabled. Static wallpaper setting unavailable.
@@ -236,19 +312,24 @@ Slideshow feature disabled. Static wallpaper setting unavailable.
 
 ```
 ~/.config/wallpimp/
-  ├── config.json
-  └── hashes.json
+  ├── config.json          # Main configuration
+  ├── hashes.json          # Duplicate detection database
+  └── session.env          # Saved graphical session environment
 
 ~/.config/systemd/user/
-  ├── wallpimp-slideshow.service
-  └── wallpimp-slideshow.timer
+  └── wallpimp-slideshow.service
 
 ~/Pictures/Wallpapers/
   ├── minimalist/
   ├── anime/
   ├── nature/
+  ├── scenic/
+  ├── artistic/
   └── ...
 ```
+
+> **Note:** The legacy `wallpimp-slideshow.timer` unit is no longer used.
+> If it exists from a previous installation it will be removed automatically.
 
 ## Custom Repository Download
 
@@ -256,38 +337,70 @@ Slideshow feature disabled. Static wallpaper setting unavailable.
 2. Select "Download custom URL"
 3. Enter GitHub repository URL
 4. Repository is validated before download
-5. Wallpapers extracted to subdirectory
+5. Wallpapers extracted to subdirectory named after the repo
 6. Duplicates automatically skipped
 
-Invalid repositories display error and continue.
+Invalid repositories display an error and return to the menu.
 
 ## Troubleshooting
 
-### Slideshow not working
+### Slideshow not changing wallpaper (most common issue)
 
-Check service status:
+This is almost always the D-Bus / session environment problem described above.
+
 ```bash
-systemctl --user status wallpimp-slideshow.service
-journalctl --user -u wallpimp-slideshow.service
+# Step 1: open wallpimp from your DESKTOP terminal (not SSH)
+wallpimp
+
+# Step 2: go to Slideshow control → Save session env
+
+# Step 3: restart the service
+systemctl --user restart wallpimp-slideshow.service
+
+# Step 4: watch the logs to confirm it's working
+journalctl --user -u wallpimp-slideshow.service -f
 ```
 
-Verify desktop environment:
+If you see `[wallpimp HH:MM:SS] Set: image.jpg` in the logs, it is working.
+If you see `gsettings: ...` or `xfconf-query ...` error lines, the session
+env may be stale — re-run *Save session env* and restart the service.
+
+### Slideshow works interactively but not as a service
+
+Your `session.env` was saved before the D-Bus address was fully initialised,
+or it has changed since the last reboot.
+
 ```bash
-echo $XDG_CURRENT_DESKTOP
+# Re-save from a fresh desktop terminal session
+wallpimp → Slideshow control → 1. Save session env
+systemctl --user restart wallpimp-slideshow.service
+```
+
+### Service fails to start
+
+```bash
+systemctl --user status wallpimp-slideshow.service
+journalctl --user -u wallpimp-slideshow.service -n 50
+```
+
+Also try running in foreground to see errors directly:
+```bash
+wallpimp → Slideshow control → 7. Run slideshow now
 ```
 
 ### No wallpapers found
 
-Check directory:
 ```bash
 ls ~/Pictures/Wallpapers/
 ```
 
-Download repositories via menu.
+Download repositories via the Downloads menu, then the running service will
+pick them up automatically at the start of the next cycle.
 
 ### Repository download fails
 
-Verify repository exists on GitHub. Check network connection. Install git for fallback method:
+Verify the repository exists on GitHub. Check your network connection.
+Install git for the primary download method:
 ```bash
 sudo apt install git
 ```
@@ -298,7 +411,7 @@ Delete and rebuild:
 ```bash
 rm ~/.config/wallpimp/hashes.json
 wallpimp
-# Re-download or run cleanup
+# Re-download or run Settings → Cleanup hash database
 ```
 
 ### Dependencies not installing
@@ -314,8 +427,8 @@ pip install --break-system-packages requests tqdm
 - Archive extraction: Filters image files only
 - Hash calculation: MD5 streaming (4KB chunks)
 - Duplicate detection: O(1) hash lookup
-- Memory usage: ~50MB during operation
-- CPU usage: Minimal (slideshow daemon)
+- Memory usage: ~50MB during download operation
+- CPU usage: Minimal (slideshow daemon sleeps between changes)
 - Storage: ~1KB per 1000 tracked hashes
 
 ## Security
@@ -325,6 +438,7 @@ pip install --break-system-packages requests tqdm
 - Public repository access only
 - Repository validation before download
 - MD5 hashing for duplicate detection (not cryptographic)
+- Session env file is user-readable only (contains display socket paths)
 
 ## Developer
 
