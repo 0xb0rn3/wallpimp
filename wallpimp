@@ -198,6 +198,18 @@ class RepoManager:
             'url': 'https://github.com/michaelScopic/Wallpapers',
             'branch': 'main',
         },
+        'scenic': {
+            'url': 'https://github.com/menhoudj/Anime-wallpaper-for-hyprland.git',
+            'branch': 'main',
+        },
+        'scenic': {
+            'url': 'https://github.com/menhoudj/catppuccin-wallpapers.git',
+            'branch': 'main',
+         },
+        'scenic': {
+            'url': 'https://github.com/menhoudj/cachyos-wallpaper.git',
+            'branch': 'main',
+        },
         'artistic': {
             'url': 'https://github.com/D3Ext/aesthetic-wallpapers',
             'branch': 'main',
