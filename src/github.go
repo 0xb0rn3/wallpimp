@@ -20,59 +20,114 @@ var imgExts = map[string]bool{
 }
 
 func isImage(name string) bool {
-	ext := strings.ToLower(filepath.Ext(name))
-	return imgExts[ext]
+	return imgExts[strings.ToLower(filepath.Ext(name))]
 }
 
-// DownloadStats holds counters updated atomically during a download.
 type DownloadStats struct {
 	New    int64
 	Dupes  int64
 	Errors int64
 }
 
-// RepoSpec describes one source repository.
 type RepoSpec struct {
-	Slug        string
-	Owner       string
-	Repo        string
-	BranchHint  string // try first; "" = auto
-	Subdir      string // only extract files under this path; "" = all
+	Slug       string
+	Owner      string
+	Repo       string
+	BranchHint string
+	Subdir     string
 }
 
-// progressFn is called after each image is processed (new or dupe).
 type progressFn func(new, dupe, errInc int)
 
-// DownloadRepo downloads one GitHub repository into wdir/<slug>/.
+// ResolvedRepo pairs a spec with its resolved branch.
+type ResolvedRepo struct {
+	Spec   RepoSpec
+	Branch string // empty = unreachable
+}
+
+// ResolveAllBranches fires one goroutine per repo — all HEAD requests run
+// simultaneously instead of sequentially.
+func ResolveAllBranches(specs []RepoSpec) []ResolvedRepo {
+	results := make([]ResolvedRepo, len(specs))
+	var wg sync.WaitGroup
+	for i, spec := range specs {
+		wg.Add(1)
+		go func(idx int, s RepoSpec) {
+			defer wg.Done()
+			results[idx] = ResolvedRepo{
+				Spec:   s,
+				Branch: resolveBranch(s.Owner, s.Repo, s.BranchHint),
+			}
+		}(i, spec)
+	}
+	wg.Wait()
+	return results
+}
+
+// DownloadAllRepos downloads all resolved repos concurrently.
+// repoConcurrency: simultaneous archive downloads (5 is a safe default).
+// imgWorkers: goroutines per archive for image extraction.
+func DownloadAllRepos(resolved []ResolvedRepo, wdir string,
+	imgWorkers, repoConcurrency int,
+	db *HashDB, prog progressFn, capRemaining *int64) {
+
+	if repoConcurrency <= 0 {
+		repoConcurrency = 5
+	}
+	sem := make(chan struct{}, repoConcurrency)
+	var wg sync.WaitGroup
+
+	for _, r := range resolved {
+		if r.Branch == "" {
+			continue
+		}
+		if capRemaining != nil && atomic.LoadInt64(capRemaining) <= 0 {
+			break
+		}
+		sem <- struct{}{}
+		wg.Add(1)
+		go func(rr ResolvedRepo) {
+			defer wg.Done()
+			defer func() { <-sem }()
+			DownloadRepoBranch(rr.Spec, rr.Branch, wdir, imgWorkers, db, prog, capRemaining)
+		}(r)
+	}
+	wg.Wait()
+}
+
+// DownloadRepo resolves branch then downloads (use DownloadRepoBranch if
+// branch is already known to avoid a redundant HEAD request).
 func DownloadRepo(spec RepoSpec, wdir string, workers int,
 	db *HashDB, prog progressFn) DownloadStats {
 
 	branch := resolveBranch(spec.Owner, spec.Repo, spec.BranchHint)
 	if branch == "" {
-		if prog != nil {
-			prog(0, 0, 1)
-		}
 		return DownloadStats{Errors: 1}
 	}
+	return DownloadRepoBranch(spec, branch, wdir, workers, db, prog, nil)
+}
 
-	destDir := filepath.Join(wdir, spec.Slug)
-	if err := os.MkdirAll(destDir, 0755); err != nil {
-		return DownloadStats{Errors: 1}
-	}
+// DownloadRepoBranch downloads one repo given an already-resolved branch.
+// capRemaining is decremented atomically; nil means unlimited.
+func DownloadRepoBranch(spec RepoSpec, branch, wdir string,
+	workers int, db *HashDB, prog progressFn,
+	capRemaining *int64) DownloadStats {
 
 	archiveURL := fmt.Sprintf(
 		"https://github.com/%s/%s/archive/%s.zip",
 		spec.Owner, spec.Repo, branch,
 	)
+	destDir := filepath.Join(wdir, spec.Slug)
+	if err := os.MkdirAll(destDir, 0755); err != nil {
+		return DownloadStats{Errors: 1}
+	}
 
 	data, err := fetchBytes(archiveURL)
 	if err != nil {
-		// Fallback: git clone
-		return cloneFallback(spec, branch, destDir, db, prog)
+		return cloneFallback(spec, branch, destDir, db, prog, capRemaining)
 	}
-
 	return extractZip(data, spec.Repo, branch, spec.Subdir,
-		destDir, workers, db, prog)
+		destDir, workers, db, prog, capRemaining)
 }
 
 // CountRepoImages uses the GitHub tree API to count images without downloading.
@@ -82,19 +137,19 @@ func CountRepoImages(owner, repo, branch, subdir string) int {
 		owner, repo, branch,
 	)
 	resp, err := http.Get(url) //nolint:noctx
-	if err != nil || resp.StatusCode == 403 || resp.StatusCode == 429 {
+	if err != nil {
 		return 0
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode == 403 || resp.StatusCode == 429 {
+		return 0
+	}
 	body, _ := io.ReadAll(resp.Body)
-
-	// Simple JSON scan — avoids importing encoding/json for a hot path
 	prefix := ""
 	if subdir != "" {
 		prefix = strings.ToLower(subdir) + "/"
 	}
 	count := 0
-	// Match "path":"<value>" entries
 	needle := []byte(`"path":"`)
 	pos := 0
 	for {
@@ -114,6 +169,26 @@ func CountRepoImages(owner, repo, branch, subdir string) int {
 		}
 	}
 	return count
+}
+
+// CountAllRepos resolves branches and counts images for all repos in parallel.
+func CountAllRepos(specs []RepoSpec) int {
+	resolved := ResolveAllBranches(specs)
+	var total int64
+	var wg sync.WaitGroup
+	for _, r := range resolved {
+		if r.Branch == "" {
+			continue
+		}
+		wg.Add(1)
+		go func(rr ResolvedRepo) {
+			defer wg.Done()
+			n := CountRepoImages(rr.Spec.Owner, rr.Spec.Repo, rr.Branch, rr.Spec.Subdir)
+			atomic.AddInt64(&total, int64(n))
+		}(r)
+	}
+	wg.Wait()
+	return int(total)
 }
 
 // ── internal helpers ──────────────────────────────────────────────────────────
@@ -157,30 +232,26 @@ func fetchBytes(url string) ([]byte, error) {
 }
 
 func extractZip(data []byte, repo, branch, subdir, destDir string,
-	workers int, db *HashDB, prog progressFn) DownloadStats {
+	workers int, db *HashDB, prog progressFn,
+	capRemaining *int64) DownloadStats {
 
 	zr, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
 	if err != nil {
 		return DownloadStats{Errors: 1}
 	}
 
-	// Prefix inside the zip: "<repo>-<branch>/"
 	zipPfx := strings.ToLower(repo + "-" + branch + "/")
 	subPfx := ""
 	if subdir != "" {
 		subPfx = zipPfx + strings.ToLower(subdir) + "/"
 	}
 
-	// Collect matching files
 	var imgs []*zip.File
 	for _, f := range zr.File {
+		if f.FileInfo().IsDir() || !isImage(f.Name) {
+			continue
+		}
 		nameLower := strings.ToLower(f.Name)
-		if f.FileInfo().IsDir() {
-			continue
-		}
-		if !isImage(f.Name) {
-			continue
-		}
 		if subPfx != "" && !strings.HasPrefix(nameLower, subPfx) {
 			continue
 		}
@@ -192,11 +263,18 @@ func extractZip(data []byte, repo, branch, subdir, destDir string,
 	var wg sync.WaitGroup
 
 	for _, zf := range imgs {
+		if capRemaining != nil && atomic.LoadInt64(capRemaining) <= 0 {
+			break
+		}
 		sem <- struct{}{}
 		wg.Add(1)
 		go func(f *zip.File) {
 			defer wg.Done()
 			defer func() { <-sem }()
+
+			if capRemaining != nil && atomic.LoadInt64(capRemaining) <= 0 {
+				return
+			}
 
 			rc, err := f.Open()
 			if err != nil {
@@ -236,6 +314,9 @@ func extractZip(data []byte, repo, branch, subdir, destDir string,
 			}
 			db.add(digest, outPath)
 			atomic.AddInt64(&stats.New, 1)
+			if capRemaining != nil {
+				atomic.AddInt64(capRemaining, -1)
+			}
 			if prog != nil {
 				prog(1, 0, 0)
 			}
@@ -246,7 +327,7 @@ func extractZip(data []byte, repo, branch, subdir, destDir string,
 }
 
 func cloneFallback(spec RepoSpec, branch, destDir string,
-	db *HashDB, prog progressFn) DownloadStats {
+	db *HashDB, prog progressFn, capRemaining *int64) DownloadStats {
 
 	var stats DownloadStats
 	cloneDir := filepath.Join(destDir, "_clone")
@@ -265,6 +346,9 @@ func cloneFallback(spec RepoSpec, branch, destDir string,
 	_ = filepath.WalkDir(cloneDir, func(path string, d os.DirEntry, err error) error {
 		if err != nil || d.IsDir() || !isImage(path) {
 			return nil
+		}
+		if capRemaining != nil && atomic.LoadInt64(capRemaining) <= 0 {
+			return filepath.SkipAll
 		}
 		if spec.Subdir != "" {
 			rel, _ := filepath.Rel(cloneDir, path)
@@ -293,6 +377,9 @@ func cloneFallback(spec RepoSpec, branch, destDir string,
 		}
 		db.add(digest, dest)
 		stats.New++
+		if capRemaining != nil {
+			atomic.AddInt64(capRemaining, -1)
+		}
 		if prog != nil {
 			prog(1, 0, 0)
 		}
