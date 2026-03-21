@@ -14,6 +14,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"syscall"
+	"time"
 )
 
 // ── Protocol types ─────────────────────────────────────────────────────────────
@@ -33,37 +34,33 @@ type Cmd struct {
 }
 
 type Event struct {
-	Event    string      `json:"event"`
-	New      int64       `json:"new,omitempty"`
-	Dupes    int64       `json:"dupes,omitempty"`
-	Errors   int64       `json:"errors,omitempty"`
-	Total    int         `json:"total,omitempty"`
-	Wait     int         `json:"wait,omitempty"`
-	Msg      string      `json:"msg,omitempty"`
-	Topics   interface{} `json:"topics,omitempty"`
-	Cols     interface{} `json:"cols,omitempty"`
-	ResW     int         `json:"res_w,omitempty"`
-	ResH     int         `json:"res_h,omitempty"`
-	DlW      int         `json:"dl_w,omitempty"`
-	DlH      int         `json:"dl_h,omitempty"`
+	Event   string      `json:"event"`
+	New     int64       `json:"new,omitempty"`
+	Dupes   int64       `json:"dupes,omitempty"`
+	Errors  int64       `json:"errors,omitempty"`
+	Total   int         `json:"total,omitempty"`
+	Wait    int         `json:"wait,omitempty"`
+	Msg     string      `json:"msg,omitempty"`
+	Topics  interface{} `json:"topics,omitempty"`
+	Cols    interface{} `json:"cols,omitempty"`
+	ResW    int         `json:"res_w,omitempty"`
+	ResH    int         `json:"res_h,omitempty"`
+	DlW     int         `json:"dl_w,omitempty"`
+	DlH     int         `json:"dl_h,omitempty"`
+	Speed   float64     `json:"speed,omitempty"` // files/sec
+	Elapsed float64     `json:"elapsed,omitempty"` // seconds since download started
 }
 
-// ── Socket path + network ─────────────────────────────────────────────────────
+// ── Socket path ───────────────────────────────────────────────────────────────
 
 func socketPath() string {
 	if runtime.GOOS == "windows" {
-		// AF_UNIX on Windows requires path inside a short temp dir
 		return filepath.Join(os.TempDir(), "wallpimp-engine.sock")
 	}
-	// Use uid in path so multiple users on the same machine don't collide
 	return fmt.Sprintf("/tmp/wallpimp-%d.sock", os.Getuid())
 }
 
-// listenNetwork returns the correct network string for net.Listen.
-// AF_UNIX is "unix" everywhere — Windows 10 1803+ supports it natively.
-func listenNetwork() string {
-	return "unix"
-}
+func listenNetwork() string { return "unix" }
 
 // ── Built-in repo list ────────────────────────────────────────────────────────
 
@@ -89,7 +86,7 @@ var builtinRepos = []RepoSpec{
 	{"erickmartin890-anime", "erickmartin890", "Anime-Wallpapers", "", ""},
 }
 
-// ── Session state ─────────────────────────────────────────────────────────────
+// ── Session ───────────────────────────────────────────────────────────────────
 
 type session struct {
 	db      *HashDB
@@ -114,12 +111,10 @@ func handleConn(conn net.Conn, sess *session) {
 	scanner := bufio.NewScanner(conn)
 	scanner.Buffer(make([]byte, 4*1024*1024), 4*1024*1024)
 
-	emit := func(ev Event) {
-		_ = enc.Encode(ev)
-	}
+	emit := func(ev Event) { _ = enc.Encode(ev) }
 
-	// progress callback factory — emits incremental progress over the socket
-	mkProg := func(accumNew, accumDupe, accumErr *int64) progressFn {
+	// Progress callback that also emits speed + elapsed.
+	mkProg := func(accumNew, accumDupe, accumErr *int64, start time.Time) progressFn {
 		var mu sync.Mutex
 		return func(n, d, e int) {
 			mu.Lock()
@@ -127,11 +122,18 @@ func handleConn(conn net.Conn, sess *session) {
 			*accumNew += int64(n)
 			*accumDupe += int64(d)
 			*accumErr += int64(e)
+			elapsed := time.Since(start).Seconds()
+			speed := 0.0
+			if elapsed > 0 {
+				speed = float64(*accumNew) / elapsed
+			}
 			emit(Event{
-				Event:  "progress",
-				New:    *accumNew,
-				Dupes:  *accumDupe,
-				Errors: *accumErr,
+				Event:   "progress",
+				New:     *accumNew,
+				Dupes:   *accumDupe,
+				Errors:  *accumErr,
+				Speed:   speed,
+				Elapsed: elapsed,
 			})
 		}
 	}
@@ -152,30 +154,26 @@ func handleConn(conn net.Conn, sess *session) {
 		// ── resolution ────────────────────────────────────────────────────────
 		case "resolution":
 			res := sess.cli.res
-			p   := res.DownloadParams()
+			p := res.DownloadParams()
 			dlW, _ := strconv.Atoi(p["w"])
 			dlH, _ := strconv.Atoi(p["h"])
 			emit(Event{
 				Event: "resolution",
 				ResW:  res.W, ResH: res.H,
-				DlW:   dlW,  DlH:  dlH,
+				DlW: dlW, DlH: dlH,
 			})
 
 		// ── scan ──────────────────────────────────────────────────────────────
-		// All branch resolution + image counting runs in parallel goroutines.
 		case "scan":
 			var repoTotal, unspTotal int64
 			var scanWg sync.WaitGroup
 
-			// Repo count: resolve + count all repos concurrently
 			scanWg.Add(1)
 			go func() {
 				defer scanWg.Done()
-				n := CountAllRepos(builtinRepos)
-				atomic.StoreInt64(&repoTotal, int64(n))
+				atomic.StoreInt64(&repoTotal, int64(CountAllRepos(builtinRepos)))
 			}()
 
-			// Unsplash count: single API call
 			scanWg.Add(1)
 			go func() {
 				defer scanWg.Done()
@@ -195,57 +193,43 @@ func handleConn(conn net.Conn, sess *session) {
 			emit(Event{Event: "scan_result",
 				Total: int(atomic.LoadInt64(&repoTotal) + atomic.LoadInt64(&unspTotal))})
 
-		// ── download (full or targeted) ────────────────────────────────────────
+		// ── download ──────────────────────────────────────────────────────────
 		//
 		// Pipeline:
-		//   Phase 1 — resolve all 19 branches simultaneously (goroutine per repo)
-		//   Phase 2 — download all repo archives concurrently (5 at a time)
-		//   Phase 3 — stream Unsplash topics concurrently with remaining quota
+		//   Phase 1 — resolve branches + start downloads immediately as each resolves
+		//             (16 concurrent archive downloads, no waiting for all 19)
+		//   Phase 2 — Unsplash topics: multiple topics pipelined concurrently
+		//             (page N+1 fetch overlaps with page N image downloads)
+		//   Phase 3 — random fill to hit exact target
 		//
 		case "download":
 			workers := sess.workers
 			if cmd.Workers > 0 {
 				workers = cmd.Workers
 			}
-			wdir  := cmd.Wdir
-			capN  := int64(cmd.Target) // 0 = unlimited
+			wdir := cmd.Wdir
+			capN := int64(cmd.Target)
 			var capPtr *int64
 			if capN > 0 {
 				capPtr = &capN
 			}
 			var totalNew, totalDupe, totalErr int64
-			prog := mkProg(&totalNew, &totalDupe, &totalErr)
+			start := time.Now()
+			prog := mkProg(&totalNew, &totalDupe, &totalErr, start)
 
-			// Phase 1+2: resolve all branches in parallel, then download concurrently
+			// Phase 1: pipelined branch resolution + concurrent archive downloads
 			emit(Event{Event: "progress", New: 0, Dupes: 0, Errors: 0, Msg: "resolving"})
-			resolved := ResolveAllBranches(builtinRepos)
-			DownloadAllRepos(resolved, wdir, workers, 5, sess.db, prog, capPtr)
+			ResolveAndDownload(builtinRepos, wdir, workers, 16, sess.db, prog, capPtr)
 
-			// Phase 3: Unsplash topics
+			// Phase 2: Unsplash topics — concurrent with page-ahead pipelining
 			if capPtr == nil || atomic.LoadInt64(capPtr) > 0 {
 				topics, err := sess.cli.Topics()
 				if err == nil {
-					for _, t := range topics {
-						if capPtr != nil && atomic.LoadInt64(capPtr) <= 0 {
-							break
-						}
-						page := 1
-						for {
-							if capPtr != nil && atomic.LoadInt64(capPtr) <= 0 {
-								break
-							}
-							photos, err := sess.cli.TopicPhotos(t.Slug, page)
-							if err != nil || len(photos) == 0 {
-								break
-							}
-							DownloadPhotos(photos, wdir, workers, sess.db, prog)
-							page++
-						}
-					}
+					downloadTopicsConcurrent(topics, wdir, workers, sess.cli, sess.db, prog, capPtr)
 				}
 			}
 
-			// Random fill to hit exact target
+			// Phase 3: random fill
 			for capPtr != nil && atomic.LoadInt64(capPtr) > 0 {
 				need := int(atomic.LoadInt64(capPtr))
 				if need > 30 {
@@ -255,8 +239,7 @@ func handleConn(conn net.Conn, sess *session) {
 				if err != nil || len(photos) == 0 {
 					break
 				}
-				dest := wdir // flat: all images in one directory
-				s := DownloadPhotos(photos, dest, workers, sess.db, prog)
+				s := DownloadPhotos(photos, wdir, workers, sess.db, prog)
 				if s.New == 0 {
 					break
 				}
@@ -264,8 +247,11 @@ func handleConn(conn net.Conn, sess *session) {
 
 			_ = sess.db.save()
 			emit(Event{
-				Event: "done",
-				New: totalNew, Dupes: totalDupe, Errors: totalErr,
+				Event:   "done",
+				New:     totalNew,
+				Dupes:   totalDupe,
+				Errors:  totalErr,
+				Elapsed: time.Since(start).Seconds(),
 			})
 
 		// ── unsplash: list topics ──────────────────────────────────────────────
@@ -289,7 +275,7 @@ func handleConn(conn net.Conn, sess *session) {
 				continue
 			}
 			var n, d, e int64
-			prog := mkProg(&n, &d, &e)
+			prog := mkProg(&n, &d, &e, time.Now())
 			DownloadPhotos(photos, cmd.Dest, workers, sess.db, prog)
 			_ = sess.db.save()
 			emit(Event{Event: "done", New: n, Dupes: d, Errors: e})
@@ -306,7 +292,7 @@ func handleConn(conn net.Conn, sess *session) {
 				continue
 			}
 			var n, d, e int64
-			prog := mkProg(&n, &d, &e)
+			prog := mkProg(&n, &d, &e, time.Now())
 			DownloadPhotos(photos, cmd.Dest, workers, sess.db, prog)
 			_ = sess.db.save()
 			emit(Event{Event: "done", New: n, Dupes: d, Errors: e})
@@ -332,7 +318,7 @@ func handleConn(conn net.Conn, sess *session) {
 				continue
 			}
 			var n, d, e int64
-			prog := mkProg(&n, &d, &e)
+			prog := mkProg(&n, &d, &e, time.Now())
 			DownloadPhotos(photos, cmd.Dest, workers, sess.db, prog)
 			_ = sess.db.save()
 			emit(Event{Event: "done", New: n, Dupes: d, Errors: e})
@@ -353,7 +339,7 @@ func handleConn(conn net.Conn, sess *session) {
 				continue
 			}
 			var sn, sd, se int64
-			prog := mkProg(&sn, &sd, &se)
+			prog := mkProg(&sn, &sd, &se, time.Now())
 			DownloadPhotos(photos, cmd.Dest, workers, sess.db, prog)
 			_ = sess.db.save()
 			emit(Event{Event: "done", New: sn, Dupes: sd, Errors: se})
@@ -369,6 +355,65 @@ func handleConn(conn net.Conn, sess *session) {
 	}
 }
 
+// ── Concurrent Unsplash topic downloader ──────────────────────────────────────
+//
+// Runs up to 4 topics concurrently. Within each topic, a page-ahead goroutine
+// fetches the next page from the API while the current page's images download —
+// API rate limiter serialises the fetches but downloads overlap.
+
+func downloadTopicsConcurrent(
+	topics []unsplashTopic,
+	wdir string,
+	workers int,
+	cli *UnsplashClient,
+	db *HashDB,
+	prog progressFn,
+	capRemaining *int64,
+) {
+	const topicConcurrency = 4
+	sem := make(chan struct{}, topicConcurrency)
+	var wg sync.WaitGroup
+
+	for _, t := range topics {
+		if capRemaining != nil && atomic.LoadInt64(capRemaining) <= 0 {
+			break
+		}
+		sem <- struct{}{}
+		wg.Add(1)
+		go func(topic unsplashTopic) {
+			defer wg.Done()
+			defer func() { <-sem }()
+
+			// Page-ahead pipeline: fetcher goroutine sends pages into a buffered
+			// channel; downloader goroutine consumes and downloads images.
+			// The rate limiter in cli.TopicPhotos naturally throttles the fetcher.
+			pageCh := make(chan []PhotoMeta, 2)
+
+			go func() {
+				defer close(pageCh)
+				for page := 1; ; page++ {
+					if capRemaining != nil && atomic.LoadInt64(capRemaining) <= 0 {
+						return
+					}
+					photos, err := cli.TopicPhotos(topic.Slug, page)
+					if err != nil || len(photos) == 0 {
+						return
+					}
+					pageCh <- photos
+				}
+			}()
+
+			for photos := range pageCh {
+				if capRemaining != nil && atomic.LoadInt64(capRemaining) <= 0 {
+					break
+				}
+				DownloadPhotos(photos, wdir, workers, db, prog)
+			}
+		}(t)
+	}
+	wg.Wait()
+}
+
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 func main() {
@@ -377,11 +422,10 @@ func main() {
 		os.Exit(1)
 	}
 	hashPath := os.Args[1]
-	workers := 8
+	workers := 16 // bumped from 8
 	fmt.Sscanf(os.Args[2], "%d", &workers)
 
 	sockPath := socketPath()
-	// Clean up stale socket
 	_ = os.Remove(sockPath)
 
 	ln, err := net.Listen(listenNetwork(), sockPath)
@@ -392,11 +436,9 @@ func main() {
 	defer ln.Close()
 	defer os.Remove(sockPath)
 
-	// Write socket path to stdout so Python knows where to connect
 	fmt.Println(sockPath)
 	os.Stdout.Sync()
 
-	// Graceful shutdown on signal
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
@@ -406,14 +448,11 @@ func main() {
 
 	sess := newSession(hashPath, workers)
 
-	// One connection at a time — Python holds a single persistent connection
 	for {
 		conn, err := ln.Accept()
 		if err != nil {
 			break
 		}
-		// Each connection runs a full command loop (not goroutined —
-		// Python is single-threaded on the menu side)
 		handleConn(conn, sess)
 	}
 }
