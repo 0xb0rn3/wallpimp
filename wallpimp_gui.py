@@ -274,8 +274,6 @@ class WallPimpGUI:
         s.theme_use("default")
         s.configure("TProgressbar", troughcolor=BORDER2,
                     background=ACCENT, thickness=12, borderwidth=0)
-        s.configure("Teal.TProgressbar", troughcolor=BORDER2,
-                    background=ACCENT, thickness=12, borderwidth=0)
         s.configure("TNotebook",    background=PANEL, borderwidth=0)
         s.configure("TNotebook.Tab", background=CARD, foreground=MUTED,
                     padding=[14, 7], font=(MONO, MONO_SZ))
@@ -516,7 +514,7 @@ class WallPimpGUI:
                  font=(MONO, SMALL_SZ)).pack(side="right")
 
         self._prog_bar = ttk.Progressbar(
-            pc, style="Teal.TProgressbar", mode="determinate", maximum=100)
+            pc, mode="determinate", maximum=100)
         self._prog_bar.pack(fill="x", pady=(8, 4))
 
         # Stats row
