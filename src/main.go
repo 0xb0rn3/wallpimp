@@ -9,6 +9,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -151,14 +152,13 @@ func handleConn(conn net.Conn, sess *session) {
 		// ── resolution ────────────────────────────────────────────────────────
 		case "resolution":
 			res := sess.cli.res
-			p := res.DownloadParams()
-			dlW, _ := fmt.Sscanf(p["w"], "%d")
-			dlH, _ := fmt.Sscanf(p["h"], "%d")
-			_ = dlW; _ = dlH
+			p   := res.DownloadParams()
+			dlW, _ := strconv.Atoi(p["w"])
+			dlH, _ := strconv.Atoi(p["h"])
 			emit(Event{
 				Event: "resolution",
 				ResW:  res.W, ResH: res.H,
-				DlW: res.W, DlH: res.H,
+				DlW:   dlW,  DlH:  dlH,
 			})
 
 		// ── scan ──────────────────────────────────────────────────────────────
@@ -238,13 +238,7 @@ func handleConn(conn net.Conn, sess *session) {
 							if err != nil || len(photos) == 0 {
 								break
 							}
-							dest := wdir // flat: all images in one directory
-							stopAt := int64(0)
-							if capPtr != nil {
-								stopAt = atomic.LoadInt64(capPtr)
-							}
-							_ = stopAt
-							DownloadPhotos(photos, dest, workers, sess.db, prog)
+							DownloadPhotos(photos, wdir, workers, sess.db, prog)
 							page++
 						}
 					}
