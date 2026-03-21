@@ -16,7 +16,16 @@ import (
 
 var imgExts = map[string]bool{
 	".jpg": true, ".jpeg": true, ".png": true,
-	".webp": true, ".gif": true, ".bmp": true, ".tiff": true,
+	".webp": true, ".gif": true, ".bmp": true,
+	".tiff": true, ".tif": true, ".heic": true,
+	".heif": true, ".avif": true, ".jxl": true,
+	".svg": true, ".ico": true, ".psd": true,
+	".raw": true, ".arw": true, ".cr2": true,
+	".nef": true, ".orf": true, ".dng": true,
+	".exr": true, ".hdr": true, ".rgbe": true,
+	".pnm": true, ".ppm": true, ".pgm": true,
+	".pbm": true, ".pcx": true, ".tga": true,
+	".xbm": true, ".xpm": true, ".wbmp": true,
 }
 
 func isImage(name string) bool {
