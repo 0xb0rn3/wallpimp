@@ -261,17 +261,88 @@
         Write-OK "Python deps installed."
     }
 
-    # ── Launch ────────────────────────────────────────────────────────────────
-    function Start-WallPimp {
+    # ── Tkinter check ─────────────────────────────────────────────────────────
+    # tkinter ships with the official Python Windows installer. This just
+    # verifies it's importable before we offer the GUI option.
+    function Test-Tkinter {
+        $out = Invoke-Native {
+            & $script:PythonCmd -c "import tkinter" 2>&1
+        }
+        return ($LASTEXITCODE -eq 0)
+    }
+
+    # ── GUI dep: ensure wallpimp_gui.py is present ────────────────────────────
+    function Assert-GuiScript {
         param($repoDir)
+        $guiScript = Join-Path $repoDir "wallpimp_gui.py"
+        if (-not (Test-Path $guiScript)) {
+            # Try to download directly from the repo
+            Write-Step "Fetching wallpimp_gui.py ..."
+            $url = "https://raw.githubusercontent.com/0xb0rn3/wallpimp/main/wallpimp_gui.py"
+            try {
+                Invoke-WebRequest -Uri $url -OutFile $guiScript -UseBasicParsing
+                Write-OK "wallpimp_gui.py downloaded."
+            } catch {
+                Write-Skip "Could not download wallpimp_gui.py — GUI option unavailable."
+                return $false
+            }
+        }
+        return $true
+    }
+
+    # ── Launch chooser ────────────────────────────────────────────────────────
+    # Shown after all setup steps complete. Lets the user pick GUI or CLI.
+    function Invoke-LaunchChooser {
+        param($repoDir)
+
         Write-Spacer
         Write-Host ("  " + ("─" * 65)) -ForegroundColor DarkGray
-        Write-Host "  All set. Launching WallPimp ..." -ForegroundColor Green
+        Write-Host "  Setup complete. How would you like to launch WallPimp?" -ForegroundColor Green
         Write-Host ("  " + ("─" * 65)) -ForegroundColor DarkGray
+        Write-Spacer
+
+        $hasTk  = Test-Tkinter
+        $hasGui = Assert-GuiScript -repoDir $repoDir
+
+        if ($hasTk -and $hasGui) {
+            Write-Host "    i)  Launch GUI    — graphical interface" -ForegroundColor Cyan
+            Write-Host "   ii)  Stay on CLI   — classic terminal UI" -ForegroundColor DarkGray
+        } else {
+            if (-not $hasTk) {
+                Write-Info "tkinter not found — GUI option unavailable."
+                Write-Info "To enable GUI: reinstall Python 3.10+ from python.org (tick 'tcl/tk' option)."
+            }
+            Write-Host "    ii)  Stay on CLI   — classic terminal UI" -ForegroundColor DarkGray
+        }
+
+        Write-Spacer
+
+        $choice = ""
+        while ($true) {
+            $raw = Read-Host "  Enter choice [i / ii]"
+            $choice = $raw.Trim().ToLower()
+            if ($choice -in @("i", "1", "gui"))        { $choice = "gui"; break }
+            if ($choice -in @("ii", "2", "cli", ""))   { $choice = "cli"; break }
+            Write-Host "  Please enter  i  for GUI or  ii  for CLI." -ForegroundColor Yellow
+        }
+
         Write-Spacer
         Push-Location $repoDir
+
         try {
-            & $script:PythonCmd (Join-Path $repoDir "wallpimp")
+            if ($choice -eq "gui" -and $hasTk -and $hasGui) {
+                Write-Host ("  " + ("─" * 65)) -ForegroundColor DarkGray
+                Write-Host "  Launching WallPimp GUI ..." -ForegroundColor Cyan
+                Write-Host ("  " + ("─" * 65)) -ForegroundColor DarkGray
+                Write-Spacer
+                & $script:PythonCmd (Join-Path $repoDir "wallpimp_gui.py")
+            } else {
+                Write-Host ("  " + ("─" * 65)) -ForegroundColor DarkGray
+                Write-Host "  Launching WallPimp CLI ..." -ForegroundColor Green
+                Write-Host ("  " + ("─" * 65)) -ForegroundColor DarkGray
+                Write-Spacer
+                & $script:PythonCmd (Join-Path $repoDir "wallpimp")
+            }
         } finally {
             Pop-Location
         }
@@ -300,7 +371,9 @@
     Get-WallPimp   -installDir $InstallDir
     Build-Engine   -repoDir    $InstallDir
     Install-PythonDeps
-    Start-WallPimp -repoDir    $InstallDir
+
+    # ── Launch chooser (GUI vs CLI) ───────────────────────────────────────────
+    Invoke-LaunchChooser -repoDir $InstallDir
 
     Write-DoneBox
 }
