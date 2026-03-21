@@ -57,7 +57,7 @@ over the same socket — no separate backend needed.
 wallpimp                  # Python script (CLI — UI + wallpaper setters + slideshow)
 wallpimp_gui.py           # Python script (GUI — tkinter front-end, same engine)
 wallpimp_launch.py        # Launcher — prompts GUI / CLI choice (Linux/macOS)
-setup.py                  # One-line installer for Linux / macOS
+setup                  # Bash — one-line installer for Linux / macOS
 setup.ps1                 # One-line installer for Windows
 src/
   go.mod                  # Go module
@@ -99,10 +99,10 @@ The engine is auto-located and started on first use — no configuration needed.
 ### Linux / macOS — one-line setup (recommended)
 
 ```bash
-python3 <(curl -fsSL https://raw.githubusercontent.com/0xb0rn3/wallpimp/main/setup.py)
+bash <(curl -fsSL https://raw.githubusercontent.com/0xb0rn3/wallpimp/main/setup)
 ```
 
-`setup.py` automatically:
+`setup` automatically:
 - Detects your package manager (apt / dnf / pacman / zypper / brew)
 - Checks and installs Go 1.21+ and Git if missing
 - Clones the repository to `~/wallpimp`
@@ -126,7 +126,7 @@ After the prompt:
 To re-run setup or update an existing installation:
 
 ```bash
-python3 <(curl -fsSL https://raw.githubusercontent.com/0xb0rn3/wallpimp/main/setup.py)
+bash <(curl -fsSL https://raw.githubusercontent.com/0xb0rn3/wallpimp/main/setup)
 ```
 
 It will pull the latest repo, rebuild the engine only if source has changed,
@@ -136,13 +136,13 @@ then show the launch prompt again.
 
 ```bash
 # Force GUI launch
-python3 <(curl -fsSL .../setup.py) --gui
+bash <(curl -fsSL .../setup) --gui
 
 # Force CLI launch
-python3 <(curl -fsSL .../setup.py) --cli
+bash <(curl -fsSL .../setup) --cli
 
 # Pull + rebuild only, no launch
-python3 <(curl -fsSL .../setup.py) --update
+bash <(curl -fsSL .../setup) --update
 ```
 
 #### tkinter (GUI prerequisite)
@@ -226,8 +226,8 @@ Once installed, you can launch WallPimp any time with the same launcher:
 # Linux / macOS — from the install directory
 cd ~/wallpimp && python3 wallpimp_launch.py
 
-# Or re-run setup.py — it skips all already-done steps and goes straight to the prompt
-python3 <(curl -fsSL https://raw.githubusercontent.com/0xb0rn3/wallpimp/main/setup.py)
+# Or re-run setup (bash) — it skips all already-done steps and goes straight to the prompt
+bash <(curl -fsSL https://raw.githubusercontent.com/0xb0rn3/wallpimp/main/setup)
 ```
 
 ---
@@ -546,7 +546,7 @@ sudo pacman -S tk                 # Arch / ArchBang / Manjaro
 sudo zypper install python3-tk    # openSUSE
 ```
 
-Then re-run `setup.py` — the GUI option will appear automatically.
+Then re-run `setup` — the GUI option will appear automatically.
 
 ### Slideshow not working (Linux)
 
@@ -592,7 +592,7 @@ pip install requests tqdm
 
 ### Go not found after setup (Linux)
 
-`setup.py` installs Go to `/usr/local/go` and appends to `~/.profile`,
+`setup` (bash) installs Go to `/usr/local/go` and appends to `~/.profile`,
 `~/.bashrc`, and `~/.zshrc`. If `go` is still not found, source your profile:
 
 ```bash
