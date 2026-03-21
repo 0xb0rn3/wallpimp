@@ -85,22 +85,42 @@ The engine is auto-located and started on first use — no configuration needed.
 
 ## Installation
 
-### Linux / macOS
+### Windows — one-line setup (recommended)
+
+Open **PowerShell as Administrator** and run:
+
+```powershell
+irm https://raw.githubusercontent.com/0xb0rn3/wallpimp/main/setup.ps1 | iex
+```
+
+`setup.ps1` automatically:
+- Checks and installs Python 3.10+, Go 1.21+, and Git via winget if missing
+- Clones the repository to `%USERPROFILE%\wallpimp`
+- Builds the Go engine (`wallpimp-engine.exe`)
+- Installs Python dependencies
+- Launches WallPimp
+
+> **Do not close the window** while setup is running.
+
+To re-run setup or update an existing installation, run the same command again —
+it will pull the latest repo, rebuild the engine only if source has changed, and relaunch.
+
+If you prefer to run the script locally:
+
+```powershell
+Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
+.\setup.ps1
+```
+
+---
+
+### Linux / macOS — manual install
 
 ```bash
 cd src && go build -o ../wallpimp-engine . && cd ..
 chmod +x wallpimp
 sudo mv wallpimp wallpimp-engine /usr/local/bin/
 wallpimp
-```
-
-### Windows
-
-```powershell
-cd src
-go build -o ../wallpimp-engine.exe .
-cd ..
-python wallpimp
 ```
 
 Python dependencies (`requests`, `tqdm`) are auto-installed on first run.
