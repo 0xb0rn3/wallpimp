@@ -64,7 +64,7 @@ abort() {
 # ── Globals ───────────────────────────────────────────────────────────────────
 PYTHON_CMD=""      # set by assert_python()
 
-# ── OS detection ──────────────────────────────────────────────────────────────
+# ── OS / arch detection ───────────────────────────────────────────────────────
 OS="$(uname -s)"   # Linux | Darwin
 ARCH="$(uname -m)" # x86_64 | aarch64 | arm64
 
@@ -93,23 +93,40 @@ detect_pm() {
 
 PM="$(detect_pm)"
 
-# ── Generic install wrapper ───────────────────────────────────────────────────
+# ── Generic package install ───────────────────────────────────────────────────
+# Usage: pm_install <apt-pkg> [dnf-pkg] [pacman-pkg] [zypper-pkg]
+# Omitted slots default to the first argument.
 pm_install() {
-  # $1 = package name (distro-specific)
+  local apt_pkg="${1:-}"
+  local dnf_pkg="${2:-$apt_pkg}"
+  local pac_pkg="${3:-$apt_pkg}"
+  local zpp_pkg="${4:-$apt_pkg}"
   case "$PM" in
-    apt-get) sudo apt-get install -y "$1" &>/dev/null ;;
-    dnf)     sudo dnf install -y "$1"     &>/dev/null ;;
-    pacman)  sudo pacman -S --noconfirm "$1" &>/dev/null ;;
-    zypper)  sudo zypper install -y "$1" &>/dev/null ;;
+    apt-get) [[ -n "$apt_pkg" ]] && sudo apt-get install -y "$apt_pkg" &>/dev/null ;;
+    dnf)     [[ -n "$dnf_pkg" ]] && sudo dnf install -y "$dnf_pkg"     &>/dev/null ;;
+    pacman)  [[ -n "$pac_pkg" ]] && sudo pacman -S --noconfirm "$pac_pkg" &>/dev/null ;;
+    zypper)  [[ -n "$zpp_pkg" ]] && sudo zypper install -y "$zpp_pkg"  &>/dev/null ;;
     *)       return 1 ;;
   esac
 }
 
-# ── Dependency checks ─────────────────────────────────────────────────────────
+# ── Core tool checks ──────────────────────────────────────────────────────────
+
+assert_curl() {
+  command -v curl &>/dev/null && { ok "curl found."; return; }
+  step "curl not found — installing ..."
+  if [[ "$OS" == "Darwin" ]]; then
+    brew install curl &>/dev/null || abort "brew install curl failed."
+  else
+    pm_install curl || abort "curl required but could not be installed. Install it manually."
+  fi
+  command -v curl &>/dev/null || abort "curl not found after install."
+  ok "curl installed."
+}
 
 assert_python() {
   local PYMIN_MAJOR=3 PYMIN_MINOR=10
-  PYTHON_CMD=""  # reset; will be set to global
+  PYTHON_CMD=""
   for cmd in python3 python; do
     if command -v "$cmd" &>/dev/null; then
       local ver
@@ -128,17 +145,14 @@ assert_python() {
 
   step "Python 3.10+ not found — attempting install ..."
   if [[ "$OS" == "Darwin" ]]; then
-    if command -v brew &>/dev/null; then
-      brew install python@3.12 &>/dev/null || abort "brew install python@3.12 failed."
-    else
-      abort "Homebrew not found. Install it first: https://brew.sh"
-    fi
+    command -v brew &>/dev/null || abort "Homebrew not found. Install it first: https://brew.sh"
+    brew install python@3.12 &>/dev/null || abort "brew install python@3.12 failed."
   else
     case "$PM" in
-      apt-get) pm_install python3 && pm_install python3-pip ;;
-      dnf)     pm_install python3 ;;
-      pacman)  pm_install python ;;
-      zypper)  pm_install python3 ;;
+      apt-get) sudo apt-get install -y python3 python3-pip &>/dev/null ;;
+      dnf)     sudo dnf install -y python3 python3-pip &>/dev/null ;;
+      pacman)  sudo pacman -S --noconfirm python python-pip &>/dev/null ;;
+      zypper)  sudo zypper install -y python3 python3-pip &>/dev/null ;;
       *)       abort "Cannot auto-install Python. Install Python 3.10+ manually." ;;
     esac
   fi
@@ -156,8 +170,7 @@ assert_go() {
     ver="$(go version 2>/dev/null | grep -oP '\d+\.\d+' | head -1)"
     local maj min
     maj="${ver%%.*}"; min="${ver##*.}"
-    local need_maj=1 need_min=21
-    if [[ "$maj" -gt "$need_maj" ]] || { [[ "$maj" -eq "$need_maj" ]] && [[ "$min" -ge "$need_min" ]]; }; then
+    if [[ "$maj" -gt 1 ]] || { [[ "$maj" -eq 1 ]] && [[ "$min" -ge 21 ]]; }; then
       ok "Go ${ver} found."
       return
     fi
@@ -170,77 +183,145 @@ assert_go() {
     command -v brew &>/dev/null || abort "Homebrew not found. Install it: https://brew.sh"
     brew install go &>/dev/null || abort "brew install go failed."
   else
-    # Install via official tarball for guaranteed version
     local GO_VER="1.22.4"
     local GO_ARCH
     case "$ARCH" in
-      x86_64)         GO_ARCH="amd64" ;;
-      aarch64|arm64)  GO_ARCH="arm64" ;;
-      armv6l|armv7l)  GO_ARCH="armv6l" ;;
-      *)              abort "Unsupported arch for auto Go install: $ARCH" ;;
+      x86_64)        GO_ARCH="amd64"  ;;
+      aarch64|arm64) GO_ARCH="arm64"  ;;
+      armv6l|armv7l) GO_ARCH="armv6l" ;;
+      *) abort "Unsupported arch for auto Go install: $ARCH" ;;
     esac
     local TARBALL="go${GO_VER}.linux-${GO_ARCH}.tar.gz"
-    local URL="https://go.dev/dl/${TARBALL}"
     step "Downloading Go ${GO_VER} (${GO_ARCH}) ..."
-    curl -fsSL "$URL" -o "/tmp/${TARBALL}" || abort "Failed to download Go tarball."
+    curl -fsSL "https://go.dev/dl/${TARBALL}" -o "/tmp/${TARBALL}" \
+      || abort "Failed to download Go tarball."
     sudo rm -rf /usr/local/go
     sudo tar -C /usr/local -xzf "/tmp/${TARBALL}"
     rm -f "/tmp/${TARBALL}"
-    # Ensure PATH for this session
     export PATH="/usr/local/go/bin:${PATH}"
-    # Persist for future shells
-    if ! grep -q '/usr/local/go/bin' "${HOME}/.profile" 2>/dev/null; then
-      echo 'export PATH="/usr/local/go/bin:$PATH"' >> "${HOME}/.profile"
-    fi
-    if [[ -f "${HOME}/.bashrc" ]] && ! grep -q '/usr/local/go/bin' "${HOME}/.bashrc" 2>/dev/null; then
-      echo 'export PATH="/usr/local/go/bin:$PATH"' >> "${HOME}/.bashrc"
-    fi
-    if [[ -f "${HOME}/.zshrc" ]] && ! grep -q '/usr/local/go/bin' "${HOME}/.zshrc" 2>/dev/null; then
-      echo 'export PATH="/usr/local/go/bin:$PATH"' >> "${HOME}/.zshrc"
-    fi
+    for rc in "${HOME}/.profile" "${HOME}/.bashrc" "${HOME}/.zshrc"; do
+      [[ -f "$rc" ]] || continue
+      grep -q '/usr/local/go/bin' "$rc" 2>/dev/null && continue
+      echo 'export PATH="/usr/local/go/bin:$PATH"' >> "$rc"
+    done
   fi
 
-  command -v go &>/dev/null || abort "Go not found on PATH after install. Open a new shell and re-run."
+  command -v go &>/dev/null || abort "Go not on PATH after install. Open a new shell and re-run."
   ok "Go installed: $(go version | grep -oP 'go\d+\.\d+\.\d+')"
 }
 
 assert_git() {
-  if command -v git &>/dev/null; then ok "Git found."; return; fi
+  command -v git &>/dev/null && { ok "Git found."; return; }
   step "Git not found — installing ..."
   if [[ "$OS" == "Darwin" ]]; then
     brew install git &>/dev/null || abort "brew install git failed."
   else
-    case "$PM" in
-      apt-get) pm_install git ;;
-      dnf)     pm_install git ;;
-      pacman)  pm_install git ;;
-      zypper)  pm_install git ;;
-      *)       abort "Cannot auto-install Git. Install it manually." ;;
-    esac
+    pm_install git || abort "Cannot auto-install Git. Install it manually."
   fi
   command -v git &>/dev/null || abort "Git not found on PATH after install."
   ok "Git installed."
 }
 
-assert_curl() {
-  command -v curl &>/dev/null && { ok "curl found."; return; }
-  step "curl not found — installing ..."
-  case "$PM" in
-    apt-get) pm_install curl ;;
-    dnf)     pm_install curl ;;
-    pacman)  pm_install curl ;;
-    zypper)  pm_install curl ;;
-    *)       abort "curl required but not found. Install it manually." ;;
-  esac
-  command -v curl &>/dev/null || abort "curl not found after install."
-  ok "curl installed."
+# ── System deps ───────────────────────────────────────────────────────────────
+#
+# What each tool does in wallpimp:
+#   tkinter       — GUI front-end (wallpimp_gui.py)
+#   xrandr        — screen resolution detection (primary method)
+#   xdpyinfo      — screen resolution detection (fallback)
+#   dbus-launch   — D-Bus session fallback for GNOME wallpaper setter
+#   pip           — needed to install Python packages
+#
+# Package names by distro:
+#   apt     dnf               pacman          zypper
+#   ───────────────────────────────────────────────────
+#   python3-tk   python3-tkinter   tk              python3-tk
+#   x11-xserver-utils  xorg-x11-utils  xorg-xrandr     xrandr
+#   x11-utils    xorg-x11-utils  xorg-xdpyinfo   xdpyinfo
+#   dbus-x11     dbus-x11        dbus            dbus-1-x11
+#   python3-pip  python3-pip     python-pip      python3-pip
+
+install_system_deps() {
+  if [[ "$OS" == "Darwin" ]]; then
+    # macOS uses system_profiler + osascript — xrandr/dbus not applicable.
+    # tkinter ships with brew python. Nothing extra required.
+    ok "macOS — system deps satisfied by OS."
+    return
+  fi
+
+  # ── pip ───────────────────────────────────────────────────────────────────
+  if "$PYTHON_CMD" -m pip --version &>/dev/null; then
+    ok "pip found."
+  else
+    step "pip not found — installing ..."
+    pm_install "python3-pip" "python3-pip" "python-pip" "python3-pip" \
+      && ok "pip installed." \
+      || abort "pip could not be installed. Run: sudo <pm> install python3-pip"
+  fi
+
+  # ── tkinter ───────────────────────────────────────────────────────────────
+  if "$PYTHON_CMD" -c "import tkinter" &>/dev/null; then
+    ok "tkinter found."
+  else
+    step "tkinter not found — installing ..."
+    pm_install "python3-tk" "python3-tkinter" "tk" "python3-tk" \
+      && ok "tkinter installed." \
+      || skip "tkinter install failed — GUI will be unavailable."
+  fi
+
+  # ── xrandr ────────────────────────────────────────────────────────────────
+  if command -v xrandr &>/dev/null; then
+    ok "xrandr found."
+  else
+    step "xrandr not found — installing ..."
+    pm_install "x11-xserver-utils" "xorg-x11-utils" "xorg-xrandr" "xrandr" \
+      && ok "xrandr installed." \
+      || skip "xrandr install failed — resolution detection may fall back to defaults."
+  fi
+
+  # ── xdpyinfo ──────────────────────────────────────────────────────────────
+  if command -v xdpyinfo &>/dev/null; then
+    ok "xdpyinfo found."
+  else
+    step "xdpyinfo not found — installing ..."
+    pm_install "x11-utils" "xorg-x11-utils" "xorg-xdpyinfo" "xdpyinfo" \
+      && ok "xdpyinfo installed." \
+      || skip "xdpyinfo install failed — resolution detection may fall back to defaults."
+  fi
+
+  # ── dbus-launch ───────────────────────────────────────────────────────────
+  if command -v dbus-launch &>/dev/null; then
+    ok "dbus-launch found."
+  else
+    step "dbus-launch not found — installing ..."
+    pm_install "dbus-x11" "dbus-x11" "dbus" "dbus-1-x11" \
+      && ok "dbus-launch installed." \
+      || skip "dbus-launch install failed — wallpaper setter may require an active D-Bus session."
+  fi
+}
+
+# ── Python package deps ───────────────────────────────────────────────────────
+install_python_deps() {
+  step "Checking Python deps (requests, tqdm) ..."
+  local MISSING=()
+  for pkg in requests tqdm; do
+    "$PYTHON_CMD" -m pip show "$pkg" &>/dev/null || MISSING+=("$pkg")
+  done
+  if [[ ${#MISSING[@]} -eq 0 ]]; then
+    ok "Python deps already installed."
+    return
+  fi
+  step "Installing: ${MISSING[*]} ..."
+  "$PYTHON_CMD" -m pip install --quiet "${MISSING[@]}" \
+    || abort "pip install failed. Run manually: pip install ${MISSING[*]}"
+  ok "Python deps installed."
 }
 
 # ── Clone / update ────────────────────────────────────────────────────────────
 get_wallpimp() {
   if [[ -d "${INSTALL_DIR}/.git" ]]; then
     skip "Repo already present — pulling latest ..."
-    git -C "$INSTALL_DIR" pull --quiet 2>/dev/null || skip "Pull failed — continuing with existing files."
+    git -C "$INSTALL_DIR" pull --quiet 2>/dev/null \
+      || skip "Pull failed — continuing with existing files."
     ok "Repository up to date."
   else
     step "Cloning wallpimp into ${INSTALL_DIR} ..."
@@ -257,10 +338,9 @@ build_engine() {
   local SRC_DIR="${INSTALL_DIR}/src"
 
   if [[ -x "$ENGINE" ]]; then
-    # Rebuild only if any .go source is newer than the binary
     local REBUILD=0
     while IFS= read -r -d '' f; do
-      if [[ "$f" -nt "$ENGINE" ]]; then REBUILD=1; break; fi
+      [[ "$f" -nt "$ENGINE" ]] && { REBUILD=1; break; }
     done < <(find "$SRC_DIR" -name "*.go" -print0 2>/dev/null)
     if [[ "$REBUILD" -eq 0 ]]; then
       skip "Go engine already built and up to date."
@@ -278,49 +358,14 @@ build_engine() {
   ok "Engine built: wallpimp-engine"
 }
 
-# ── Python deps ───────────────────────────────────────────────────────────────
-install_python_deps() {
-  step "Checking Python deps (requests, tqdm) ..."
-  local MISSING=()
-  for pkg in requests tqdm; do
-    "$PYTHON_CMD" -m pip show "$pkg" &>/dev/null || MISSING+=("$pkg")
-  done
-  if [[ ${#MISSING[@]} -eq 0 ]]; then
-    ok "Python deps already installed."
-    return
-  fi
-  step "Installing: ${MISSING[*]} ..."
-  "$PYTHON_CMD" -m pip install --quiet "${MISSING[@]}" \
-    || abort "pip install failed. Run manually: pip install ${MISSING[*]}"
-  ok "Python deps installed."
-}
-
-# ── tkinter check ─────────────────────────────────────────────────────────────
-has_tkinter() {
-  "$PYTHON_CMD" -c "import tkinter" &>/dev/null
-}
-
-tkinter_install_hint() {
-  case "$PM" in
-    apt-get) echo "sudo apt-get install python3-tk" ;;
-    dnf)     echo "sudo dnf install python3-tkinter" ;;
-    pacman)  echo "sudo pacman -S tk" ;;
-    zypper)  echo "sudo zypper install python3-tk" ;;
-    *)
-      if [[ "$OS" == "Darwin" ]]; then echo "brew install python-tk"
-      else echo "Install python3-tk via your package manager"; fi ;;
-  esac
-}
-
-# ── GUI script check ──────────────────────────────────────────────────────────
-has_gui_script() {
-  [[ -f "${INSTALL_DIR}/wallpimp_gui.py" ]]
-}
+# ── GUI checks ────────────────────────────────────────────────────────────────
+has_tkinter()    { "$PYTHON_CMD" -c "import tkinter" &>/dev/null; }
+has_gui_script() { [[ -f "${INSTALL_DIR}/wallpimp_gui.py" ]]; }
 
 fetch_gui_script() {
   step "Fetching wallpimp_gui.py ..."
-  local URL="https://raw.githubusercontent.com/0xb0rn3/wallpimp/main/wallpimp_gui.py"
-  curl -fsSL "$URL" -o "${INSTALL_DIR}/wallpimp_gui.py" &>/dev/null \
+  curl -fsSL "https://raw.githubusercontent.com/0xb0rn3/wallpimp/main/wallpimp_gui.py" \
+    -o "${INSTALL_DIR}/wallpimp_gui.py" &>/dev/null \
     && ok "wallpimp_gui.py downloaded." \
     || { skip "Could not fetch wallpimp_gui.py — GUI option unavailable."; return 1; }
 }
@@ -328,30 +373,18 @@ fetch_gui_script() {
 # ── Launch chooser ────────────────────────────────────────────────────────────
 launch_chooser() {
   local GUI_OK=0
-  local HINT=""
 
   has_gui_script || fetch_gui_script || true
+  has_tkinter && has_gui_script && GUI_OK=1
 
-  if has_tkinter && has_gui_script; then
-    GUI_OK=1
-  fi
-
-  # ── Flag overrides ──────────────────────────────────────────────────────
+  # Flag overrides
   if [[ "$FORCE_GUI" -eq 1 ]]; then
-    if [[ "$GUI_OK" -eq 1 ]]; then
-      launch_gui
-    else
-      fail "--gui requested but tkinter or wallpimp_gui.py is missing."
-      [[ -n "$(tkinter_install_hint)" ]] && info "Fix: $(tkinter_install_hint)"
-      exit 1
-    fi
+    [[ "$GUI_OK" -eq 1 ]] || abort "--gui requested but tkinter or wallpimp_gui.py is missing."
+    launch_gui
   fi
+  [[ "$FORCE_CLI" -eq 1 ]] && launch_cli
 
-  if [[ "$FORCE_CLI" -eq 1 ]]; then
-    launch_cli
-  fi
-
-  # ── Interactive ─────────────────────────────────────────────────────────
+  # Interactive prompt
   spacer
   printf "  %s\n" "$(printf '─%.0s' {1..65})"
   printf "  ${BD}How would you like to launch WallPimp?${RS}\n"
@@ -361,22 +394,15 @@ launch_chooser() {
   if [[ "$GUI_OK" -eq 1 ]]; then
     printf "    ${CY}i)${RS}   Launch GUI  — graphical interface\n"
   else
-    printf "    ${DM}i)   Launch GUI  — unavailable${RS}\n"
-    HINT="$(tkinter_install_hint)"
-    if ! has_tkinter; then
-      printf "    ${DM}     tkinter missing → %s${RS}\n" "$HINT"
-    elif ! has_gui_script; then
-      printf "    ${DM}     wallpimp_gui.py not found in ${INSTALL_DIR}${RS}\n"
-    fi
+    printf "    ${DM}i)   Launch GUI  — unavailable (tkinter missing)${RS}\n"
   fi
-
   printf "   ${GR}ii)${RS}   Stay on CLI — classic terminal UI\n"
   spacer
 
   local CHOICE=""
   while true; do
     read -rp "  Enter choice [i / ii]: " CHOICE </dev/tty
-    CHOICE="${CHOICE,,}"   # lowercase
+    CHOICE="${CHOICE,,}"
     case "$CHOICE" in
       i|1|gui)
         if [[ "$GUI_OK" -eq 1 ]]; then launch_gui
@@ -434,6 +460,12 @@ assert_curl
 assert_python
 assert_go
 assert_git
+
+spacer
+echo "  Installing system dependencies ..."
+spacer
+
+install_system_deps
 
 spacer
 echo "  Setting up WallPimp ..."
