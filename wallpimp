@@ -1,0 +1,1053 @@
+#!/usr/bin/env python3
+# wallpimp – Wallpaper Manager  (Linux · macOS · Windows)
+# Developer : 0xb0rn3  |  oxbv1@proton.me  |  github.com/0xb0rn3/wallpimp
+
+import os, sys, json, re, hashlib, threading, signal, time, shutil
+import subprocess, urllib.parse, zipfile, tempfile, struct, base64
+from collections import deque
+from pathlib import Path
+from typing import Optional, Tuple, List, Dict, Any
+
+def _ensure_deps():
+    missing = []
+    for pkg in ("requests", "tqdm"):
+        try: __import__(pkg)
+        except ImportError: missing.append(pkg)
+    if missing:
+        pip_args = [] if sys.platform == "win32" else ["--break-system-packages"]
+        subprocess.check_call(
+            [sys.executable,"-m","pip","install"]+pip_args+missing,
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+_ensure_deps()
+
+import requests
+from tqdm import tqdm
+
+# ── platform ──────────────────────────────────────────────────────────────────
+import platform as _platform_mod
+_OS = ("windows" if sys.platform == "win32"
+       else "macos" if sys.platform == "darwin"
+       else "linux")
+
+# ── paths (platform-aware) ───────────────────────────────────────────────────
+if _OS == "windows":
+    _CFG_DIR = Path(os.environ.get("APPDATA", Path.home())) / "wallpimp"
+elif _OS == "macos":
+    _CFG_DIR = Path.home() / "Library" / "Application Support" / "wallpimp"
+else:
+    _CFG_DIR = Path.home() / ".config" / "wallpimp"
+_CFG_FILE     = _CFG_DIR / "config.json"
+_HASH_DB      = _CFG_DIR / "hashes.json"
+_SESSION_ENV  = _CFG_DIR / "session.env"
+# Linux systemd paths
+_SVC_DIR      = Path.home() / ".config" / "systemd" / "user"
+_SVC_FILE     = _SVC_DIR / "wallpimp-slideshow.service"
+_LEGACY_TIMER = _SVC_DIR / "wallpimp-slideshow.timer"
+# macOS launchd
+_PLIST_DIR    = Path.home() / "Library" / "LaunchAgents"
+_PLIST_FILE   = _PLIST_DIR / "com.wallpimp.slideshow.plist"
+# Windows Task Scheduler name
+_WIN_TASK     = "WallPimp Slideshow"
+
+_DEFAULT_CFG = {
+    "wallpaper_dir":      str(Path.home()/"Pictures"/"Wallpapers"),
+    "slideshow_interval": 300,
+    "download_workers":   8,
+}
+
+# (slug, owner, repo, branch_hint, subdir)
+_BUILTIN_REPOS = [
+    ("dharmx-walls",          "dharmx",         "walls",                None,     None),
+    ("frenzyexists",          "FrenzyExists",    "wallpapers",           None,     None),
+    ("michaelscopic",         "michaelScopic",   "Wallpapers",           None,     None),
+    ("dreamer-paul-anime",    "Dreamer-Paul",    "Anime-Wallpaper",      None,     None),
+    ("pollux78-linuxnext",    "pollux78",        "linuxnext-wallpapers", None,     None),
+    ("samyc2002-anime",       "Samyc2002",       "Anime-Wallpapers",     None,     None),
+    ("logicyugi-bgs",         "logicyugi",       "Backgrounds",          None,     None),
+    ("lukepeetoom-anime",     "LukePeetoom",     "anime_wallpapers",     None,     None),
+    ("k1ng440-walls",         "k1ng440",         "Wallpapers",           "master", "wallpapers"),
+    ("port19x-walls",         "port19x",         "Wallpapers",           None,     None),
+    ("lordofhunger-walls",    "lordofhunger",    "wallpapers",           "master", "wallpapers"),
+    ("rubens-shoji-walls",    "rubens-shoji",    "wallpapers",           None,     None),
+    ("hentaicoder-anime",     "HENTAI-CODER",    "Anime-Wallpaper",      "main",   "Wallpapers"),
+    ("chrollokyber-ghibli",   "ChrolloKyber",    "ghibli-wallpapers",    None,     None),
+    ("icepocket-walls",       "IcePocket",       "Wallpapers",           None,     None),
+    ("expandpi-walls",        "expandpi",        "wallpapers",           None,     None),
+    ("kaikselhorst-walls",    "KaikSelhorst",    "wallpaper-pack",       None,     None),
+    ("ankitvashisht12-walls", "ankitvashisht12", "wallpapers",           None,     None),
+    ("erickmartin890-anime",  "erickmartin890",  "Anime-Wallpapers",     None,     None),
+]
+
+# ── obfuscated credentials ───────────────────────────────────────────────────
+_A = b"\x4f\x71\x23\x98\x5c\x11\xae\x77\x3d\xe2\x09\xb4\x66\x2f\x81\xc5"
+_B = "NT8RxzMnzxJYl03B"
+_C = "VEnGvA5ccNMQdJ8f"
+_D = "V5g78jYasKMsFWrIOF7tL1m4RA=="
+def _r():
+    raw = base64.b64decode((_B+_C+_D).encode())
+    return bytes(b^_A[i%len(_A)] for i,b in enumerate(raw)).decode()
+_E = "dkESr2sm"
+def _aid():
+    raw = base64.b64decode(_E.encode())
+    return bytes(b^_A[i%len(_A)] for i,b in enumerate(raw)).decode()
+_F = "JwVX6C8rgVhckmCaE0HytSMQUPBycsEa"
+_G = "OgVOxy9+2wVehzTDB0PttSYcU74pZcMoUIdt3RNCvLcqF0bqLnDC"
+def _ep():
+    return bytes(b^_A[i%len(_A)] for i,b in enumerate(base64.b64decode(_F.encode()))).decode()
+def _utm():
+    return bytes(b^_A[i%len(_A)] for i,b in enumerate(base64.b64decode(_G.encode()))).decode()
+
+# ── config ───────────────────────────────────────────────────────────────────
+def load_config():
+    if _CFG_FILE.exists():
+        try:
+            cfg = json.loads(_CFG_FILE.read_text())
+            for k,v in _DEFAULT_CFG.items(): cfg.setdefault(k,v)
+            return cfg
+        except Exception: pass
+    return dict(_DEFAULT_CFG)
+
+def save_config(cfg):
+    _CFG_DIR.mkdir(parents=True,exist_ok=True)
+    _CFG_FILE.write_text(json.dumps(cfg,indent=2))
+
+# ── hash db ──────────────────────────────────────────────────────────────────
+def load_hashes():
+    if _HASH_DB.exists():
+        try: return json.loads(_HASH_DB.read_text())
+        except Exception: pass
+    return {}
+
+def save_hashes(db):
+    _CFG_DIR.mkdir(parents=True,exist_ok=True)
+    _HASH_DB.write_text(json.dumps(db,indent=2))
+
+def md5_of(data): return hashlib.md5(data).hexdigest()
+
+def cleanup_hashes(db):
+    removed = [h for h,p in list(db.items()) if not Path(p).exists()]
+    for h in removed: del db[h]
+    save_hashes(db); return len(removed)
+
+# ── colours / UI ─────────────────────────────────────────────────────────────
+_CYAN="\033[96m"; _BOLD="\033[1m"; _DIM="\033[2m"; _RESET="\033[0m"
+_GREEN="\033[92m"; _RED="\033[91m"; _YLW="\033[93m"
+
+def clear(): os.system("cls" if _OS == "windows" else "clear")
+
+def print_header():
+    clear()
+    print(f"{_CYAN}{_BOLD}")
+    print("  \u2588\u2588\u2557    \u2588\u2588\u2557 \u2588\u2588\u2588\u2588\u2588\u2557\u2588\u2588\u2557     \u2588\u2588\u2557     \u2588\u2588\u2588\u2588\u2588\u2588\u2557 \u2588\u2588\u2557\u2588\u2588\u2588\u2557   \u2588\u2588\u2588\u2557\u2588\u2588\u2588\u2588\u2588\u2588\u2557 ")
+    print("  \u2588\u2588\u2551    \u2588\u2588\u2551\u2588\u2588\u2554\u2550\u2550\u2588\u2588\u2557\u2588\u2588\u2551     \u2588\u2588\u2551     \u2588\u2588\u2554\u2550\u2550\u2588\u2588\u2557\u2588\u2588\u2551\u2588\u2588\u2588\u2588\u2557 \u2588\u2588\u2588\u2588\u2551\u2588\u2588\u2554\u2550\u2550\u2588\u2588\u2557")
+    print("  \u2588\u2588\u2551 \u2588\u2557 \u2588\u2588\u2551\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2551\u2588\u2588\u2551     \u2588\u2588\u2551     \u2588\u2588\u2588\u2588\u2588\u2588\u2554\u255d\u2588\u2588\u2551\u2588\u2588\u2554\u2588\u2588\u2588\u2588\u2554\u2588\u2588\u2551\u2588\u2588\u2588\u2588\u2588\u2588\u2554\u255d")
+    print("  \u2588\u2588\u2551\u2588\u2588\u2588\u2557\u2588\u2588\u2551\u2588\u2588\u2554\u2550\u2550\u2588\u2588\u2551\u2588\u2588\u2551     \u2588\u2588\u2551     \u2588\u2588\u2554\u2550\u2550\u2550\u255d \u2588\u2588\u2551\u2588\u2588\u2551\u2554\u2588\u2588\u2554\u255d\u2588\u2588\u2551\u2588\u2588\u2554\u2550\u2550\u2550\u255d ")
+    print("  \u255a\u2588\u2588\u2588\u2554\u2588\u2588\u2588\u2554\u255d\u2588\u2588\u2551  \u2588\u2588\u2551\u2588\u2588\u2588\u2588\u2588\u2588\u2557\u2588\u2588\u2588\u2588\u2588\u2588\u2557\u2588\u2588\u2551     \u2588\u2588\u2551\u2588\u2588\u2551 \u255a\u2550\u255d \u2588\u2588\u2551\u2588\u2588\u2551     ")
+    print("   \u255a\u2550\u2550\u255d\u255a\u2550\u2550\u255d \u255a\u2550\u255d  \u255a\u2550\u255d\u255a\u2550\u2550\u2550\u2550\u2550\u255d\u255a\u2550\u2550\u2550\u2550\u2550\u255d\u255a\u2550\u255d     \u255a\u2550\u255d\u255a\u2550\u255d     \u255a\u2550\u255d\u255a\u2550\u255d     ")
+    print(f"{_RESET}{_DIM}  Wallpaper Manager  \xb7  github.com/0xb0rn3/wallpimp{_RESET}\n")
+
+def spinner(label,fn,*args,**kwargs):
+    frames=["⠋","⠙","⠹","⠸","⠼","⠴","⠦","⠧","⠇","⠏"]
+    result=[None]; done=threading.Event(); err=[None]
+    def target():
+        try: result[0]=fn(*args,**kwargs)
+        except Exception as e: err[0]=e
+        finally: done.set()
+    t=threading.Thread(target=target,daemon=True); t.start()
+    i=0
+    while not done.is_set():
+        print(f"\r  {_CYAN}{frames[i%len(frames)]}{_RESET} {label}",end="",flush=True)
+        time.sleep(0.08); i+=1
+    print(f"\r  {_GREEN}\u2713{_RESET} {label}{'  ':5}")
+    if err[0]: raise err[0]
+    return result[0]
+
+def _prompt_change_dir(current):
+    print(f"\n  {_DIM}Save directory:{_RESET} {current}")
+    v=input("  Change? [Enter to keep, or type new path]: ").strip()
+    if not v: return current
+    new=Path(v).expanduser().resolve()
+    if not _ensure_dir(new):
+        print(f"  {_RED}Could not create:{_RESET} {new}  \u2013 keeping original")
+        return current
+    print(f"  {_GREEN}\u2713{_RESET} Saving to: {new}")
+    return new
+
+# ── DE / screen ───────────────────────────────────────────────────────────────
+def detect_de():
+    de=(os.environ.get("XDG_CURRENT_DESKTOP","")\
+        or os.environ.get("DESKTOP_SESSION","")).lower()
+    if "gnome" in de: return "gnome"
+    if "xfce"  in de: return "xfce"
+    return de or "unknown"
+
+def screen_resolution():
+    # Windows
+    if _OS == "windows":
+        try:
+            import ctypes
+            u = ctypes.windll.user32
+            return u.GetSystemMetrics(0), u.GetSystemMetrics(1)
+        except Exception: pass
+    # macOS
+    if _OS == "macos":
+        try:
+            out = subprocess.check_output(
+                ["system_profiler","SPDisplaysDataType"],
+                stderr=subprocess.DEVNULL, text=True)
+            m = re.search(r"Resolution:\s*(\d+)\s*x\s*(\d+)", out)
+            if m: return int(m.group(1)), int(m.group(2))
+        except Exception: pass
+        try:
+            sc = 'tell application "Finder" to get bounds of window of desktop'
+            out = subprocess.check_output(["osascript","-e",sc],
+                                          stderr=subprocess.DEVNULL, text=True).strip()
+            parts = out.split(",")
+            if len(parts) == 4:
+                return int(parts[2].strip()), int(parts[3].strip())
+        except Exception: pass
+    # Linux – xrandr / framebuffer / xdpyinfo
+    try:
+        out=subprocess.check_output(["xrandr","--current"],stderr=subprocess.DEVNULL,text=True)
+        hits=re.findall(r"connected.*?(\d{3,5})x(\d{3,5})\+",out)
+        if hits:
+            best=max(hits,key=lambda m:int(m[0])*int(m[1]))
+            return int(best[0]),int(best[1])
+    except Exception: pass
+    try:
+        v=Path("/sys/class/graphics/fb0/virtual_size").read_text().strip()
+        w,h=v.split(","); return int(w),int(h)
+    except Exception: pass
+    try:
+        out=subprocess.check_output(["xdpyinfo"],stderr=subprocess.DEVNULL,text=True)
+        m=re.search(r"dimensions:\s+(\d+)x(\d+)",out)
+        if m: return int(m.group(1)),int(m.group(2))
+    except Exception: pass
+    return 1920,1080
+
+# ── wallpaper setters ─────────────────────────────────────────────────────────
+def set_wallpaper_windows(path):
+    try:
+        import ctypes
+        SPI_SETDESKWALLPAPER = 20
+        SPIF_UPDATEINIFILE   = 1
+        SPIF_SENDCHANGE      = 2
+        ok = ctypes.windll.user32.SystemParametersInfoW(
+            SPI_SETDESKWALLPAPER, 0, str(path),
+            SPIF_UPDATEINIFILE | SPIF_SENDCHANGE)
+        return bool(ok)
+    except Exception: return False
+
+def set_wallpaper_macos(path):
+    script = (
+        'tell application "System Events"\n'
+        '  tell every desktop\n'
+        f'    set picture to "{path}"\n'
+        '  end tell\n'
+        'end tell'
+    )
+    try:
+        subprocess.run(["osascript","-e",script],
+                       capture_output=True, check=True)
+        return True
+    except Exception: return False
+
+def _dbus_env():
+    env=dict(os.environ)
+    if _SESSION_ENV.exists():
+        for line in _SESSION_ENV.read_text().splitlines():
+            if "=" in line:
+                k,_,v=line.partition("="); env[k.strip()]=v.strip()
+    if "DBUS_SESSION_BUS_ADDRESS" not in env:
+        sock=Path(f"/run/user/{os.getuid()}/bus")
+        if sock.exists(): env["DBUS_SESSION_BUS_ADDRESS"]=f"unix:path={sock}"
+    return env
+
+def set_wallpaper_gnome(path):
+    uri=f"file://{path}"; env=_dbus_env()
+    cmds=[["gsettings","set","org.gnome.desktop.background","picture-uri",uri],
+          ["gsettings","set","org.gnome.desktop.background","picture-uri-dark",uri]]
+    ok=True
+    for cmd in cmds:
+        try:
+            r=subprocess.run(cmd,env=env,capture_output=True)
+            if r.returncode!=0:
+                subprocess.run(["dbus-launch","--exit-with-session"]+cmd,env=env,capture_output=True)
+        except Exception: ok=False
+    return ok
+
+def set_wallpaper_xfce(path):
+    env=_dbus_env()
+    try:
+        monitors=subprocess.check_output(["xrandr","--listmonitors"],stderr=subprocess.DEVNULL,text=True)
+        mon_names=re.findall(r"\d+:\s+\S+\s+(\S+)",monitors)
+    except Exception: mon_names=["HDMI-1","eDP-1","VGA-1"]
+    props=[]
+    for mon in mon_names:
+        for ws in range(10): props.append(f"/backdrop/screen0/monitor{mon}/workspace{ws}/last-image")
+    props.append("/backdrop/screen0/monitor0/image-path")
+    ok=True
+    for prop in props:
+        try: subprocess.run(["xfconf-query","-c","xfce4-desktop","-p",prop,"-s",path],env=env,capture_output=True)
+        except Exception: ok=False
+    return ok
+
+def set_wallpaper(path):
+    if _OS == "windows": return set_wallpaper_windows(path)
+    if _OS == "macos":   return set_wallpaper_macos(path)
+    de = detect_de()
+    if de == "gnome": return set_wallpaper_gnome(path)
+    if de == "xfce":  return set_wallpaper_xfce(path)
+    return False
+
+# ── dir helpers ───────────────────────────────────────────────────────────────
+_IMG_EXTS={".jpg",".jpeg",".png",".webp",".gif",".bmp",".tiff"}
+
+def _img_files_in(folder):
+    return [p for p in folder.rglob("*") if p.suffix.lower() in _IMG_EXTS]
+
+def _sudo_mkdir(path):
+    """Elevate via sudo (Linux/macOS) to create a root-owned directory."""
+    print(f"  {_YLW}Directory requires elevated access:{_RESET} {path}")
+    print(f"  Requesting privileges via sudo \u2026")
+    try:
+        r = subprocess.run(["sudo","mkdir","-p",str(path)])
+        if r.returncode != 0: return False
+        subprocess.run(["sudo","chown","-R",
+                        f"{os.getuid()}:{os.getgid()}",str(path)])
+        return True
+    except FileNotFoundError:
+        print(f"  {_RED}sudo not found.{_RESET} Run as root or change directory.")
+        return False
+    except Exception as e:
+        print(f"  {_RED}sudo failed:{_RESET} {e}"); return False
+
+def _win_mkdir(path):
+    """On Windows prompt to run as Administrator or pick a different path."""
+    print(f"  {_YLW}Permission denied:{_RESET} {path}")
+    print(f"  On Windows, either:")
+    print(f"    a) Run wallpimp as Administrator")
+    print(f"    b) Choose a directory you own (e.g. C:\\Users\\you\\Pictures)")
+    return False
+
+def _ensure_dir(path):
+    try:
+        path.mkdir(parents=True, exist_ok=True); return True
+    except PermissionError:
+        if _OS == "windows": return _win_mkdir(path)
+        return _sudo_mkdir(path)
+
+# ── GitHub downloader ─────────────────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════════════════════
+#  Go engine bridge
+#  Spawns wallpimp-engine binary on first use, communicates over Unix socket.
+# ══════════════════════════════════════════════════════════════════════════════
+
+import socket as _socket
+import subprocess as _subprocess
+
+_IMG_EXTS = {".jpg",".jpeg",".png",".webp",".gif",".bmp",".tiff"}
+
+# ── Engine process manager ────────────────────────────────────────────────────
+
+class _Engine:
+    """
+    Persistent connection to the Go engine.
+    The engine binary is auto-located alongside this script or on PATH.
+    """
+    _instance = None
+    _lock     = threading.Lock()
+
+    def __init__(self, hash_db_path: str, workers: int):
+        self._proc    = None
+        self._sock    = None
+        self._fobj    = None
+        self._mu      = threading.Lock()
+        self._hash_db = hash_db_path
+        self._workers = workers
+        self._connect()
+
+    # ── locate binary ─────────────────────────────────────────────────────────
+    @staticmethod
+    def _find_binary():
+        name = "wallpimp-engine.exe" if _OS == "windows" else "wallpimp-engine"
+        candidates = [
+            Path(sys.argv[0]).resolve().parent / name,
+            Path(shutil.which(name) or ""),
+        ]
+        for c in candidates:
+            if c.exists():
+                return str(c)
+        return None
+
+    # ── start + connect ────────────────────────────────────────────────────────
+    def _connect(self):
+        binary = self._find_binary()
+        if not binary:
+            raise FileNotFoundError(
+                "wallpimp-engine binary not found.\n"
+                "  Build it with:  cd wallpimp-engine && go build -o wallpimp-engine .\n"
+                "  Then place it next to this script."
+            )
+        # Spawn engine, read socket path from its first stdout line
+        self._proc = _subprocess.Popen(
+            [binary, self._hash_db, str(self._workers)],
+            stdout=_subprocess.PIPE,
+            stderr=_subprocess.DEVNULL,
+        )
+        sock_path = self._proc.stdout.readline().decode().strip()
+        if not sock_path:
+            raise RuntimeError("Engine did not report socket path.")
+        # Brief wait for socket to become available
+        for _ in range(50):
+            if Path(sock_path).exists():
+                break
+            time.sleep(0.05)
+        raw = _socket.socket(_socket.AF_UNIX, _socket.SOCK_STREAM)
+        raw.connect(sock_path)
+        raw.settimeout(None)
+        self._sock = raw
+        self._fobj = raw.makefile("r", encoding="utf-8")
+
+    # ── send / receive ────────────────────────────────────────────────────────
+    def send(self, cmd: dict) -> None:
+        with self._mu:
+            data = json.dumps(cmd) + "\n"
+            self._sock.sendall(data.encode())
+
+    def recv(self) -> dict:
+        line = self._fobj.readline()
+        if not line:
+            raise ConnectionError("Engine closed connection.")
+        return json.loads(line)
+
+    def rpc(self, cmd: dict) -> dict:
+        """Send a command and return all events until 'done', 'error', or 'bye'."""
+        self.send(cmd)
+        events = []
+        while True:
+            ev = self.recv()
+            events.append(ev)
+            if ev.get("event") in ("done", "error", "bye",
+                                   "pong", "scan_result",
+                                   "topics", "collections", "resolution"):
+                return ev
+        return events[-1]
+
+    def stream(self, cmd: dict, on_progress=None) -> dict:
+        """
+        Send a command and call on_progress(ev) for each 'progress' event.
+        Returns the final 'done' or 'error' event.
+        """
+        self.send(cmd)
+        while True:
+            ev = self.recv()
+            if ev.get("event") == "progress":
+                if on_progress:
+                    on_progress(ev)
+            elif ev.get("event") in ("done", "error"):
+                return ev
+
+    def shutdown(self):
+        try:
+            self.send({"cmd": "shutdown"})
+        except Exception:
+            pass
+        try:
+            self._sock.close()
+        except Exception:
+            pass
+        if self._proc:
+            self._proc.wait(timeout=3)
+
+# Engine singleton — created once per wallpimp session
+_engine: _Engine | None = None
+
+def _get_engine(cfg: dict) -> _Engine:
+    global _engine
+    if _engine is None:
+        _engine = _Engine(
+            hash_db_path=str(_HASH_DB),
+            workers=int(cfg.get("download_workers", 8)),
+        )
+    return _engine
+
+# ── Shared UI helpers ─────────────────────────────────────────────────────────
+
+def _stat_line(ev: dict, label: str) -> str:
+    n = ev.get("new",   ev.get("New",   0))
+    d = ev.get("dupes", ev.get("Dupes", 0))
+    e = ev.get("errors",ev.get("Errors",0))
+    err_s = f", {e} errors" if e else ""
+    return (f"  {_GREEN}\u2713{_RESET} {label}: "
+            f"{n} new, {d} dupes skipped{err_s}")
+
+def _paginate(current: int):
+    ans = input("  [n] next page  [q] stop: ").strip().lower()
+    return current + 1 if ans == "n" else None
+
+# ── Downloads menu ────────────────────────────────────────────────────────────
+
+def menu_downloads(cfg: dict) -> None:
+    wdir = Path(cfg["wallpaper_dir"])
+    try:
+        eng = _get_engine(cfg)
+    except FileNotFoundError as e:
+        print_header()
+        print(f"  {_RED}Go engine not found{_RESET}\n")
+        print(f"  {e}")
+        input("\n  Enter to go back \u2026")
+        return
+
+    while True:
+        print_header()
+        print("  \u2500\u2500 Download Wallpapers \u2500\u2500\n")
+        print(f"  Save to : {wdir}\n")
+        print("  1. Download full library")
+        print("  2. Download custom amount")
+        print("  c. Change save directory")
+        print("  0. Back\n")
+        ch = input("  \u203a ").strip().lower()
+
+        if ch == "0":
+            break
+
+        elif ch == "c":
+            new = _prompt_change_dir(wdir)
+            if new != wdir:
+                wdir = new
+                cfg["wallpaper_dir"] = str(wdir)
+                save_config(cfg)
+
+        elif ch in ("1", "2"):
+            print_header()
+            target = 0
+            if ch == "2":
+                print("  \u2500\u2500 Custom Amount Download \u2500\u2500\n")
+                print(f"  {_CYAN}Scanning sources \u2026{_RESET}", flush=True)
+                ev = eng.rpc({"cmd": "scan"})
+                avail = ev.get("total", 0)
+                if avail:
+                    print(f"  Available : {_GREEN}{avail:,}{_RESET} wallpapers\n")
+                else:
+                    print(f"  {_YLW}Could not determine exact count.{_RESET}\n")
+                    avail = 999_999
+                raw = input(f"  How many to download? [1-{avail:,}]: ").strip()
+                try:
+                    target = max(1, min(avail, int(raw)))
+                except ValueError:
+                    print("  Invalid number."); input("  Enter \u2026"); continue
+            else:
+                print("  \u2500\u2500 Full Library Download \u2500\u2500\n")
+                if input("  Start? [y/N]: ").strip().lower() != "y":
+                    continue
+
+            bar_width = 40
+            total_shown = target if target else 1
+
+            def on_prog(ev):
+                nonlocal total_shown
+                n = ev.get("new", 0) + ev.get("dupes", 0)
+                if target:
+                    pct = min(n / target, 1.0)
+                    filled = int(bar_width * pct)
+                    bar = "\u2588" * filled + "\u2591" * (bar_width - filled)
+                    print(f"\r  DOWNLOADING  {bar}  {n:,}/{target:,}", end="", flush=True)
+                else:
+                    bar = "\u2588" * (n % bar_width) + "\u2591" * (bar_width - n % bar_width)
+                    print(f"\r  DOWNLOADING  {bar}  {n:,}", end="", flush=True)
+
+            print()
+            ev = eng.stream(
+                {"cmd": "download",
+                 "wdir": str(wdir),
+                 "workers": int(cfg.get("download_workers", 8)),
+                 "target": target},
+                on_progress=on_prog,
+            )
+            print()  # newline after bar
+            n = ev.get("new", 0)
+            print(f"\n  {_GREEN}\u2713{_RESET} Done \u2014 {n:,} new wallpapers downloaded.")
+            input("\n  Enter to continue \u2026")
+
+# ── Unsplash menu ─────────────────────────────────────────────────────────────
+
+def menu_unsplash(cfg: dict) -> None:
+    try:
+        eng = _get_engine(cfg)
+    except FileNotFoundError as e:
+        print_header()
+        print(f"  {_RED}Go engine not found{_RESET}\n\n  {e}")
+        input("\n  Enter to go back \u2026")
+        return
+
+    # Get resolution from engine
+    res_ev   = eng.rpc({"cmd": "resolution"})
+    w, h     = res_ev.get("res_w", 1920), res_ev.get("res_h", 1080)
+    dl_w, dl_h = res_ev.get("dl_w", w), res_ev.get("dl_h", h)
+    workers  = int(cfg.get("download_workers", 8))
+    save_dir = Path(cfg["wallpaper_dir"])
+
+    while True:
+        print_header()
+        print(f"  \u2500\u2500 Unsplash  [{w}x{h} \u2192 {dl_w}x{dl_h}] \u2500\u2500\n")
+        print(f"  Save to : {save_dir}\n")
+        print("  1. Search by keyword")
+        print("  2. Browse topics")
+        print("  3. Browse curated collections")
+        print("  4. Random wallpapers")
+        print("  5. Change save directory")
+        print("  0. Back\n")
+        ch = input("  \u203a ").strip()
+
+        if ch == "5":
+            save_dir = _prompt_change_dir(save_dir); continue
+
+        elif ch == "1":
+            print_header(); print("  \u2500\u2500 Search by Keyword \u2500\u2500\n")
+            dest = _prompt_change_dir(save_dir / "unsplash" / "search")
+            q = input("  Query: ").strip()
+            if not q: continue
+            import re as _re
+            slug  = _re.sub(r"\W+","_",q.lower())[:30]
+            page  = 1; total_n = total_d = 0
+            while True:
+                print(f"\n  Searching '{q}' page {page} \u2026", flush=True)
+                ev = eng.stream(
+                    {"cmd":"search","query":q,"page":page,
+                     "dest":str(dest/slug),"workers":workers},
+                )
+                if ev.get("event") == "error":
+                    print(f"  {_RED}Error:{_RESET} {ev.get('msg')}"); break
+                total_n += ev.get("new",0); total_d += ev.get("dupes",0)
+                print(_stat_line(ev, f"page {page}"))
+                nxt = _paginate(page)
+                if nxt is None: break
+                page = nxt
+            print(f"\n  Total \u2192 {total_n} new, {total_d} dupes")
+            input("  Enter to continue \u2026")
+
+        elif ch == "2":
+            print_header(); print("  \u2500\u2500 Browse Topics \u2500\u2500\n")
+            dest = _prompt_change_dir(save_dir / "unsplash" / "topics")
+            ev = spinner("Fetching topics \u2026", eng.rpc, {"cmd":"topics"})
+            if ev.get("event") == "error":
+                print(f"  {_RED}{ev.get('msg')}{_RESET}"); input("  Enter \u2026"); continue
+            topics = ev.get("Topics") or ev.get("topics") or []
+            for i, t in enumerate(topics, 1):
+                print(f"  {i:>2}. {t.get('Title',t.get('title','')):<32} "
+                      f"({t.get('Total',t.get('total_photos',0)):,} photos)")
+            print()
+            pick = input(f"  Pick [1-{len(topics)}, q cancel]: ").strip()
+            if pick.lower() == "q": continue
+            try: topic = topics[int(pick)-1]
+            except (ValueError, IndexError): input("  Invalid. Enter \u2026"); continue
+            slug  = topic.get("Slug",topic.get("slug",""))
+            title = topic.get("Title",topic.get("title",""))
+            page  = 1; total_n = total_d = 0
+            while True:
+                print(f"\n  Topic '{title}' page {page} \u2026", flush=True)
+                ev = eng.stream(
+                    {"cmd":"topic_photos","slug":slug,"page":page,
+                     "dest":str(dest/slug),"workers":workers},
+                )
+                if ev.get("event") == "error":
+                    print(f"  {_RED}Error:{_RESET} {ev.get('msg')}"); break
+                total_n += ev.get("new",0); total_d += ev.get("dupes",0)
+                if ev.get("new",0)+ev.get("dupes",0) == 0:
+                    print("  No more results."); break
+                print(_stat_line(ev, f"page {page}"))
+                nxt = _paginate(page)
+                if nxt is None: break
+                page = nxt
+            print(f"\n  Total \u2192 {total_n} new, {total_d} dupes")
+            input("  Enter to continue \u2026")
+
+        elif ch == "3":
+            col_page = 1
+            while True:
+                print_header(); print("  \u2500\u2500 Curated Collections \u2500\u2500\n")
+                dest = _prompt_change_dir(save_dir / "unsplash" / "collections")
+                ev = spinner(f"Fetching collections (p{col_page}) \u2026",
+                             eng.rpc, {"cmd":"collections","page":col_page})
+                if ev.get("event") == "error":
+                    print(f"  {_RED}{ev.get('msg')}{_RESET}"); input("  Enter \u2026"); break
+                cols = ev.get("Cols") or ev.get("cols") or []
+                if not cols: print("  No more collections."); input("  Enter \u2026"); break
+                for i, c in enumerate(cols, 1):
+                    print(f"  {i:>2}. {c.get('Title',c.get('title','')):<40} "
+                          f"({c.get('Total',c.get('total_photos',0)):,})")
+                print()
+                pick = input(f"  Pick [1-{len(cols)}]  [n] more  [q] back: ").strip().lower()
+                if pick == "q": break
+                if pick == "n": col_page += 1; continue
+                try: col = cols[int(pick)-1]
+                except (ValueError, IndexError): continue
+                import re as _re
+                col_title = col.get("Title", col.get("title",""))
+                col_id    = str(col.get("ID", col.get("id","")))
+                slug      = _re.sub(r"\W+","_",col_title.lower())[:30]
+                page  = 1; total_n = total_d = 0
+                while True:
+                    print(f"\n  '{col_title}' page {page} \u2026", flush=True)
+                    ev = eng.stream(
+                        {"cmd":"col_photos","col_id":col_id,"page":page,
+                         "dest":str(dest/slug),"workers":workers},
+                    )
+                    if ev.get("event") == "error":
+                        print(f"  {_RED}Error:{_RESET} {ev.get('msg')}"); break
+                    total_n += ev.get("new",0); total_d += ev.get("dupes",0)
+                    if ev.get("new",0)+ev.get("dupes",0) == 0:
+                        print("  No more photos."); break
+                    print(_stat_line(ev, f"page {page}"))
+                    nxt = _paginate(page)
+                    if nxt is None: break
+                    page = nxt
+                print(f"\n  Total \u2192 {total_n} new, {total_d} dupes")
+                input("  Enter to continue \u2026"); break
+
+        elif ch == "4":
+            print_header(); print("  \u2500\u2500 Random Wallpapers \u2500\u2500\n")
+            dest = _prompt_change_dir(save_dir / "unsplash" / "random")
+            n_s  = input("  How many? [1-30, default 15]: ").strip()
+            try:    n = max(1, min(30, int(n_s)))
+            except: n = 15
+            print(f"\n  Fetching {n} random photos \u2026", flush=True)
+            ev = eng.stream(
+                {"cmd":"random","count":n,"dest":str(dest),"workers":workers},
+            )
+            if ev.get("event") == "error":
+                print(f"  {_RED}Error:{_RESET} {ev.get('msg')}")
+            else:
+                print(_stat_line(ev, "random"))
+            input("  Enter to continue \u2026")
+
+        elif ch == "0":
+            break
+
+# ── slideshow daemon ──────────────────────────────────────────────────────────
+def _all_wallpapers(wallpaper_dir):
+    return [p for p in wallpaper_dir.rglob("*") if p.suffix.lower() in _IMG_EXTS]
+
+def run_daemon(cfg):
+    import random
+    wdir=Path(cfg["wallpaper_dir"]); interval=int(cfg.get("slideshow_interval",300))
+    stop=threading.Event()
+    def _sig(sig,frame): stop.set()
+    signal.signal(signal.SIGINT,_sig); signal.signal(signal.SIGTERM,_sig)
+    print(f"[wallpimp] Daemon started. Interval: {interval}s",file=sys.stderr)
+    while not stop.is_set():
+        walls=_all_wallpapers(wdir)
+        if not walls:
+            print("[wallpimp] No wallpapers found. Waiting 30s \u2026",file=sys.stderr)
+            stop.wait(30); continue
+        random.shuffle(walls)
+        for wall in walls:
+            if stop.is_set(): break
+            print(f"[wallpimp {time.strftime('%H:%M:%S')}] Set: {wall.name}",file=sys.stderr)
+            set_wallpaper(str(wall))
+            for _ in range(interval):
+                if stop.is_set(): break
+                time.sleep(1)
+    print("[wallpimp] Daemon stopped.",file=sys.stderr)
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  Slideshow service management  (Linux: systemd | macOS: launchd | Windows: Task Scheduler)
+# ══════════════════════════════════════════════════════════════════════════════
+
+# ── Linux / systemd ───────────────────────────────────────────────────────────
+_SVC_UNIT="""\
+[Unit]
+Description=WallPimp Slideshow
+PartOf=graphical-session.target
+After=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart={exe} --daemon
+EnvironmentFile={env_file}
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=graphical-session.target
+"""
+
+def _write_unit():
+    _SVC_DIR.mkdir(parents=True,exist_ok=True)
+    _SVC_FILE.write_text(_SVC_UNIT.format(exe=Path(sys.argv[0]).resolve(),env_file=_SESSION_ENV))
+    subprocess.run(["systemctl","--user","daemon-reload"],capture_output=True)
+    if _LEGACY_TIMER.exists():
+        subprocess.run(["systemctl","--user","disable","--now","wallpimp-slideshow.timer"],capture_output=True)
+        _LEGACY_TIMER.unlink(missing_ok=True)
+
+def _svc(cmd):
+    return subprocess.run(["systemctl","--user",cmd,"wallpimp-slideshow.service"],capture_output=True,text=True)
+
+def _save_session_env():
+    keys=["DISPLAY","WAYLAND_DISPLAY","DBUS_SESSION_BUS_ADDRESS","XDG_RUNTIME_DIR","XDG_CURRENT_DESKTOP","XDG_SESSION_TYPE"]
+    lines=[f"{k}={os.environ[k]}" for k in keys if k in os.environ]
+    _CFG_DIR.mkdir(parents=True,exist_ok=True)
+    _SESSION_ENV.write_text("\n".join(lines)+"\n"); _SESSION_ENV.chmod(0o600)
+    print(f"  {_GREEN}\u2713{_RESET} Session env saved to {_SESSION_ENV}")
+    for l in lines: print(f"    {_DIM}{l}{_RESET}")
+
+# ── macOS / launchd ──────────────────────────────────────────────────────────
+_PLIST_CONTENT = """\
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>com.wallpimp.slideshow</string>
+  <key>ProgramArguments</key><array>
+    <string>{python}</string>
+    <string>{script}</string>
+    <string>--daemon</string>
+  </array>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>StandardErrorPath</key>
+  <string>{log}</string>
+</dict></plist>
+"""
+
+def _plist_write():
+    _PLIST_DIR.mkdir(parents=True, exist_ok=True)
+    log = Path.home() / "Library" / "Logs" / "wallpimp-slideshow.log"
+    content = _PLIST_CONTENT.format(
+        python=sys.executable,
+        script=str(Path(sys.argv[0]).resolve()),
+        log=str(log),
+    )
+    _PLIST_FILE.write_text(content)
+
+def _launchctl(verb):
+    return subprocess.run(
+        ["launchctl", verb, str(_PLIST_FILE)],
+        capture_output=True, text=True)
+
+# ── Windows / Task Scheduler ─────────────────────────────────────────────────
+def _wintask(action):
+    """create | delete | start | stop | query"""
+    if action == "create":
+        cmd = [
+            "schtasks","/create","/f",
+            "/tn", _WIN_TASK,
+            "/tr", f'"{sys.executable}" "{Path(sys.argv[0]).resolve()}" --daemon',
+            "/sc", "onlogon",
+            "/rl", "limited",
+        ]
+    elif action == "delete":
+        cmd = ["schtasks","/delete","/f","/tn",_WIN_TASK]
+    elif action == "start":
+        cmd = ["schtasks","/run","/tn",_WIN_TASK]
+    elif action == "stop":
+        cmd = ["taskkill","/f","/fi",f"WINDOWTITLE eq {_WIN_TASK}"]
+    elif action == "query":
+        cmd = ["schtasks","/query","/tn",_WIN_TASK,"/fo","list"]
+    else:
+        return None
+    return subprocess.run(cmd, capture_output=True, text=True)
+
+# ── unified slideshow menu ────────────────────────────────────────────────────
+def menu_slideshow(cfg):
+    if   _OS == "macos":   _menu_slideshow_macos(cfg)
+    elif _OS == "windows": _menu_slideshow_windows(cfg)
+    else:                  _menu_slideshow_linux(cfg)
+
+def _menu_slideshow_linux(cfg):
+    de=detect_de()
+    while True:
+        print_header(); print("  \u2500\u2500 Slideshow Control \u2500\u2500\n")
+        if de not in ("gnome","xfce"):
+            print(f"  {_RED}Slideshow only supports GNOME and XFCE.{_RESET}")
+            print(f"  Detected: {de}"); input("  Enter to go back \u2026"); return
+        print("  1. Save session env    (run from desktop terminal first!)")
+        print("  2. Start slideshow service")
+        print("  3. Stop slideshow service")
+        print("  4. Enable autostart on login")
+        print("  5. Disable autostart")
+        print("  6. Check status & logs")
+        print("  7. Run slideshow now (foreground)")
+        print("  0. Back\n")
+        ch=input("  \u203a ").strip()
+        if ch=="1": _save_session_env(); input("  Enter \u2026")
+        elif ch=="2":
+            _write_unit(); r=_svc("start")
+            print(f"  {_GREEN if r.returncode==0 else _RED}{'Started' if r.returncode==0 else 'Failed'}{_RESET}")
+            if r.stderr: print(f"  {r.stderr.strip()}")
+            input("  Enter \u2026")
+        elif ch=="3": _svc("stop"); print(f"  {_GREEN}\u2713{_RESET} Stopped"); input("  Enter \u2026")
+        elif ch=="4": _write_unit(); _svc("enable"); print(f"  {_GREEN}\u2713{_RESET} Autostart enabled"); input("  Enter \u2026")
+        elif ch=="5": _svc("disable"); print(f"  {_GREEN}\u2713{_RESET} Autostart disabled"); input("  Enter \u2026")
+        elif ch=="6":
+            print_header(); print("  \u2500\u2500 Status & Logs \u2500\u2500\n")
+            r=subprocess.run(["systemctl","--user","status","wallpimp-slideshow.service"],capture_output=True,text=True)
+            print(r.stdout or r.stderr)
+            r2=subprocess.run(["journalctl","--user","-u","wallpimp-slideshow.service","-n","30","--no-pager"],capture_output=True,text=True)
+            print(r2.stdout)
+            if _SESSION_ENV.exists():
+                print(f"  {_DIM}\u2500\u2500 session.env \u2500\u2500")
+                print("  "+_SESSION_ENV.read_text().replace("\n","\n  ")); print(f"{_RESET}")
+            input("  Enter to continue \u2026")
+        elif ch=="7":
+            print(f"\n  {_YLW}Running in foreground. Ctrl-C to stop.{_RESET}\n")
+            run_daemon(cfg); input("  Enter to continue \u2026")
+        elif ch=="0": break
+
+# ── macOS slideshow menu ─────────────────────────────────────────────────────
+def _menu_slideshow_macos(cfg):
+    while True:
+        print_header(); print("  \u2500\u2500 Slideshow Control (macOS) \u2500\u2500\n")
+        print("  1. Start slideshow (launchd)")
+        print("  2. Stop slideshow")
+        print("  3. Enable autostart on login")
+        print("  4. Disable autostart")
+        print("  5. Check status")
+        print("  6. Run slideshow now (foreground)")
+        print("  0. Back\n")
+        ch = input("  \u203a ").strip()
+        if ch == "1":
+            _plist_write()
+            r = _launchctl("load")
+            ok = r.returncode == 0
+            print(f"  {_GREEN if ok else _RED}{'Started' if ok else r.stderr.strip()}{_RESET}")
+            input("  Enter \u2026")
+        elif ch == "2":
+            _launchctl("unload")
+            print(f"  {_GREEN}\u2713{_RESET} Stopped")
+            input("  Enter \u2026")
+        elif ch == "3":
+            _plist_write()
+            print(f"  {_GREEN}\u2713{_RESET} Plist written to {_PLIST_FILE}")
+            print(f"  {_DIM}Autostart enabled (plist loads on login){_RESET}")
+            input("  Enter \u2026")
+        elif ch == "4":
+            _launchctl("unload")
+            if _PLIST_FILE.exists(): _PLIST_FILE.unlink()
+            print(f"  {_GREEN}\u2713{_RESET} Autostart disabled")
+            input("  Enter \u2026")
+        elif ch == "5":
+            print_header(); print("  \u2500\u2500 Status \u2500\u2500\n")
+            r = subprocess.run(["launchctl","list","com.wallpimp.slideshow"],
+                               capture_output=True, text=True)
+            print(r.stdout or r.stderr or "  (not loaded)")
+            log = Path.home()/"Library"/"Logs"/"wallpimp-slideshow.log"
+            if log.exists():
+                lines = log.read_text().splitlines()[-30:]
+                print("\n".join(lines))
+            input("  Enter \u2026")
+        elif ch == "6":
+            print(f"\n  {_YLW}Running in foreground. Ctrl-C to stop.{_RESET}\n")
+            run_daemon(cfg); input("  Enter \u2026")
+        elif ch == "0": break
+
+# ── Windows slideshow menu ───────────────────────────────────────────────────
+def _menu_slideshow_windows(cfg):
+    while True:
+        print_header(); print("  \u2500\u2500 Slideshow Control (Windows) \u2500\u2500\n")
+        print("  1. Start slideshow (Task Scheduler)")
+        print("  2. Stop slideshow")
+        print("  3. Enable autostart on login")
+        print("  4. Remove autostart task")
+        print("  5. Check task status")
+        print("  6. Run slideshow now (foreground)")
+        print("  0. Back\n")
+        ch = input("  \u203a ").strip()
+        if ch == "1":
+            _wintask("create")
+            r = _wintask("start")
+            ok = r and r.returncode == 0
+            print(f"  {_GREEN if ok else _RED}{'Started' if ok else 'Failed (try Run as Administrator)'}{_RESET}")
+            input("  Enter \u2026")
+        elif ch == "2":
+            _wintask("stop")
+            print(f"  {_GREEN}\u2713{_RESET} Stop signal sent")
+            input("  Enter \u2026")
+        elif ch == "3":
+            r = _wintask("create")
+            ok = r and r.returncode == 0
+            print(f"  {_GREEN if ok else _RED}{'Task created (runs at logon)' if ok else r.stderr.strip()}{_RESET}")
+            input("  Enter \u2026")
+        elif ch == "4":
+            _wintask("delete")
+            print(f"  {_GREEN}\u2713{_RESET} Task removed")
+            input("  Enter \u2026")
+        elif ch == "5":
+            print_header(); print("  \u2500\u2500 Task Status \u2500\u2500\n")
+            r = _wintask("query")
+            print(r.stdout if r else "  Task not found.")
+            input("  Enter \u2026")
+        elif ch == "6":
+            print(f"\n  {_YLW}Running in foreground. Ctrl-C to stop.{_RESET}\n")
+            run_daemon(cfg); input("  Enter \u2026")
+        elif ch == "0": break
+
+# ── settings ──────────────────────────────────────────────────────────────────
+def menu_settings(cfg):
+    while True:
+        print_header(); print("  \u2500\u2500 Settings \u2500\u2500\n")
+        print(f"  1. Wallpaper directory : {cfg['wallpaper_dir']}")
+        print(f"  2. Slideshow interval  : {cfg['slideshow_interval']}s")
+        print(f"  3. Download workers    : {cfg['download_workers']}")
+        hashes=load_hashes()
+        print(f"  4. Hash database       : {len(hashes):,} entries")
+        print("  5. Cleanup hash database")
+        print("  6. View settings (raw JSON)")
+        print("  0. Back\n")
+        ch=input("  \u203a ").strip()
+        if ch=="1":
+            v=input(f"  New path [{cfg['wallpaper_dir']}]: ").strip()
+            if v: cfg["wallpaper_dir"]=v; _ensure_dir(Path(v)); save_config(cfg)
+        elif ch=="2":
+            v=input(f"  Interval in seconds [{cfg['slideshow_interval']}]: ").strip()
+            if v.isdigit(): cfg["slideshow_interval"]=int(v); save_config(cfg)
+        elif ch=="3":
+            v=input(f"  Workers 1-32 [{cfg['download_workers']}]: ").strip()
+            if v.isdigit() and 1<=int(v)<=32: cfg["download_workers"]=int(v); save_config(cfg)
+        elif ch=="4": print(f"\n  Hash DB : {_HASH_DB}\n  Entries : {len(hashes):,}"); input("  Enter \u2026")
+        elif ch=="5":
+            n=spinner("Cleaning hash database \u2026",cleanup_hashes,hashes)
+            print(f"  {_GREEN}\u2713{_RESET} Removed {n} orphaned entries"); input("  Enter \u2026")
+        elif ch=="6": print_header(); print(json.dumps(cfg,indent=2)); input("\n  Enter \u2026")
+        elif ch=="0": break
+
+# ── set random ────────────────────────────────────────────────────────────────
+def set_random_wallpaper(cfg):
+    import random
+    walls=_all_wallpapers(Path(cfg["wallpaper_dir"]))
+    if not walls: print(f"  {_RED}No wallpapers found.{_RESET} Download some first."); input("  Enter \u2026"); return
+    wall=random.choice(walls); ok=set_wallpaper(str(wall))
+    if ok: print(f"  {_GREEN}\u2713{_RESET} Set: {wall.name}")
+    else:  print(f"  {_YLW}Warning:{_RESET} Could not set wallpaper on {_OS} (DE: {detect_de() if _OS=='linux' else 'n/a'})")
+    input("  Enter \u2026")
+
+# ── main ──────────────────────────────────────────────────────────────────────
+def main():
+    if "--daemon" in sys.argv: run_daemon(load_config()); return
+    cfg=load_config(); _wdir=Path(cfg["wallpaper_dir"])
+    if not _ensure_dir(_wdir):
+        _fallback=Path.home()/"Pictures"/"Wallpapers"
+        print(f"\n  {_RED}Could not create wallpaper directory:{_RESET} {_wdir}")
+        print(f"  Falling back to {_fallback}")
+        _fallback.mkdir(parents=True,exist_ok=True)
+        cfg["wallpaper_dir"]=str(_fallback); save_config(cfg)
+        input("  Press Enter to continue \u2026")
+    while True:
+        print_header()
+        print("  1. Download wallpapers")
+        print("  2. Unsplash")
+        print("  3. Settings")
+        print("  4. Slideshow control")
+        print("  5. Set random wallpaper")
+        print("  6. Exit\n")
+        ch=input("  \u203a ").strip()
+        if   ch=="1": menu_downloads(cfg)
+        elif ch=="2": menu_unsplash(cfg)
+        elif ch=="3": menu_settings(cfg)
+        elif ch=="4": menu_slideshow(cfg)
+        elif ch=="5": print_header(); set_random_wallpaper(cfg)
+        elif ch=="6": clear(); sys.exit(0)
+
+if __name__=="__main__":
+    main()
