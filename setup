@@ -1,0 +1,448 @@
+#!/usr/bin/env bash
+# =============================================================================
+#  WallPimp — Setup & Launcher  (Linux / macOS)
+#  by 0xb0rn3 | github.com/0xb0rn3/wallpimp
+#
+#  One-line install:
+#    bash <(curl -fsSL https://raw.githubusercontent.com/0xb0rn3/wallpimp/main/setup.sh)
+#
+#  Or clone and run locally:
+#    chmod +x setup.sh && ./setup.sh
+#
+#  Flags (skip the interactive prompt):
+#    --gui    Force GUI  launch after setup
+#    --cli    Force CLI  launch after setup
+#    --update Pull latest + rebuild only (no launch prompt)
+# =============================================================================
+
+set -euo pipefail
+
+# ── Colour helpers ─────────────────────────────────────────────────────────────
+if [[ -t 1 ]]; then
+  CY="\033[96m" GR="\033[92m" YE="\033[93m" RE="\033[91m"
+  DM="\033[2m"  BD="\033[1m"  RS="\033[0m"
+else
+  CY="" GR="" YE="" RE="" DM="" BD="" RS=""
+fi
+
+step()  { printf "  ${DM}[ .. ]${RS} %s\n"  "$*"; }
+ok()    { printf "  ${GR}[ OK ]${RS} %s\n"  "$*"; }
+skip()  { printf "  ${YE}[SKIP]${RS} %s\n"  "$*"; }
+fail()  { printf "  ${RE}[FAIL]${RS} %s\n"  "$*"; }
+info()  { printf "  ${CY}[INFO]${RS} %s\n"  "$*"; }
+spacer(){ echo ""; }
+
+# ── Banner ─────────────────────────────────────────────────────────────────────
+print_banner() {
+  clear 2>/dev/null || true
+  echo ""
+  printf "${CY}  ██╗    ██╗ █████╗ ██╗     ██╗     ██████╗ ██╗███╗   ███╗██████╗ \n${RS}"
+  printf "${CY}  ██║    ██║██╔══██╗██║     ██║     ██╔══██╗██║████╗ ████║██╔══██╗\n${RS}"
+  printf "${CY}  ██║ █╗ ██║███████║██║     ██║     ██████╔╝██║██╔████╔██║██████╔╝\n${RS}"
+  printf "${CY}  ██║███╗██║██╔══██║██║     ██║     ██╔═══╝ ██║██║╚██╔╝██║██╔═══╝ \n${RS}"
+  printf "${CY}  ╚███╔███╔╝██║  ██║███████╗███████╗██║     ██║██║ ╚═╝ ██║██║     \n${RS}"
+  printf "${CY}   ╚══╝╚══╝ ╚═╝  ╚═╝╚══════╝╚══════╝╚═╝     ╚═╝╚═╝     ╚═╝╚═╝     \n${RS}"
+  echo ""
+  printf "  ${DM}Wallpaper Manager  —  Setup & Launcher${RS}\n"
+  printf "  ${DM}by 0xb0rn3  |  github.com/0xb0rn3/wallpimp${RS}\n"
+  echo ""
+  printf "  ${DM}%s${RS}\n" "$(printf '─%.0s' {1..65})"
+  echo ""
+}
+
+abort() {
+  spacer
+  fail "$1"
+  echo ""
+  printf "  ${RE}╔═══════════════════════════════════════════════════════════════╗\n${RS}"
+  printf "  ${RE}║  ✘  Setup failed. See message above.                         ║\n${RS}"
+  printf "  ${RE}╚═══════════════════════════════════════════════════════════════╝\n${RS}"
+  spacer
+  exit 1
+}
+
+# ── OS detection ──────────────────────────────────────────────────────────────
+OS="$(uname -s)"   # Linux | Darwin
+ARCH="$(uname -m)" # x86_64 | aarch64 | arm64
+
+# ── Argument parsing ──────────────────────────────────────────────────────────
+FORCE_GUI=0
+FORCE_CLI=0
+UPDATE_ONLY=0
+for arg in "$@"; do
+  case "$arg" in
+    --gui)    FORCE_GUI=1 ;;
+    --cli)    FORCE_CLI=1 ;;
+    --update) UPDATE_ONLY=1 ;;
+  esac
+done
+
+# ── Install location ──────────────────────────────────────────────────────────
+INSTALL_DIR="${HOME}/wallpimp"
+
+# ── Package manager detection (Linux) ────────────────────────────────────────
+detect_pm() {
+  for pm in apt-get dnf pacman zypper; do
+    command -v "$pm" &>/dev/null && { echo "$pm"; return; }
+  done
+  echo "unknown"
+}
+
+PM="$(detect_pm)"
+
+# ── Generic install wrapper ───────────────────────────────────────────────────
+pm_install() {
+  # $1 = package name (distro-specific)
+  case "$PM" in
+    apt-get) sudo apt-get install -y "$1" &>/dev/null ;;
+    dnf)     sudo dnf install -y "$1"     &>/dev/null ;;
+    pacman)  sudo pacman -S --noconfirm "$1" &>/dev/null ;;
+    zypper)  sudo zypper install -y "$1" &>/dev/null ;;
+    *)       return 1 ;;
+  esac
+}
+
+# ── Dependency checks ─────────────────────────────────────────────────────────
+
+assert_python() {
+  local PYMIN_MAJOR=3 PYMIN_MINOR=10
+  local PYTHON_CMD=""
+  for cmd in python3 python; do
+    if command -v "$cmd" &>/dev/null; then
+      local ver
+      ver="$("$cmd" -c 'import sys; print(sys.version_info[:2])' 2>/dev/null || true)"
+      local major minor
+      major=$(echo "$ver" | tr -d '()' | awk -F', ' '{print $1}')
+      minor=$(echo "$ver" | tr -d '()' | awk -F', ' '{print $2}')
+      if [[ "${major:-0}" -gt "$PYMIN_MAJOR" ]] || \
+         { [[ "${major:-0}" -eq "$PYMIN_MAJOR" ]] && [[ "${minor:-0}" -ge "$PYMIN_MINOR" ]]; }; then
+        ok "Python ${major}.${minor} found ($cmd)."
+        PYTHON_CMD="$cmd"
+        return
+      fi
+    fi
+  done
+
+  step "Python 3.10+ not found — attempting install ..."
+  if [[ "$OS" == "Darwin" ]]; then
+    if command -v brew &>/dev/null; then
+      brew install python@3.12 &>/dev/null || abort "brew install python@3.12 failed."
+    else
+      abort "Homebrew not found. Install it first: https://brew.sh"
+    fi
+  else
+    case "$PM" in
+      apt-get) pm_install python3 && pm_install python3-pip ;;
+      dnf)     pm_install python3 ;;
+      pacman)  pm_install python ;;
+      zypper)  pm_install python3 ;;
+      *)       abort "Cannot auto-install Python. Install Python 3.10+ manually." ;;
+    esac
+  fi
+
+  for cmd in python3 python; do
+    command -v "$cmd" &>/dev/null && { PYTHON_CMD="$cmd"; ok "Python installed ($cmd)."; return; }
+  done
+  abort "Python not found on PATH after install."
+}
+
+assert_go() {
+  local GOMIN="1.21"
+  if command -v go &>/dev/null; then
+    local ver
+    ver="$(go version 2>/dev/null | grep -oP '\d+\.\d+' | head -1)"
+    local maj min
+    maj="${ver%%.*}"; min="${ver##*.}"
+    local need_maj=1 need_min=21
+    if [[ "$maj" -gt "$need_maj" ]] || { [[ "$maj" -eq "$need_maj" ]] && [[ "$min" -ge "$need_min" ]]; }; then
+      ok "Go ${ver} found."
+      return
+    fi
+    step "Go ${ver} < ${GOMIN} — upgrading ..."
+  else
+    step "Go not found — installing ..."
+  fi
+
+  if [[ "$OS" == "Darwin" ]]; then
+    command -v brew &>/dev/null || abort "Homebrew not found. Install it: https://brew.sh"
+    brew install go &>/dev/null || abort "brew install go failed."
+  else
+    # Install via official tarball for guaranteed version
+    local GO_VER="1.22.4"
+    local GO_ARCH
+    case "$ARCH" in
+      x86_64)         GO_ARCH="amd64" ;;
+      aarch64|arm64)  GO_ARCH="arm64" ;;
+      armv6l|armv7l)  GO_ARCH="armv6l" ;;
+      *)              abort "Unsupported arch for auto Go install: $ARCH" ;;
+    esac
+    local TARBALL="go${GO_VER}.linux-${GO_ARCH}.tar.gz"
+    local URL="https://go.dev/dl/${TARBALL}"
+    step "Downloading Go ${GO_VER} (${GO_ARCH}) ..."
+    curl -fsSL "$URL" -o "/tmp/${TARBALL}" || abort "Failed to download Go tarball."
+    sudo rm -rf /usr/local/go
+    sudo tar -C /usr/local -xzf "/tmp/${TARBALL}"
+    rm -f "/tmp/${TARBALL}"
+    # Ensure PATH for this session
+    export PATH="/usr/local/go/bin:${PATH}"
+    # Persist for future shells
+    if ! grep -q '/usr/local/go/bin' "${HOME}/.profile" 2>/dev/null; then
+      echo 'export PATH="/usr/local/go/bin:$PATH"' >> "${HOME}/.profile"
+    fi
+    if [[ -f "${HOME}/.bashrc" ]] && ! grep -q '/usr/local/go/bin' "${HOME}/.bashrc" 2>/dev/null; then
+      echo 'export PATH="/usr/local/go/bin:$PATH"' >> "${HOME}/.bashrc"
+    fi
+    if [[ -f "${HOME}/.zshrc" ]] && ! grep -q '/usr/local/go/bin' "${HOME}/.zshrc" 2>/dev/null; then
+      echo 'export PATH="/usr/local/go/bin:$PATH"' >> "${HOME}/.zshrc"
+    fi
+  fi
+
+  command -v go &>/dev/null || abort "Go not found on PATH after install. Open a new shell and re-run."
+  ok "Go installed: $(go version | grep -oP 'go\d+\.\d+\.\d+')"
+}
+
+assert_git() {
+  if command -v git &>/dev/null; then ok "Git found."; return; fi
+  step "Git not found — installing ..."
+  if [[ "$OS" == "Darwin" ]]; then
+    brew install git &>/dev/null || abort "brew install git failed."
+  else
+    case "$PM" in
+      apt-get) pm_install git ;;
+      dnf)     pm_install git ;;
+      pacman)  pm_install git ;;
+      zypper)  pm_install git ;;
+      *)       abort "Cannot auto-install Git. Install it manually." ;;
+    esac
+  fi
+  command -v git &>/dev/null || abort "Git not found on PATH after install."
+  ok "Git installed."
+}
+
+assert_curl() {
+  command -v curl &>/dev/null && { ok "curl found."; return; }
+  step "curl not found — installing ..."
+  case "$PM" in
+    apt-get) pm_install curl ;;
+    dnf)     pm_install curl ;;
+    pacman)  pm_install curl ;;
+    zypper)  pm_install curl ;;
+    *)       abort "curl required but not found. Install it manually." ;;
+  esac
+  command -v curl &>/dev/null || abort "curl not found after install."
+  ok "curl installed."
+}
+
+# ── Clone / update ────────────────────────────────────────────────────────────
+get_wallpimp() {
+  if [[ -d "${INSTALL_DIR}/.git" ]]; then
+    skip "Repo already present — pulling latest ..."
+    git -C "$INSTALL_DIR" pull --quiet 2>/dev/null || skip "Pull failed — continuing with existing files."
+    ok "Repository up to date."
+  else
+    step "Cloning wallpimp into ${INSTALL_DIR} ..."
+    mkdir -p "$INSTALL_DIR"
+    git clone --depth 1 --quiet "https://github.com/0xb0rn3/wallpimp.git" "$INSTALL_DIR" \
+      || abort "git clone failed. Check your internet connection."
+    ok "Repository cloned."
+  fi
+}
+
+# ── Build Go engine ───────────────────────────────────────────────────────────
+build_engine() {
+  local ENGINE="${INSTALL_DIR}/wallpimp-engine"
+  local SRC_DIR="${INSTALL_DIR}/src"
+
+  if [[ -x "$ENGINE" ]]; then
+    # Rebuild only if any .go source is newer than the binary
+    local REBUILD=0
+    while IFS= read -r -d '' f; do
+      if [[ "$f" -nt "$ENGINE" ]]; then REBUILD=1; break; fi
+    done < <(find "$SRC_DIR" -name "*.go" -print0 2>/dev/null)
+    if [[ "$REBUILD" -eq 0 ]]; then
+      skip "Go engine already built and up to date."
+      return
+    fi
+    step "Source updated — rebuilding engine ..."
+  else
+    step "Building Go engine ..."
+  fi
+
+  pushd "$SRC_DIR" >/dev/null
+  go build -o "$ENGINE" . || abort "go build failed. Check Go installation."
+  popd >/dev/null
+  chmod +x "$ENGINE"
+  ok "Engine built: wallpimp-engine"
+}
+
+# ── Python deps ───────────────────────────────────────────────────────────────
+install_python_deps() {
+  step "Checking Python deps (requests, tqdm) ..."
+  local MISSING=()
+  for pkg in requests tqdm; do
+    "$PYTHON_CMD" -m pip show "$pkg" &>/dev/null || MISSING+=("$pkg")
+  done
+  if [[ ${#MISSING[@]} -eq 0 ]]; then
+    ok "Python deps already installed."
+    return
+  fi
+  step "Installing: ${MISSING[*]} ..."
+  "$PYTHON_CMD" -m pip install --quiet "${MISSING[@]}" \
+    || abort "pip install failed. Run manually: pip install ${MISSING[*]}"
+  ok "Python deps installed."
+}
+
+# ── tkinter check ─────────────────────────────────────────────────────────────
+has_tkinter() {
+  "$PYTHON_CMD" -c "import tkinter" &>/dev/null
+}
+
+tkinter_install_hint() {
+  case "$PM" in
+    apt-get) echo "sudo apt-get install python3-tk" ;;
+    dnf)     echo "sudo dnf install python3-tkinter" ;;
+    pacman)  echo "sudo pacman -S tk" ;;
+    zypper)  echo "sudo zypper install python3-tk" ;;
+    *)
+      if [[ "$OS" == "Darwin" ]]; then echo "brew install python-tk"
+      else echo "Install python3-tk via your package manager"; fi ;;
+  esac
+}
+
+# ── GUI script check ──────────────────────────────────────────────────────────
+has_gui_script() {
+  [[ -f "${INSTALL_DIR}/wallpimp_gui.py" ]]
+}
+
+fetch_gui_script() {
+  step "Fetching wallpimp_gui.py ..."
+  local URL="https://raw.githubusercontent.com/0xb0rn3/wallpimp/main/wallpimp_gui.py"
+  curl -fsSL "$URL" -o "${INSTALL_DIR}/wallpimp_gui.py" &>/dev/null \
+    && ok "wallpimp_gui.py downloaded." \
+    || { skip "Could not fetch wallpimp_gui.py — GUI option unavailable."; return 1; }
+}
+
+# ── Launch chooser ────────────────────────────────────────────────────────────
+launch_chooser() {
+  local GUI_OK=0
+  local HINT=""
+
+  has_gui_script || fetch_gui_script || true
+
+  if has_tkinter && has_gui_script; then
+    GUI_OK=1
+  fi
+
+  # ── Flag overrides ──────────────────────────────────────────────────────
+  if [[ "$FORCE_GUI" -eq 1 ]]; then
+    if [[ "$GUI_OK" -eq 1 ]]; then
+      launch_gui
+    else
+      fail "--gui requested but tkinter or wallpimp_gui.py is missing."
+      [[ -n "$(tkinter_install_hint)" ]] && info "Fix: $(tkinter_install_hint)"
+      exit 1
+    fi
+  fi
+
+  if [[ "$FORCE_CLI" -eq 1 ]]; then
+    launch_cli
+  fi
+
+  # ── Interactive ─────────────────────────────────────────────────────────
+  spacer
+  printf "  %s\n" "$(printf '─%.0s' {1..65})"
+  printf "  ${BD}How would you like to launch WallPimp?${RS}\n"
+  printf "  %s\n" "$(printf '─%.0s' {1..65})"
+  spacer
+
+  if [[ "$GUI_OK" -eq 1 ]]; then
+    printf "    ${CY}i)${RS}   Launch GUI  — graphical interface\n"
+  else
+    printf "    ${DM}i)   Launch GUI  — unavailable${RS}\n"
+    HINT="$(tkinter_install_hint)"
+    if ! has_tkinter; then
+      printf "    ${DM}     tkinter missing → %s${RS}\n" "$HINT"
+    elif ! has_gui_script; then
+      printf "    ${DM}     wallpimp_gui.py not found in ${INSTALL_DIR}${RS}\n"
+    fi
+  fi
+
+  printf "   ${GR}ii)${RS}   Stay on CLI — classic terminal UI\n"
+  spacer
+
+  local CHOICE=""
+  while true; do
+    read -rp "  Enter choice [i / ii]: " CHOICE </dev/tty
+    CHOICE="${CHOICE,,}"   # lowercase
+    case "$CHOICE" in
+      i|1|gui)
+        if [[ "$GUI_OK" -eq 1 ]]; then launch_gui
+        else
+          printf "  ${YE}GUI unavailable. Falling back to CLI.${RS}\n"
+          launch_cli
+        fi ;;
+      ii|2|cli|"") launch_cli ;;
+      *) printf "  ${YE}Please enter  i  for GUI or  ii  for CLI.${RS}\n" ;;
+    esac
+  done
+}
+
+launch_gui() {
+  spacer
+  printf "  %s\n" "$(printf '─%.0s' {1..65})"
+  printf "  ${CY}Launching WallPimp GUI ...${RS}\n"
+  printf "  %s\n" "$(printf '─%.0s' {1..65})"
+  spacer
+  cd "$INSTALL_DIR"
+  exec "$PYTHON_CMD" "${INSTALL_DIR}/wallpimp_gui.py"
+}
+
+launch_cli() {
+  spacer
+  printf "  %s\n" "$(printf '─%.0s' {1..65})"
+  printf "  ${GR}Launching WallPimp CLI ...${RS}\n"
+  printf "  %s\n" "$(printf '─%.0s' {1..65})"
+  spacer
+  cd "$INSTALL_DIR"
+  exec "$PYTHON_CMD" "${INSTALL_DIR}/wallpimp"
+}
+
+# ── Done box ──────────────────────────────────────────────────────────────────
+print_done() {
+  spacer
+  printf "  ${GR}╔═══════════════════════════════════════════════════════════════╗\n${RS}"
+  printf "  ${GR}║  ✔  Setup complete.                                          ║\n${RS}"
+  printf "  ${GR}╚═══════════════════════════════════════════════════════════════╝\n${RS}"
+  spacer
+}
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  Main
+# ═══════════════════════════════════════════════════════════════════════════════
+
+print_banner
+info "Install location: ${INSTALL_DIR}"
+spacer
+
+echo "  Checking requirements ..."
+spacer
+
+assert_curl
+assert_python
+assert_go
+assert_git
+
+spacer
+echo "  Setting up WallPimp ..."
+spacer
+
+get_wallpimp
+build_engine
+install_python_deps
+
+if [[ "$UPDATE_ONLY" -eq 1 ]]; then
+  print_done
+  exit 0
+fi
+
+launch_chooser
