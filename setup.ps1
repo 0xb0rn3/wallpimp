@@ -16,6 +16,13 @@
     Set-StrictMode -Version Latest
     $ErrorActionPreference = "Stop"
 
+    # PS 7.3+ throws NativeCommandError on any non-zero native exit code,
+    # even with ErrorActionPreference = SilentlyContinue. Suppress globally —
+    # we check $LASTEXITCODE ourselves everywhere it matters.
+    if ($PSVersionTable.PSVersion -ge [version]"7.3") {
+        $PSNativeCommandErrorActionPreference = "Ignore"
+    }
+
     # ── Output helpers ────────────────────────────────────────────────────────
     function Write-Header {
         Clear-Host
@@ -47,7 +54,7 @@
     function Write-Info   { param($msg) Write-Host "  [INFO] $msg" -ForegroundColor Cyan }
     function Write-Spacer { Write-Host "" }
 
-    function Write-DoneWarning {
+    function Write-DoneBox {
         Write-Spacer
         Write-Host "  ╔═══════════════════════════════════════════════════════════════╗" -ForegroundColor Green
         Write-Host "  ║  ✔  Setup complete — you may now close this window.          ║" -ForegroundColor Green
@@ -72,6 +79,18 @@
         return $null
     }
 
+    # Invoke-Native: run a native command, capture output, never throw —
+    # regardless of exit code or PS version. Callers check $LASTEXITCODE.
+    function Invoke-Native {
+        param([scriptblock]$Block)
+        try {
+            $output = & $Block 2>&1
+        } catch {
+            $output = $_.ToString()
+        }
+        return $output
+    }
+
     function Abort {
         param($msg)
         Write-Spacer
@@ -87,10 +106,12 @@
     function Install-WithWinget {
         param($packageId, $label)
         Write-Step "Installing $label via winget ..."
-        $result = winget install --id $packageId `
-                    --accept-package-agreements `
-                    --accept-source-agreements `
-                    --silent 2>&1
+        Invoke-Native {
+            winget install --id $packageId `
+                --accept-package-agreements `
+                --accept-source-agreements `
+                --silent
+        } | Out-Null
         if ($LASTEXITCODE -ne 0) {
             Abort "$label install failed. Install manually: https://winget.run/pkg/$packageId"
         }
@@ -98,7 +119,7 @@
         Write-OK "$label installed."
     }
 
-    # ── winget guard ──────────────────────────────────────────────────────────
+    # ── winget ────────────────────────────────────────────────────────────────
     function Assert-Winget {
         if (-not (Test-Command "winget")) {
             Write-Fail "winget not found."
@@ -112,13 +133,9 @@
     # ── Python ────────────────────────────────────────────────────────────────
     function Assert-Python {
         $minVer = [version]"3.10.0"
-
         foreach ($cmd in @("python", "python3", "py")) {
             if (Test-Command $cmd) {
-                $prev = $ErrorActionPreference
-                $ErrorActionPreference = "SilentlyContinue"
-                $raw = & $cmd --version 2>&1
-                $ErrorActionPreference = $prev
+                $raw = Invoke-Native { & $cmd --version }
                 $ver = Get-SemVer ($raw -join "")
                 if ($ver -and $ver -ge $minVer) {
                     Write-OK "Python $ver found ($cmd)."
@@ -127,10 +144,8 @@
                 }
             }
         }
-
         Write-Step "Python 3.10+ not found — installing Python 3.12 ..."
         Install-WithWinget "Python.Python.3.12" "Python 3.12"
-
         foreach ($cmd in @("python", "python3", "py")) {
             if (Test-Command $cmd) { $script:PythonCmd = $cmd; return }
         }
@@ -140,12 +155,8 @@
     # ── Go ────────────────────────────────────────────────────────────────────
     function Assert-Go {
         $minVer = [version]"1.21.0"
-
         if (Test-Command "go") {
-            $prev = $ErrorActionPreference
-            $ErrorActionPreference = "SilentlyContinue"
-            $raw = & go version 2>&1
-            $ErrorActionPreference = $prev
+            $raw = Invoke-Native { go version }
             $ver = Get-SemVer ($raw -join "")
             if ($ver -and $ver -ge $minVer) {
                 Write-OK "Go $ver found."
@@ -155,9 +166,7 @@
         } else {
             Write-Step "Go not found — installing ..."
         }
-
         Install-WithWinget "GoLang.Go" "Go 1.21+"
-
         if (-not (Test-Command "go")) {
             Abort "Go not on PATH after install. Open a new terminal and re-run."
         }
@@ -166,11 +175,8 @@
 
     # ── Git ───────────────────────────────────────────────────────────────────
     function Assert-Git {
-        if (Test-Command "git") {
-            Write-OK "Git found."
-            return
-        }
-        Write-Info "Git not found — installing (needed to clone the repo) ..."
+        if (Test-Command "git") { Write-OK "Git found."; return }
+        Write-Step "Git not found — installing ..."
         Install-WithWinget "Git.Git" "Git"
         Refresh-Path
         if (-not (Test-Command "git")) {
@@ -182,15 +188,11 @@
     # ── Clone / update ────────────────────────────────────────────────────────
     function Get-WallPimp {
         param($installDir)
-
         if (Test-Path (Join-Path $installDir "wallpimp")) {
             Write-Skip "Repo already present — pulling latest ..."
             Push-Location $installDir
             try {
-                $prev = $ErrorActionPreference
-                $ErrorActionPreference = "SilentlyContinue"
-                git pull --quiet 2>&1 | Out-Null
-                $ErrorActionPreference = $prev
+                Invoke-Native { git pull --quiet } | Out-Null
                 Write-OK "Repository up to date."
             } catch {
                 Write-Skip "Pull failed — continuing with existing files."
@@ -199,13 +201,11 @@
             }
             return
         }
-
         Write-Step "Cloning wallpimp into $installDir ..."
         New-Item -ItemType Directory -Force -Path $installDir | Out-Null
-        $prev = $ErrorActionPreference
-        $ErrorActionPreference = "SilentlyContinue"
-        git clone --depth 1 --quiet "https://github.com/0xb0rn3/wallpimp.git" $installDir 2>&1 | Out-Null
-        $ErrorActionPreference = $prev
+        Invoke-Native {
+            git clone --depth 1 --quiet "https://github.com/0xb0rn3/wallpimp.git" $installDir
+        } | Out-Null
         if ($LASTEXITCODE -ne 0) { Abort "git clone failed. Check your internet connection." }
         Write-OK "Repository cloned."
     }
@@ -213,9 +213,7 @@
     # ── Build Go engine ───────────────────────────────────────────────────────
     function Build-Engine {
         param($repoDir)
-
         $enginePath = Join-Path $repoDir "wallpimp-engine.exe"
-
         if (Test-Path $enginePath) {
             $engineTime = (Get-Item $enginePath).LastWriteTime
             $srcNewer   = Get-ChildItem (Join-Path $repoDir "src") -Filter "*.go" -Recurse |
@@ -228,13 +226,11 @@
         } else {
             Write-Step "Building Go engine ..."
         }
-
         Push-Location (Join-Path $repoDir "src")
         try {
-            $prev = $ErrorActionPreference
-            $ErrorActionPreference = "SilentlyContinue"
-            $out = & go build -o (Join-Path $repoDir "wallpimp-engine.exe") . 2>&1
-            $ErrorActionPreference = $prev
+            $out = Invoke-Native {
+                go build -o (Join-Path $repoDir "wallpimp-engine.exe") .
+            }
             if ($LASTEXITCODE -ne 0) { Abort "go build failed:`n$out" }
             Write-OK "Engine built: wallpimp-engine.exe"
         } finally {
@@ -243,24 +239,25 @@
     }
 
     # ── Python deps ───────────────────────────────────────────────────────────
+    # Uses `pip show <pkg>` instead of `python -c "import <pkg>"`.
+    # pip show exits 0 if installed, 1 if not — clean, no tracebacks,
+    # no NativeCommandError risk from Python's own error output.
     function Install-PythonDeps {
         Write-Step "Checking Python deps (requests, tqdm) ..."
         $missing = @()
         foreach ($pkg in @("requests", "tqdm")) {
-            $prev = $ErrorActionPreference
-            $ErrorActionPreference = "SilentlyContinue"
-            & $script:PythonCmd -c "import $pkg" 2>&1 | Out-Null
-            $ErrorActionPreference = $prev
+            Invoke-Native { & $script:PythonCmd -m pip show $pkg } | Out-Null
             if ($LASTEXITCODE -ne 0) { $missing += $pkg }
         }
-        if ($missing.Count -eq 0) { Write-OK "Python deps already installed."; return }
-
+        if ($missing.Count -eq 0) {
+            Write-OK "Python deps already installed."
+            return
+        }
         Write-Step "Installing: $($missing -join ', ') ..."
-        $prev = $ErrorActionPreference
-        $ErrorActionPreference = "SilentlyContinue"
-        & $script:PythonCmd -m pip install --quiet @missing
-        $ErrorActionPreference = $prev
-        if ($LASTEXITCODE -ne 0) { Abort "pip install failed. Run: pip install $($missing -join ' ')" }
+        $out = Invoke-Native { & $script:PythonCmd -m pip install --quiet $missing }
+        if ($LASTEXITCODE -ne 0) {
+            Abort "pip install failed. Run manually: pip install $($missing -join ' ')"
+        }
         Write-OK "Python deps installed."
     }
 
@@ -274,10 +271,7 @@
         Write-Spacer
         Push-Location $repoDir
         try {
-            $prev = $ErrorActionPreference
-            $ErrorActionPreference = "SilentlyContinue"
             & $script:PythonCmd (Join-Path $repoDir "wallpimp")
-            $ErrorActionPreference = $prev
         } finally {
             Pop-Location
         }
@@ -303,5 +297,10 @@
     Write-Host "  Setting up WallPimp ..." -ForegroundColor DarkGray
     Write-Spacer
 
-    Get-WallPimp      -installDir $InstallDir
-    Build-Engine      -repoDir​​​​​​​​​​​​​​​​
+    Get-WallPimp   -installDir $InstallDir
+    Build-Engine   -repoDir    $InstallDir
+    Install-PythonDeps
+    Start-WallPimp -repoDir    $InstallDir
+
+    Write-DoneBox
+}
