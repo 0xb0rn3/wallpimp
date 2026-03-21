@@ -115,7 +115,11 @@
 
         foreach ($cmd in @("python", "python3", "py")) {
             if (Test-Command $cmd) {
-                $ver = Get-SemVer (& $cmd --version 2>&1)
+                $prev = $ErrorActionPreference
+                $ErrorActionPreference = "SilentlyContinue"
+                $raw = & $cmd --version 2>&1
+                $ErrorActionPreference = $prev
+                $ver = Get-SemVer ($raw -join "")
                 if ($ver -and $ver -ge $minVer) {
                     Write-OK "Python $ver found ($cmd)."
                     $script:PythonCmd = $cmd
@@ -138,7 +142,11 @@
         $minVer = [version]"1.21.0"
 
         if (Test-Command "go") {
-            $ver = Get-SemVer (& go version 2>&1)
+            $prev = $ErrorActionPreference
+            $ErrorActionPreference = "SilentlyContinue"
+            $raw = & go version 2>&1
+            $ErrorActionPreference = $prev
+            $ver = Get-SemVer ($raw -join "")
             if ($ver -and $ver -ge $minVer) {
                 Write-OK "Go $ver found."
                 return
@@ -179,7 +187,10 @@
             Write-Skip "Repo already present — pulling latest ..."
             Push-Location $installDir
             try {
+                $prev = $ErrorActionPreference
+                $ErrorActionPreference = "SilentlyContinue"
                 git pull --quiet 2>&1 | Out-Null
+                $ErrorActionPreference = $prev
                 Write-OK "Repository up to date."
             } catch {
                 Write-Skip "Pull failed — continuing with existing files."
@@ -191,7 +202,10 @@
 
         Write-Step "Cloning wallpimp into $installDir ..."
         New-Item -ItemType Directory -Force -Path $installDir | Out-Null
+        $prev = $ErrorActionPreference
+        $ErrorActionPreference = "SilentlyContinue"
         git clone --depth 1 --quiet "https://github.com/0xb0rn3/wallpimp.git" $installDir 2>&1 | Out-Null
+        $ErrorActionPreference = $prev
         if ($LASTEXITCODE -ne 0) { Abort "git clone failed. Check your internet connection." }
         Write-OK "Repository cloned."
     }
@@ -217,7 +231,10 @@
 
         Push-Location (Join-Path $repoDir "src")
         try {
+            $prev = $ErrorActionPreference
+            $ErrorActionPreference = "SilentlyContinue"
             $out = & go build -o (Join-Path $repoDir "wallpimp-engine.exe") . 2>&1
+            $ErrorActionPreference = $prev
             if ($LASTEXITCODE -ne 0) { Abort "go build failed:`n$out" }
             Write-OK "Engine built: wallpimp-engine.exe"
         } finally {
@@ -230,13 +247,19 @@
         Write-Step "Checking Python deps (requests, tqdm) ..."
         $missing = @()
         foreach ($pkg in @("requests", "tqdm")) {
+            $prev = $ErrorActionPreference
+            $ErrorActionPreference = "SilentlyContinue"
             & $script:PythonCmd -c "import $pkg" 2>&1 | Out-Null
+            $ErrorActionPreference = $prev
             if ($LASTEXITCODE -ne 0) { $missing += $pkg }
         }
         if ($missing.Count -eq 0) { Write-OK "Python deps already installed."; return }
 
         Write-Step "Installing: $($missing -join ', ') ..."
+        $prev = $ErrorActionPreference
+        $ErrorActionPreference = "SilentlyContinue"
         & $script:PythonCmd -m pip install --quiet @missing
+        $ErrorActionPreference = $prev
         if ($LASTEXITCODE -ne 0) { Abort "pip install failed. Run: pip install $($missing -join ' ')" }
         Write-OK "Python deps installed."
     }
@@ -250,8 +273,14 @@
         Write-Host ("  " + ("─" * 65)) -ForegroundColor DarkGray
         Write-Spacer
         Push-Location $repoDir
-        try { & $script:PythonCmd (Join-Path $repoDir "wallpimp") }
-        finally { Pop-Location }
+        try {
+            $prev = $ErrorActionPreference
+            $ErrorActionPreference = "SilentlyContinue"
+            & $script:PythonCmd (Join-Path $repoDir "wallpimp")
+            $ErrorActionPreference = $prev
+        } finally {
+            Pop-Location
+        }
     }
 
     # ── Entry point ───────────────────────────────────────────────────────────
@@ -275,9 +304,4 @@
     Write-Spacer
 
     Get-WallPimp      -installDir $InstallDir
-    Build-Engine      -repoDir    $InstallDir
-    Install-PythonDeps
-
-    Write-DoneWarning
-    Start-WallPimp    -repoDir    $InstallDir
-}
+    Build-Engine      -repoDir​​​​​​​​​​​​​​​​
