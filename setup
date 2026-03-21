@@ -4,10 +4,10 @@
 #  by 0xb0rn3 | github.com/0xb0rn3/wallpimp
 #
 #  One-line install:
-#    bash <(curl -fsSL https://raw.githubusercontent.com/0xb0rn3/wallpimp/main/setup.sh)
+#    bash <(curl -fsSL https://raw.githubusercontent.com/0xb0rn3/wallpimp/main/setup)
 #
 #  Or clone and run locally:
-#    chmod +x setup.sh && ./setup.sh
+#    chmod +x setup && ./setup
 #
 #  Flags (skip the interactive prompt):
 #    --gui    Force GUI  launch after setup
@@ -61,6 +61,9 @@ abort() {
   exit 1
 }
 
+# ── Globals ───────────────────────────────────────────────────────────────────
+PYTHON_CMD=""      # set by assert_python()
+
 # ── OS detection ──────────────────────────────────────────────────────────────
 OS="$(uname -s)"   # Linux | Darwin
 ARCH="$(uname -m)" # x86_64 | aarch64 | arm64
@@ -106,7 +109,7 @@ pm_install() {
 
 assert_python() {
   local PYMIN_MAJOR=3 PYMIN_MINOR=10
-  local PYTHON_CMD=""
+  PYTHON_CMD=""  # reset; will be set to global
   for cmd in python3 python; do
     if command -v "$cmd" &>/dev/null; then
       local ver
