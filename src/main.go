@@ -11,6 +11,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 )
 
@@ -154,67 +155,76 @@ func handleConn(conn net.Conn, sess *session) {
 			})
 
 		// ── scan ──────────────────────────────────────────────────────────────
+		// All branch resolution + image counting runs in parallel goroutines.
 		case "scan":
-			total := 0
-			for _, spec := range builtinRepos {
-				b := resolveBranch(spec.Owner, spec.Repo, spec.BranchHint)
-				if b != "" {
-					total += CountRepoImages(spec.Owner, spec.Repo, b, spec.Subdir)
+			var repoTotal, unspTotal int64
+			var scanWg sync.WaitGroup
+
+			// Repo count: resolve + count all repos concurrently
+			scanWg.Add(1)
+			go func() {
+				defer scanWg.Done()
+				n := CountAllRepos(builtinRepos)
+				atomic.StoreInt64(&repoTotal, int64(n))
+			}()
+
+			// Unsplash count: single API call
+			scanWg.Add(1)
+			go func() {
+				defer scanWg.Done()
+				topics, err := sess.cli.Topics()
+				if err == nil {
+					var t int64
+					for _, tp := range topics {
+						t += int64(tp.Total)
+					}
+					atomic.StoreInt64(&unspTotal, t)
+				} else {
+					atomic.StoreInt64(&unspTotal, 1500)
 				}
-			}
-			topics, err := sess.cli.Topics()
-			unspTotal := 1500
-			if err == nil {
-				unspTotal = 0
-				for _, t := range topics {
-					unspTotal += t.Total
-				}
-			}
-			total += unspTotal
-			emit(Event{Event: "scan_result", Total: total})
+			}()
+
+			scanWg.Wait()
+			emit(Event{Event: "scan_result",
+				Total: int(atomic.LoadInt64(&repoTotal) + atomic.LoadInt64(&unspTotal))})
 
 		// ── download (full or targeted) ────────────────────────────────────────
+		//
+		// Pipeline:
+		//   Phase 1 — resolve all 19 branches simultaneously (goroutine per repo)
+		//   Phase 2 — download all repo archives concurrently (5 at a time)
+		//   Phase 3 — stream Unsplash topics concurrently with remaining quota
+		//
 		case "download":
 			workers := sess.workers
 			if cmd.Workers > 0 {
 				workers = cmd.Workers
 			}
-			wdir := cmd.Wdir
-			cap := cmd.Target // 0 = unlimited
+			wdir  := cmd.Wdir
+			capN  := int64(cmd.Target) // 0 = unlimited
+			var capPtr *int64
+			if capN > 0 {
+				capPtr = &capN
+			}
 			var totalNew, totalDupe, totalErr int64
-
 			prog := mkProg(&totalNew, &totalDupe, &totalErr)
 
-			// GitHub repos
-			for _, spec := range builtinRepos {
-				if cap > 0 && totalNew >= int64(cap) {
-					break
-				}
-				stopAt := 0
-				if cap > 0 {
-					stopAt = cap - int(totalNew)
-				}
-				stats := DownloadRepo(spec, wdir, workers, sess.db,
-					func(n, d, e int) {
-						if stopAt > 0 && int(totalNew) >= stopAt {
-							return
-						}
-						prog(n, d, e)
-					})
-				_ = stats
-			}
+			// Phase 1+2: resolve all branches in parallel, then download concurrently
+			emit(Event{Event: "progress", New: 0, Dupes: 0, Errors: 0, Msg: "resolving"})
+			resolved := ResolveAllBranches(builtinRepos)
+			DownloadAllRepos(resolved, wdir, workers, 5, sess.db, prog, capPtr)
 
-			// Unsplash topics fill-up
-			if cap == 0 || totalNew < int64(cap) {
+			// Phase 3: Unsplash topics
+			if capPtr == nil || atomic.LoadInt64(capPtr) > 0 {
 				topics, err := sess.cli.Topics()
 				if err == nil {
 					for _, t := range topics {
-						if cap > 0 && totalNew >= int64(cap) {
+						if capPtr != nil && atomic.LoadInt64(capPtr) <= 0 {
 							break
 						}
 						page := 1
 						for {
-							if cap > 0 && totalNew >= int64(cap) {
+							if capPtr != nil && atomic.LoadInt64(capPtr) <= 0 {
 								break
 							}
 							photos, err := sess.cli.TopicPhotos(t.Slug, page)
@@ -222,6 +232,11 @@ func handleConn(conn net.Conn, sess *session) {
 								break
 							}
 							dest := filepath.Join(wdir, "unsplash", "topics", t.Slug)
+							stopAt := int64(0)
+							if capPtr != nil {
+								stopAt = atomic.LoadInt64(capPtr)
+							}
+							_ = stopAt
 							DownloadPhotos(photos, dest, workers, sess.db, prog)
 							page++
 						}
@@ -229,9 +244,9 @@ func handleConn(conn net.Conn, sess *session) {
 				}
 			}
 
-			// Random fill
-			for cap > 0 && totalNew < int64(cap) {
-				need := int(int64(cap) - totalNew)
+			// Random fill to hit exact target
+			for capPtr != nil && atomic.LoadInt64(capPtr) > 0 {
+				need := int(atomic.LoadInt64(capPtr))
 				if need > 30 {
 					need = 30
 				}
@@ -249,7 +264,7 @@ func handleConn(conn net.Conn, sess *session) {
 			_ = sess.db.save()
 			emit(Event{
 				Event: "done",
-				New:   totalNew, Dupes: totalDupe, Errors: totalErr,
+				New: totalNew, Dupes: totalDupe, Errors: totalErr,
 			})
 
 		// ── unsplash: list topics ──────────────────────────────────────────────
