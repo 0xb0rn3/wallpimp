@@ -16,6 +16,8 @@
     Set-StrictMode -Version Latest
     $ErrorActionPreference = "Stop"
 
+    # PS 7.3+ throws NativeCommandError on non-zero exit codes. Suppress it —
+    # we check $LASTEXITCODE ourselves everywhere it matters.
     if ($PSVersionTable.PSVersion -ge [version]"7.3") {
         $PSNativeCommandErrorActionPreference = "Ignore"
     }
@@ -59,7 +61,7 @@
         Write-Spacer
     }
 
-    # ── Helpers ───────────────────────────────────────────────────────────────
+    # ── Core helpers ──────────────────────────────────────────────────────────
     function Refresh-Path {
         $machinePath = [System.Environment]::GetEnvironmentVariable("PATH", "Machine")
         $userPath    = [System.Environment]::GetEnvironmentVariable("PATH", "User")
@@ -76,6 +78,8 @@
         return $null
     }
 
+    # Invoke-Native: run a command block, swallow all errors, return output.
+    # Callers always check $LASTEXITCODE themselves.
     function Invoke-Native {
         param([scriptblock]$Block)
         try   { $output = & $Block 2>&1 }
@@ -95,6 +99,15 @@
         throw $msg
     }
 
+    # ── winget ────────────────────────────────────────────────────────────────
+    function Assert-Winget {
+        if (Test-Command "winget") { Write-OK "winget found."; return }
+        Write-Fail "winget not found."
+        Write-Host "  Get it from the Microsoft Store:" -ForegroundColor DarkYellow
+        Write-Host "  https://apps.microsoft.com/detail/9NBLGGH4NNS1" -ForegroundColor DarkYellow
+        Abort "winget is required. Install it then re-run this script."
+    }
+
     function Install-WithWinget {
         param($packageId, $label)
         Write-Step "Installing $label via winget ..."
@@ -111,51 +124,174 @@
         Write-OK "$label installed."
     }
 
-    # ── winget ────────────────────────────────────────────────────────────────
-    function Assert-Winget {
-        if (-not (Test-Command "winget")) {
-            Write-Fail "winget not found."
-            Write-Host "  Get it from the Microsoft Store:" -ForegroundColor DarkYellow
-            Write-Host "  https://apps.microsoft.com/detail/9NBLGGH4NNS1" -ForegroundColor DarkYellow
-            Abort "winget is required. Install it then re-run this script."
-        }
-        Write-OK "winget found."
+    # ── Python — full clean reinstall ─────────────────────────────────────────
+    #
+    # Strategy:
+    #   1. Check if Python 3.10+ exists AND tkinter imports cleanly  → done
+    #   2. Otherwise:
+    #      a. Uninstall every Python found via winget + the Microsoft Store
+    #         variant (Python.Python.3.*) and the legacy store app
+    #      b. Remove any stale python/python3/py shims from PATH
+    #      c. Download the official python.org installer (3.12.x) directly
+    #      d. Run it silently with ALL features including tcl/tk forced on
+    #      e. Verify tkinter imports
+    #
+    # We use the official .exe installer rather than winget because winget's
+    # Python package occasionally omits the tcl/tk optional feature depending
+    # on the machine's existing state. The official installer lets us set
+    # Include_tcltk=1 explicitly, which is guaranteed to include tkinter.
+
+    $script:PythonCmd     = $null
+    $script:PythonVersion = $null
+
+    function Test-Tkinter {
+        if (-not $script:PythonCmd) { return $false }
+        Invoke-Native { & $script:PythonCmd -c "import tkinter" 2>&1 } | Out-Null
+        return ($LASTEXITCODE -eq 0)
     }
 
-    # ── Python ────────────────────────────────────────────────────────────────
-    function Assert-Python {
-        $minVer = [version]"3.10.0"
+    function Find-PythonCmd {
+        # Returns the first python command that is 3.10+ and sets $script:PythonCmd
         foreach ($cmd in @("python", "python3", "py")) {
-            if (Test-Command $cmd) {
-                $raw = Invoke-Native { & $cmd --version }
-                $ver = Get-SemVer ($raw -join "")
-                if ($ver -and $ver -ge $minVer) {
-                    Write-OK "Python $ver found ($cmd)."
-                    $script:PythonCmd = $cmd
-                    return
-                }
+            if (-not (Test-Command $cmd)) { continue }
+            $raw = Invoke-Native { & $cmd --version 2>&1 }
+            $ver = Get-SemVer ($raw -join "")
+            if ($ver -and $ver -ge [version]"3.10.0") {
+                $script:PythonCmd     = $cmd
+                $script:PythonVersion = $ver
+                return $true
             }
         }
-        Write-Step "Python 3.10+ not found — installing Python 3.12 ..."
-        Install-WithWinget "Python.Python.3.12" "Python 3.12"
-        foreach ($cmd in @("python", "python3", "py")) {
-            if (Test-Command $cmd) { $script:PythonCmd = $cmd; return }
+        return $false
+    }
+
+    function Uninstall-AllPython {
+        Write-Step "Removing existing Python installations ..."
+
+        # 1. winget uninstall — covers Python.Python.3.x (all minor versions)
+        $wingetIds = @(
+            "Python.Python.3.13", "Python.Python.3.12", "Python.Python.3.11",
+            "Python.Python.3.10", "Python.Python.3.9",  "Python.Python.3.8"
+        )
+        foreach ($id in $wingetIds) {
+            Invoke-Native {
+                winget uninstall --id $id --silent --accept-source-agreements 2>&1
+            } | Out-Null
+            # exit code 0 = uninstalled, non-zero = wasn't installed — both fine
         }
-        Abort "Python not on PATH after install. Open a new terminal and re-run."
+
+        # 2. Microsoft Store Python (shows up as a different package family)
+        $storePkg = Get-AppxPackage -Name "PythonSoftwareFoundation.Python*" -ErrorAction SilentlyContinue
+        if ($storePkg) {
+            Write-Step "Removing Microsoft Store Python ..."
+            $storePkg | Remove-AppxPackage -ErrorAction SilentlyContinue
+        }
+
+        # 3. Kill any stale shims sitting in PATH (Python Launcher py.exe etc.)
+        #    These live in %LOCALAPPDATA%\Programs\Python or similar.
+        #    We'll let the fresh installer overwrite them — no manual removal needed.
+
+        # 4. Refresh PATH so old python.exe is no longer visible
+        Refresh-Path
+
+        Write-OK "Existing Python removed (or was not present)."
+    }
+
+    function Install-PythonOfficial {
+        # Download the official CPython 3.12.x installer from python.org
+        # and run it with every feature enabled including tcl/tk.
+        $pyVer      = "3.12.9"
+        $arch       = if ([System.Environment]::Is64BitOperatingSystem) { "amd64" } else { "win32" }
+        $installerName = "python-$pyVer-$arch.exe"
+        $url        = "https://www.python.org/ftp/python/$pyVer/$installerName"
+        $tmpPath    = Join-Path $env:TEMP $installerName
+
+        Write-Step "Downloading Python $pyVer ($arch) from python.org ..."
+        try {
+            Invoke-WebRequest -Uri $url -OutFile $tmpPath -UseBasicParsing
+        } catch {
+            Abort "Failed to download Python installer: $_"
+        }
+
+        Write-Step "Installing Python $pyVer (all features, including tcl/tk) ..."
+        # Install flags:
+        #   /quiet               — no UI
+        #   InstallAllUsers=0    — per-user install, no UAC needed
+        #   PrependPath=1        — add to PATH automatically
+        #   Include_tcltk=1      — force tcl/tk (tkinter) inclusion
+        #   Include_pip=1        — include pip
+        #   Include_launcher=1   — include py.exe launcher
+        #   Include_symbols=0    — skip debug symbols (saves ~50MB)
+        #   Include_debug=0      — skip debug binaries
+        $proc = Start-Process -FilePath $tmpPath -Wait -PassThru -ArgumentList @(
+            "/quiet",
+            "InstallAllUsers=0",
+            "PrependPath=1",
+            "Include_tcltk=1",
+            "Include_pip=1",
+            "Include_launcher=1",
+            "Include_symbols=0",
+            "Include_debug=0"
+        )
+
+        Remove-Item $tmpPath -Force -ErrorAction SilentlyContinue
+
+        if ($proc.ExitCode -ne 0) {
+            Abort "Python installer exited with code $($proc.ExitCode)."
+        }
+
+        Refresh-Path
+        Write-OK "Python $pyVer installed."
+    }
+
+    function Assert-Python {
+        Write-Step "Checking Python 3.10+ with tkinter ..."
+
+        # Fast path: existing Python is good AND tkinter works
+        if (Find-PythonCmd) {
+            if (Test-Tkinter) {
+                Write-OK "Python $script:PythonVersion found with tkinter. No reinstall needed."
+                return
+            }
+            Write-Info "Python $script:PythonVersion found but tkinter is broken or missing."
+            Write-Info "Performing a clean reinstall to fix it ..."
+        } else {
+            Write-Info "Python 3.10+ not found. Installing ..."
+        }
+
+        # Slow path: remove everything, install fresh from python.org
+        Uninstall-AllPython
+        Install-PythonOfficial
+
+        # Re-discover the new python command
+        if (-not (Find-PythonCmd)) {
+            Abort "Python not found on PATH after install. Open a new terminal and re-run."
+        }
+
+        # Final tkinter verification
+        if (-not (Test-Tkinter)) {
+            Abort "tkinter still not importable after fresh Python install. Check Windows Event Log."
+        }
+
+        Write-OK "Python $script:PythonVersion ready with tkinter."
     }
 
     # ── Go ────────────────────────────────────────────────────────────────────
     function Assert-Go {
         $minVer = [version]"1.21.0"
         if (Test-Command "go") {
-            $raw = Invoke-Native { go version }
+            $raw = Invoke-Native { go version 2>&1 }
             $ver = Get-SemVer ($raw -join "")
-            if ($ver -and $ver -ge $minVer) { Write-OK "Go $ver found."; return }
-            Write-Step "Go $ver < 1.21 — upgrading ..."
+            if ($ver -and $ver -ge $minVer) {
+                Write-OK "Go $ver found."
+                return
+            }
+            Write-Step "Go $ver is older than 1.21 — upgrading ..."
         } else {
             Write-Step "Go not found — installing ..."
         }
         Install-WithWinget "GoLang.Go" "Go 1.21+"
+        Refresh-Path
         if (-not (Test-Command "go")) {
             Abort "Go not on PATH after install. Open a new terminal and re-run."
         }
@@ -174,77 +310,71 @@
         Write-OK "Git ready."
     }
 
-    # ── System deps ───────────────────────────────────────────────────────────
-    # On Windows the main extra dep is tkinter, which ships with the official
-    # Python installer (the tcl/tk component). If it's missing it means a
-    # non-standard Python was installed — we detect this and advise the fix.
-    # We also ensure pip is available and the Visual C++ redistributable is
-    # present (required by some compiled wheels like Pillow in future use).
-    function Install-SystemDeps {
-        Write-Step "Checking system dependencies ..."
-
-        # ── tkinter ───────────────────────────────────────────────────────────
-        $tkOk = Invoke-Native { & $script:PythonCmd -c "import tkinter" 2>&1 }
-        if ($LASTEXITCODE -eq 0) {
-            Write-OK "tkinter found."
-        } else {
-            Write-Skip "tkinter not found in current Python install."
-            Write-Info "tkinter ships with the official Python installer from python.org."
-            Write-Info "If you need the GUI, reinstall Python 3.10+ from python.org"
-            Write-Info "and make sure the 'tcl/tk and IDLE' option is ticked."
-            # Do NOT abort — CLI still works without tkinter.
+    # ── Visual C++ Redistributable ────────────────────────────────────────────
+    # Required by compiled Python packages (e.g. Pillow, lxml, cryptography).
+    # The Python installer usually pulls this in, but installing it explicitly
+    # ensures it's present even on stripped-down Windows installs.
+    function Assert-VCRedist {
+        Write-Step "Checking Visual C++ Redistributable ..."
+        $installed = Get-ItemProperty `
+            "HKLM:\SOFTWARE\Microsoft\VisualStudio\*\VC\Runtimes\*" `
+            -ErrorAction SilentlyContinue |
+            Where-Object { $_.Version -ge "14.0" }
+        if ($installed) {
+            Write-OK "Visual C++ Redistributable already installed."
+            return
         }
-
-        # ── pip ───────────────────────────────────────────────────────────────
-        $pipOk = Invoke-Native { & $script:PythonCmd -m pip --version 2>&1 }
-        if ($LASTEXITCODE -eq 0) {
-            Write-OK "pip found."
-        } else {
-            Write-Step "pip not found — installing via ensurepip ..."
-            Invoke-Native { & $script:PythonCmd -m ensurepip --upgrade 2>&1 } | Out-Null
-            $pipOk2 = Invoke-Native { & $script:PythonCmd -m pip --version 2>&1 }
-            if ($LASTEXITCODE -eq 0) {
-                Write-OK "pip installed."
-            } else {
-                Abort "pip could not be installed. Re-install Python from python.org."
-            }
+        Write-Step "Installing Visual C++ 2015-2022 Redistributable ..."
+        Install-WithWinget "Microsoft.VCRedist.2015+.x64" "VC++ Redistributable x64"
+        if ([System.Environment]::Is64BitOperatingSystem -eq $false) {
+            Install-WithWinget "Microsoft.VCRedist.2015+.x86" "VC++ Redistributable x86"
         }
-
-        # ── requests & tqdm ───────────────────────────────────────────────────
-        # Handled separately in Install-PythonDeps; nothing more needed here
-        # for the Windows platform.
-
-        Write-OK "System deps satisfied."
     }
 
-    # ── Python deps ───────────────────────────────────────────────────────────
+    # ── pip + Python packages ─────────────────────────────────────────────────
+    function Assert-Pip {
+        Write-Step "Checking pip ..."
+        Invoke-Native { & $script:PythonCmd -m pip --version 2>&1 } | Out-Null
+        if ($LASTEXITCODE -eq 0) { Write-OK "pip found."; return }
+
+        Write-Step "pip not found — running ensurepip ..."
+        Invoke-Native { & $script:PythonCmd -m ensurepip --upgrade 2>&1 } | Out-Null
+        Invoke-Native { & $script:PythonCmd -m pip --version 2>&1 } | Out-Null
+        if ($LASTEXITCODE -ne 0) {
+            Abort "pip could not be installed. The Python install may be corrupted — re-run setup."
+        }
+        Write-OK "pip installed."
+    }
+
     function Install-PythonDeps {
-        Write-Step "Checking Python deps (requests, tqdm) ..."
+        Write-Step "Checking Python packages (requests, tqdm) ..."
         $missing = @()
         foreach ($pkg in @("requests", "tqdm")) {
-            Invoke-Native { & $script:PythonCmd -m pip show $pkg } | Out-Null
+            Invoke-Native { & $script:PythonCmd -m pip show $pkg 2>&1 } | Out-Null
             if ($LASTEXITCODE -ne 0) { $missing += $pkg }
         }
         if ($missing.Count -eq 0) {
-            Write-OK "Python deps already installed."
+            Write-OK "Python packages already installed."
             return
         }
         Write-Step "Installing: $($missing -join ', ') ..."
-        $out = Invoke-Native { & $script:PythonCmd -m pip install --quiet $missing }
-        if ($LASTEXITCODE -ne 0) {
-            Abort "pip install failed. Run manually: pip install $($missing -join ' ')"
+        $out = Invoke-Native {
+            & $script:PythonCmd -m pip install --quiet --upgrade $missing 2>&1
         }
-        Write-OK "Python deps installed."
+        if ($LASTEXITCODE -ne 0) {
+            Abort "pip install failed:`n$out`n`nRun manually:  pip install $($missing -join ' ')"
+        }
+        Write-OK "Python packages installed."
     }
 
-    # ── Clone / update ────────────────────────────────────────────────────────
+    # ── Clone / update repo ───────────────────────────────────────────────────
     function Get-WallPimp {
         param($installDir)
         if (Test-Path (Join-Path $installDir ".git")) {
             Write-Skip "Repo already present — pulling latest ..."
             Push-Location $installDir
             try {
-                Invoke-Native { git pull --quiet } | Out-Null
+                Invoke-Native { git pull --quiet 2>&1 } | Out-Null
                 Write-OK "Repository up to date."
             } catch {
                 Write-Skip "Pull failed — continuing with existing files."
@@ -256,7 +386,7 @@
         Write-Step "Cloning wallpimp into $installDir ..."
         New-Item -ItemType Directory -Force -Path $installDir | Out-Null
         Invoke-Native {
-            git clone --depth 1 --quiet "https://github.com/0xb0rn3/wallpimp.git" $installDir
+            git clone --depth 1 --quiet "https://github.com/0xb0rn3/wallpimp.git" $installDir 2>&1
         } | Out-Null
         if ($LASTEXITCODE -ne 0) { Abort "git clone failed. Check your internet connection." }
         Write-OK "Repository cloned."
@@ -280,7 +410,7 @@
         }
         Push-Location (Join-Path $repoDir "src")
         try {
-            $out = Invoke-Native { go build -o (Join-Path $repoDir "wallpimp-engine.exe") . }
+            $out = Invoke-Native { go build -o (Join-Path $repoDir "wallpimp-engine.exe") . 2>&1 }
             if ($LASTEXITCODE -ne 0) { Abort "go build failed:`n$out" }
             Write-OK "Engine built: wallpimp-engine.exe"
         } finally {
@@ -292,7 +422,10 @@
     function Assert-GuiScript {
         param($repoDir)
         $guiScript = Join-Path $repoDir "wallpimp_gui.py"
-        if (Test-Path $guiScript) { return $true }
+        if (Test-Path $guiScript) {
+            Write-OK "wallpimp_gui.py present."
+            return $true
+        }
         Write-Step "Fetching wallpimp_gui.py ..."
         $url = "https://raw.githubusercontent.com/0xb0rn3/wallpimp/main/wallpimp_gui.py"
         try {
@@ -315,23 +448,23 @@
         Write-Host ("  " + ("─" * 65)) -ForegroundColor DarkGray
         Write-Spacer
 
-        $hasTk  = (Invoke-Native { & $script:PythonCmd -c "import tkinter" 2>&1 }; $LASTEXITCODE -eq 0)
+        $hasTk  = Test-Tkinter
         $hasGui = Assert-GuiScript -repoDir $repoDir
 
         if ($hasTk -and $hasGui) {
-            Write-Host "    i)  Launch GUI    — graphical interface" -ForegroundColor Cyan
+            Write-Host "    i)   Launch GUI  — graphical interface" -ForegroundColor Cyan
         } else {
-            Write-Host "    i)  Launch GUI    — unavailable (tkinter missing)" -ForegroundColor DarkGray
+            Write-Host "    i)   Launch GUI  — unavailable (tkinter missing)" -ForegroundColor DarkGray
         }
-        Write-Host "   ii)  Stay on CLI   — classic terminal UI" -ForegroundColor Green
+        Write-Host "   ii)   Stay on CLI — classic terminal UI" -ForegroundColor Green
         Write-Spacer
 
         $choice = ""
         while ($true) {
             $raw    = Read-Host "  Enter choice [i / ii]"
             $choice = $raw.Trim().ToLower()
-            if ($choice -in @("i", "1", "gui"))       { $choice = "gui"; break }
-            if ($choice -in @("ii", "2", "cli", ""))  { $choice = "cli"; break }
+            if ($choice -in @("i", "1", "gui"))      { $choice = "gui"; break }
+            if ($choice -in @("ii", "2", "cli", "")) { $choice = "cli"; break }
             Write-Host "  Please enter  i  for GUI or  ii  for CLI." -ForegroundColor Yellow
         }
 
@@ -356,36 +489,44 @@
         }
     }
 
-    # ── Entry point ───────────────────────────────────────────────────────────
-    $script:PythonCmd = $null
-    $InstallDir       = Join-Path $env:USERPROFILE "wallpimp"
+    # ══════════════════════════════════════════════════════════════════════════
+    #  Entry point
+    # ══════════════════════════════════════════════════════════════════════════
+    $InstallDir = Join-Path $env:USERPROFILE "wallpimp"
 
     Write-Header
     Write-Info "Install location: $InstallDir"
     Write-Spacer
 
-    Write-Host "  Checking requirements ..." -ForegroundColor DarkGray
+    # ── Step 1: prerequisites ─────────────────────────────────────────────────
+    Write-Host "  Checking prerequisites ..." -ForegroundColor DarkGray
     Write-Spacer
 
     Assert-Winget
-    Assert-Python
+    Assert-Python        # always validates tkinter; reinstalls if broken
     Assert-Go
     Assert-Git
+    Assert-VCRedist
 
     Write-Spacer
-    Write-Host "  Installing system dependencies ..." -ForegroundColor DarkGray
+
+    # ── Step 2: Python runtime deps ───────────────────────────────────────────
+    Write-Host "  Setting up Python environment ..." -ForegroundColor DarkGray
     Write-Spacer
 
-    Install-SystemDeps
+    Assert-Pip
+    Install-PythonDeps
 
     Write-Spacer
+
+    # ── Step 3: WallPimp ──────────────────────────────────────────────────────
     Write-Host "  Setting up WallPimp ..." -ForegroundColor DarkGray
     Write-Spacer
 
-    Get-WallPimp   -installDir $InstallDir
-    Build-Engine   -repoDir    $InstallDir
-    Install-PythonDeps
+    Get-WallPimp  -installDir $InstallDir
+    Build-Engine  -repoDir    $InstallDir
 
+    # ── Step 4: Launch ────────────────────────────────────────────────────────
     Invoke-LaunchChooser -repoDir $InstallDir
 
     Write-DoneBox
