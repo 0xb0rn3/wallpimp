@@ -25,20 +25,19 @@ type RateLimiter struct {
 }
 
 func newRateLimiter() *RateLimiter {
-	return &RateLimiter{
-		limit:  45,
-		window: time.Hour,
-	}
+	return &RateLimiter{limit: 45, window: time.Hour}
 }
 
-// Wait blocks until the call is within the allowed rate. Returns wait duration.
+// Wait blocks until this call is within the hourly budget.
+// Returns the duration we waited (0 if no wait was needed).
 func (rl *RateLimiter) Wait() time.Duration {
 	rl.mu.Lock()
 	defer rl.mu.Unlock()
 
 	now := time.Now()
-	// Expire old entries
 	cutoff := now.Add(-rl.window)
+
+	// Expire old entries in-place.
 	fresh := rl.calls[:0]
 	for _, t := range rl.calls {
 		if t.After(cutoff) {
@@ -48,14 +47,14 @@ func (rl *RateLimiter) Wait() time.Duration {
 	rl.calls = fresh
 
 	if len(rl.calls) >= rl.limit {
-		// Must wait until oldest call falls outside window
+		// Wait until the oldest call falls outside the window.
 		waitUntil := rl.calls[0].Add(rl.window).Add(time.Second)
 		wait := time.Until(waitUntil)
 		if wait > 0 {
 			rl.mu.Unlock()
 			time.Sleep(wait)
 			rl.mu.Lock()
-			// Re-expire after sleep
+			// Re-expire after sleep.
 			now = time.Now()
 			cutoff = now.Add(-rl.window)
 			fresh2 := rl.calls[:0]
@@ -65,7 +64,6 @@ func (rl *RateLimiter) Wait() time.Duration {
 				}
 			}
 			rl.calls = fresh2
-			rl.mu.Unlock()
 			return wait
 		}
 	}
@@ -110,12 +108,12 @@ func NewUnsplashClient(res Resolution) *UnsplashClient {
 	return &UnsplashClient{
 		res: res,
 		rl:  newRateLimiter(),
-		hc:  &http.Client{Timeout: 20 * time.Second},
+		hc:  SharedClient, // use shared transport
 	}
 }
 
 func (c *UnsplashClient) get(endpoint string, params map[string]string) ([]byte, error) {
-	_ = c.rl.Wait() // blocks if rate limit hit
+	_ = c.rl.Wait()
 	u, _ := url.Parse(apiEndpoint() + endpoint)
 	q := u.Query()
 	for k, v := range params {
@@ -126,6 +124,7 @@ func (c *UnsplashClient) get(endpoint string, params map[string]string) ([]byte,
 	req, _ := http.NewRequest("GET", u.String(), nil)
 	req.Header.Set("Authorization", "Client-ID "+accessKey())
 	req.Header.Set("Accept-Version", "v1")
+	req.Header.Set("User-Agent", userAgent)
 
 	resp, err := c.hc.Do(req)
 	if err != nil {
@@ -140,8 +139,7 @@ func (c *UnsplashClient) get(endpoint string, params map[string]string) ([]byte,
 
 func (c *UnsplashClient) imageURL(raw string) string {
 	p := c.res.DownloadParams()
-	return raw + "&w=" + p["w"] + "&h=" + p["h"] +
-		"&fit=crop&fm=jpg&q=85"
+	return raw + "&w=" + p["w"] + "&h=" + p["h"] + "&fit=crop&fm=jpg&q=85"
 }
 
 func (c *UnsplashClient) normalize(photos []unsplashPhoto) []PhotoMeta {
@@ -163,7 +161,6 @@ func (c *UnsplashClient) Random(n int) ([]PhotoMeta, error) {
 	if err != nil {
 		return nil, err
 	}
-	// May be an array or single object
 	var arr []unsplashPhoto
 	if err := json.Unmarshal(body, &arr); err != nil {
 		var single unsplashPhoto
@@ -243,6 +240,49 @@ func (c *UnsplashClient) CollectionPhotos(id string, page int) ([]PhotoMeta, err
 	return c.normalize(photos), json.Unmarshal(body, &photos)
 }
 
+// ── Concurrent topic downloader ───────────────────────────────────────────────
+
+// DownloadTopicsConcurrent fetches all topics simultaneously (up to topicConc
+// topics in flight at once). Each topic fetches its own pages sequentially
+// because the Unsplash rate limiter serialises API calls anyway — the win
+// here is that we don't wait for topic A to finish before starting topic B.
+func (c *UnsplashClient) DownloadTopicsConcurrent(
+	wdir string, workers int, db *HashDB,
+	prog progressFn, capRemaining *int64,
+) {
+	topics, err := c.Topics()
+	if err != nil || len(topics) == 0 {
+		return
+	}
+
+	const topicConc = 5 // max simultaneous topic fetchers
+	sem := make(chan struct{}, topicConc)
+	var wg sync.WaitGroup
+
+	for _, t := range topics {
+		if capRemaining != nil && atomic.LoadInt64(capRemaining) <= 0 {
+			break
+		}
+		sem <- struct{}{}
+		wg.Add(1)
+		go func(slug string) {
+			defer wg.Done()
+			defer func() { <-sem }()
+			for page := 1; ; page++ {
+				if capRemaining != nil && atomic.LoadInt64(capRemaining) <= 0 {
+					return
+				}
+				photos, err := c.TopicPhotos(slug, page)
+				if err != nil || len(photos) == 0 {
+					return
+				}
+				DownloadPhotos(photos, wdir, workers, db, prog)
+			}
+		}(t.Slug)
+	}
+	wg.Wait()
+}
+
 // ── Image downloader ──────────────────────────────────────────────────────────
 
 // DownloadPhotos downloads a slice of PhotoMeta into destDir concurrently.
@@ -256,7 +296,6 @@ func DownloadPhotos(photos []PhotoMeta, destDir string, workers int,
 	var stats DownloadStats
 	sem := make(chan struct{}, workers)
 	var wg sync.WaitGroup
-	hc := &http.Client{Timeout: 30 * time.Second}
 
 	for _, photo := range photos {
 		sem <- struct{}{}
@@ -265,7 +304,16 @@ func DownloadPhotos(photos []PhotoMeta, destDir string, workers int,
 			defer wg.Done()
 			defer func() { <-sem }()
 
-			resp, err := hc.Get(p.URL)
+			// Use shared client directly — no rate limit needed for image CDN.
+			req, err := newReq(p.URL)
+			if err != nil {
+				atomic.AddInt64(&stats.Errors, 1)
+				if prog != nil {
+					prog(0, 0, 1)
+				}
+				return
+			}
+			resp, err := SharedClient.Do(req)
 			if err != nil {
 				atomic.AddInt64(&stats.Errors, 1)
 				if prog != nil {
