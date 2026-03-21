@@ -9,20 +9,24 @@ persistent socket connection for maximum throughput with zero per-operation over
 
 ```
 wallpimp (Python)          wallpimp-engine (Go binary)
-  Terminal UI         ←──── newline-delimited JSON ────→   Goroutine pool
-  Menus & settings         Unix socket / named pipe         GitHub downloader
-  Slideshow control                                         Unsplash client
-  Wallpaper setter                                          Hash database
-                                                            Rate limiter
+  Terminal UI  ──────────── newline-delimited JSON ────  Goroutine pool
+  GUI (tkinter)        Unix socket / named pipe           GitHub downloader
+  Menus & settings                                        Unsplash client
+  Slideshow control                                       Hash database
+  Wallpaper setter                                        Rate limiter
 ```
 
 Python spawns the Go engine once on first use and holds a single persistent
 socket connection for the entire session. All download concurrency happens inside
 Go — no Python threads involved in the hot path.
 
+The optional tkinter GUI (`wallpimp_gui.py`) communicates with the same engine
+over the same socket — no separate backend needed.
+
 ## Features
 
 - Hybrid Python + Go architecture — UI in Python, engine in Go
+- **GUI mode** (tkinter) and **CLI mode** — choose at launch
 - 19 curated wallpaper sources behind one seamless progress bar
 - Full library or custom amount download with live source scanning
 - GitHub rate-limit bypass (zip archive → git clone fallback, no tokens)
@@ -42,6 +46,7 @@ Go — no Python threads involved in the hot path.
 |-----------|-------------|
 | Python | 3.10+ (for `\|` union type hints) |
 | Go | 1.21+ (to build the engine) |
+| GUI (optional) | Python `tkinter` — ships with standard Python installs |
 | Linux slideshow | GNOME or XFCE4 + systemd |
 | macOS | 10.13+ High Sierra or later |
 | Windows | Windows 10 or later |
@@ -49,7 +54,11 @@ Go — no Python threads involved in the hot path.
 ## Project Structure
 
 ```
-wallpimp                  # Python script (UI + wallpaper setters + slideshow)
+wallpimp                  # Python script (CLI — UI + wallpaper setters + slideshow)
+wallpimp_gui.py           # Python script (GUI — tkinter front-end, same engine)
+wallpimp_launch.py        # Launcher — prompts GUI / CLI choice (Linux/macOS)
+setup.py                  # One-line installer for Linux / macOS
+setup.ps1                 # One-line installer for Windows
 src/
   go.mod                  # Go module
   main.go                 # Socket server + command dispatcher
@@ -83,7 +92,75 @@ GOOS=linux GOARCH=arm64 go build -o ../wallpimp-engine-arm64 .
 The binary lands at the repo root alongside the `wallpimp` script.
 The engine is auto-located and started on first use — no configuration needed.
 
+---
+
 ## Installation
+
+### Linux / macOS — one-line setup (recommended)
+
+```bash
+python3 <(curl -fsSL https://raw.githubusercontent.com/0xb0rn3/wallpimp/main/setup.py)
+```
+
+`setup.py` automatically:
+- Detects your package manager (apt / dnf / pacman / zypper / brew)
+- Checks and installs Go 1.21+ and Git if missing
+- Clones the repository to `~/wallpimp`
+- Builds the Go engine (`wallpimp-engine`)
+- Installs Python dependencies (`requests`, `tqdm`)
+- Prompts you to choose **GUI** or **CLI** at launch
+
+After the prompt:
+
+```
+  ─────────────────────────────────────────────────────────────────
+  How would you like to launch WallPimp?
+  ─────────────────────────────────────────────────────────────────
+
+    i)   Launch GUI  — graphical interface
+   ii)   Stay on CLI — classic terminal UI
+
+  Enter choice [i / ii]:
+```
+
+To re-run setup or update an existing installation:
+
+```bash
+python3 <(curl -fsSL https://raw.githubusercontent.com/0xb0rn3/wallpimp/main/setup.py)
+```
+
+It will pull the latest repo, rebuild the engine only if source has changed,
+then show the launch prompt again.
+
+#### Flags (skip the prompt)
+
+```bash
+# Force GUI launch
+python3 <(curl -fsSL .../setup.py) --gui
+
+# Force CLI launch
+python3 <(curl -fsSL .../setup.py) --cli
+
+# Pull + rebuild only, no launch
+python3 <(curl -fsSL .../setup.py) --update
+```
+
+#### tkinter (GUI prerequisite)
+
+`tkinter` ships with the standard Python installer on most platforms. If the
+GUI option shows as unavailable, install it with:
+
+```bash
+sudo apt-get install python3-tk   # Debian / Ubuntu / Kali
+sudo dnf install python3-tkinter  # Fedora / RHEL
+sudo pacman -S tk                 # Arch / ArchBang
+sudo zypper install python3-tk    # openSUSE
+brew install python-tk            # macOS (Homebrew)
+```
+
+Then re-run setup — the GUI option will appear automatically.
+
+---
 
 ### Windows — one-line setup (recommended)
 
@@ -98,12 +175,13 @@ irm https://raw.githubusercontent.com/0xb0rn3/wallpimp/main/setup.ps1 | iex
 - Clones the repository to `%USERPROFILE%\wallpimp`
 - Builds the Go engine (`wallpimp-engine.exe`)
 - Installs Python dependencies
-- Launches WallPimp
+- Prompts you to choose **GUI** or **CLI** at launch (same prompt as Linux)
 
 > **Do not close the window** while setup is running.
 
 To re-run setup or update an existing installation, run the same command again —
-it will pull the latest repo, rebuild the engine only if source has changed, and relaunch.
+it will pull the latest repo, rebuild the engine only if source has changed, and
+show the launch prompt again.
 
 If you prefer to run the script locally:
 
@@ -114,23 +192,83 @@ Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
 
 ---
 
-### Linux / macOS — manual install
+### Manual install (all platforms)
 
 ```bash
-cd src && go build -o ../wallpimp-engine . && cd ..
-chmod +x wallpimp
-sudo mv wallpimp wallpimp-engine /usr/local/bin/
-wallpimp
+git clone --depth 1 https://github.com/0xb0rn3/wallpimp.git ~/wallpimp
+cd ~/wallpimp/src && go build -o ../wallpimp-engine . && cd ..
+chmod +x wallpimp wallpimp_launch.py
+pip install requests tqdm
 ```
 
-Python dependencies (`requests`, `tqdm`) are auto-installed on first run.
+Then launch via the prompt:
+
+```bash
+python3 wallpimp_launch.py        # shows GUI / CLI choice
+python3 wallpimp_launch.py --gui  # force GUI
+python3 wallpimp_launch.py --cli  # force CLI
+```
+
+Or directly:
+
+```bash
+python3 wallpimp_gui.py   # GUI
+python3 wallpimp          # CLI
+```
+
+---
+
+## Launching after setup
+
+Once installed, you can launch WallPimp any time with the same launcher:
+
+```bash
+# Linux / macOS — from the install directory
+cd ~/wallpimp && python3 wallpimp_launch.py
+
+# Or re-run setup.py — it skips all already-done steps and goes straight to the prompt
+python3 <(curl -fsSL https://raw.githubusercontent.com/0xb0rn3/wallpimp/main/setup.py)
+```
+
+---
+
+## GUI Overview
+
+The tkinter GUI (`wallpimp_gui.py`) communicates with the same Go engine as the CLI.
+All download logic and socket protocol are identical — only the front-end differs.
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  WallPimp                                                    │
+├────────────┬────────────────────────────────────────────────┤
+│            │                                                │
+│  ⌂ Home    │   Page content                                 │
+│  ↓ Download│                                                │
+│  ◈ Unsplash│                                                │
+│  ▶ Slideshow                                                │
+│  ⚙ Settings│                                                │
+│            │                                                │
+├────────────┴────────────────────────────────────────────────┤
+│  Status strip                                               │
+└─────────────────────────────────────────────────────────────┘
+```
+
+| Page | Features |
+|------|----------|
+| Home | Quick-action tiles for common tasks |
+| Download | Scan sources, download full library or custom count, live progress bar |
+| Unsplash | Search by keyword, browse topics, grab randoms — tabbed interface |
+| Slideshow | Platform-aware start/stop, interval control |
+| Settings | Wallpaper directory, worker count, slideshow interval |
 
 ---
 
 ## Usage
 
+### CLI
+
 ```bash
-wallpimp
+python3 wallpimp
 ```
 
 Main menu:
@@ -188,6 +326,9 @@ The engine streams `progress` events in real time and sends a final `done` event
 ← ...
 ← {"event":"done","new":500,"dupes":62,"errors":1}
 ```
+
+Both the CLI and GUI use this same protocol — the engine is unaware of which
+front-end is connected.
 
 ---
 
@@ -365,7 +506,7 @@ semaphore chan (size = workers)
      all goroutines join
             │
             ▼
-     "done" event → Python
+     "done" event → Python (CLI or GUI)
 ```
 
 The hash database uses `sync.RWMutex` — multiple goroutines read concurrently,
@@ -393,6 +534,19 @@ Go engine not found
 
 Build the engine and ensure it sits in the same directory as `wallpimp`, or
 anywhere on your `PATH`.
+
+### GUI option not appearing (Linux)
+
+The GUI requires `tkinter`. Install it for your distro:
+
+```bash
+sudo apt-get install python3-tk   # Debian / Ubuntu / Kali / Mint
+sudo dnf install python3-tkinter  # Fedora / RHEL / Rocky
+sudo pacman -S tk                 # Arch / ArchBang / Manjaro
+sudo zypper install python3-tk    # openSUSE
+```
+
+Then re-run `setup.py` — the GUI option will appear automatically.
 
 ### Slideshow not working (Linux)
 
@@ -425,7 +579,7 @@ schtasks /query /tn "WallPimp Slideshow"
 Install `git` to enable the clone fallback:
 
 ```bash
-sudo apt install git   # Linux
+sudo apt install git   # Debian / Ubuntu
 brew install git       # macOS
 winget install Git.Git # Windows
 ```
@@ -434,6 +588,16 @@ winget install Git.Git # Windows
 
 ```bash
 pip install requests tqdm
+```
+
+### Go not found after setup (Linux)
+
+`setup.py` installs Go to `/usr/local/go` and appends to `~/.profile`,
+`~/.bashrc`, and `~/.zshrc`. If `go` is still not found, source your profile:
+
+```bash
+source ~/.profile
+# or open a new terminal
 ```
 
 ---
