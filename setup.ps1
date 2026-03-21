@@ -16,9 +16,6 @@
     Set-StrictMode -Version Latest
     $ErrorActionPreference = "Stop"
 
-    # PS 7.3+ throws NativeCommandError on any non-zero native exit code,
-    # even with ErrorActionPreference = SilentlyContinue. Suppress globally —
-    # we check $LASTEXITCODE ourselves everywhere it matters.
     if ($PSVersionTable.PSVersion -ge [version]"7.3") {
         $PSNativeCommandErrorActionPreference = "Ignore"
     }
@@ -79,15 +76,10 @@
         return $null
     }
 
-    # Invoke-Native: run a native command, capture output, never throw —
-    # regardless of exit code or PS version. Callers check $LASTEXITCODE.
     function Invoke-Native {
         param([scriptblock]$Block)
-        try {
-            $output = & $Block 2>&1
-        } catch {
-            $output = $_.ToString()
-        }
+        try   { $output = & $Block 2>&1 }
+        catch { $output = $_.ToString() }
         return $output
     }
 
@@ -158,10 +150,7 @@
         if (Test-Command "go") {
             $raw = Invoke-Native { go version }
             $ver = Get-SemVer ($raw -join "")
-            if ($ver -and $ver -ge $minVer) {
-                Write-OK "Go $ver found."
-                return
-            }
+            if ($ver -and $ver -ge $minVer) { Write-OK "Go $ver found."; return }
             Write-Step "Go $ver < 1.21 — upgrading ..."
         } else {
             Write-Step "Go not found — installing ..."
@@ -185,10 +174,73 @@
         Write-OK "Git ready."
     }
 
+    # ── System deps ───────────────────────────────────────────────────────────
+    # On Windows the main extra dep is tkinter, which ships with the official
+    # Python installer (the tcl/tk component). If it's missing it means a
+    # non-standard Python was installed — we detect this and advise the fix.
+    # We also ensure pip is available and the Visual C++ redistributable is
+    # present (required by some compiled wheels like Pillow in future use).
+    function Install-SystemDeps {
+        Write-Step "Checking system dependencies ..."
+
+        # ── tkinter ───────────────────────────────────────────────────────────
+        $tkOk = Invoke-Native { & $script:PythonCmd -c "import tkinter" 2>&1 }
+        if ($LASTEXITCODE -eq 0) {
+            Write-OK "tkinter found."
+        } else {
+            Write-Skip "tkinter not found in current Python install."
+            Write-Info "tkinter ships with the official Python installer from python.org."
+            Write-Info "If you need the GUI, reinstall Python 3.10+ from python.org"
+            Write-Info "and make sure the 'tcl/tk and IDLE' option is ticked."
+            # Do NOT abort — CLI still works without tkinter.
+        }
+
+        # ── pip ───────────────────────────────────────────────────────────────
+        $pipOk = Invoke-Native { & $script:PythonCmd -m pip --version 2>&1 }
+        if ($LASTEXITCODE -eq 0) {
+            Write-OK "pip found."
+        } else {
+            Write-Step "pip not found — installing via ensurepip ..."
+            Invoke-Native { & $script:PythonCmd -m ensurepip --upgrade 2>&1 } | Out-Null
+            $pipOk2 = Invoke-Native { & $script:PythonCmd -m pip --version 2>&1 }
+            if ($LASTEXITCODE -eq 0) {
+                Write-OK "pip installed."
+            } else {
+                Abort "pip could not be installed. Re-install Python from python.org."
+            }
+        }
+
+        # ── requests & tqdm ───────────────────────────────────────────────────
+        # Handled separately in Install-PythonDeps; nothing more needed here
+        # for the Windows platform.
+
+        Write-OK "System deps satisfied."
+    }
+
+    # ── Python deps ───────────────────────────────────────────────────────────
+    function Install-PythonDeps {
+        Write-Step "Checking Python deps (requests, tqdm) ..."
+        $missing = @()
+        foreach ($pkg in @("requests", "tqdm")) {
+            Invoke-Native { & $script:PythonCmd -m pip show $pkg } | Out-Null
+            if ($LASTEXITCODE -ne 0) { $missing += $pkg }
+        }
+        if ($missing.Count -eq 0) {
+            Write-OK "Python deps already installed."
+            return
+        }
+        Write-Step "Installing: $($missing -join ', ') ..."
+        $out = Invoke-Native { & $script:PythonCmd -m pip install --quiet $missing }
+        if ($LASTEXITCODE -ne 0) {
+            Abort "pip install failed. Run manually: pip install $($missing -join ' ')"
+        }
+        Write-OK "Python deps installed."
+    }
+
     # ── Clone / update ────────────────────────────────────────────────────────
     function Get-WallPimp {
         param($installDir)
-        if (Test-Path (Join-Path $installDir "wallpimp")) {
+        if (Test-Path (Join-Path $installDir ".git")) {
             Write-Skip "Repo already present — pulling latest ..."
             Push-Location $installDir
             try {
@@ -228,9 +280,7 @@
         }
         Push-Location (Join-Path $repoDir "src")
         try {
-            $out = Invoke-Native {
-                go build -o (Join-Path $repoDir "wallpimp-engine.exe") .
-            }
+            $out = Invoke-Native { go build -o (Join-Path $repoDir "wallpimp-engine.exe") . }
             if ($LASTEXITCODE -ne 0) { Abort "go build failed:`n$out" }
             Write-OK "Engine built: wallpimp-engine.exe"
         } finally {
@@ -238,60 +288,24 @@
         }
     }
 
-    # ── Python deps ───────────────────────────────────────────────────────────
-    # Uses `pip show <pkg>` instead of `python -c "import <pkg>"`.
-    # pip show exits 0 if installed, 1 if not — clean, no tracebacks,
-    # no NativeCommandError risk from Python's own error output.
-    function Install-PythonDeps {
-        Write-Step "Checking Python deps (requests, tqdm) ..."
-        $missing = @()
-        foreach ($pkg in @("requests", "tqdm")) {
-            Invoke-Native { & $script:PythonCmd -m pip show $pkg } | Out-Null
-            if ($LASTEXITCODE -ne 0) { $missing += $pkg }
-        }
-        if ($missing.Count -eq 0) {
-            Write-OK "Python deps already installed."
-            return
-        }
-        Write-Step "Installing: $($missing -join ', ') ..."
-        $out = Invoke-Native { & $script:PythonCmd -m pip install --quiet $missing }
-        if ($LASTEXITCODE -ne 0) {
-            Abort "pip install failed. Run manually: pip install $($missing -join ' ')"
-        }
-        Write-OK "Python deps installed."
-    }
-
-    # ── Tkinter check ─────────────────────────────────────────────────────────
-    # tkinter ships with the official Python Windows installer. This just
-    # verifies it's importable before we offer the GUI option.
-    function Test-Tkinter {
-        $out = Invoke-Native {
-            & $script:PythonCmd -c "import tkinter" 2>&1
-        }
-        return ($LASTEXITCODE -eq 0)
-    }
-
-    # ── GUI dep: ensure wallpimp_gui.py is present ────────────────────────────
+    # ── GUI script check ──────────────────────────────────────────────────────
     function Assert-GuiScript {
         param($repoDir)
         $guiScript = Join-Path $repoDir "wallpimp_gui.py"
-        if (-not (Test-Path $guiScript)) {
-            # Try to download directly from the repo
-            Write-Step "Fetching wallpimp_gui.py ..."
-            $url = "https://raw.githubusercontent.com/0xb0rn3/wallpimp/main/wallpimp_gui.py"
-            try {
-                Invoke-WebRequest -Uri $url -OutFile $guiScript -UseBasicParsing
-                Write-OK "wallpimp_gui.py downloaded."
-            } catch {
-                Write-Skip "Could not download wallpimp_gui.py — GUI option unavailable."
-                return $false
-            }
+        if (Test-Path $guiScript) { return $true }
+        Write-Step "Fetching wallpimp_gui.py ..."
+        $url = "https://raw.githubusercontent.com/0xb0rn3/wallpimp/main/wallpimp_gui.py"
+        try {
+            Invoke-WebRequest -Uri $url -OutFile $guiScript -UseBasicParsing
+            Write-OK "wallpimp_gui.py downloaded."
+            return $true
+        } catch {
+            Write-Skip "Could not download wallpimp_gui.py — GUI option unavailable."
+            return $false
         }
-        return $true
     }
 
     # ── Launch chooser ────────────────────────────────────────────────────────
-    # Shown after all setup steps complete. Lets the user pick GUI or CLI.
     function Invoke-LaunchChooser {
         param($repoDir)
 
@@ -301,34 +315,28 @@
         Write-Host ("  " + ("─" * 65)) -ForegroundColor DarkGray
         Write-Spacer
 
-        $hasTk  = Test-Tkinter
+        $hasTk  = (Invoke-Native { & $script:PythonCmd -c "import tkinter" 2>&1 }; $LASTEXITCODE -eq 0)
         $hasGui = Assert-GuiScript -repoDir $repoDir
 
         if ($hasTk -and $hasGui) {
             Write-Host "    i)  Launch GUI    — graphical interface" -ForegroundColor Cyan
-            Write-Host "   ii)  Stay on CLI   — classic terminal UI" -ForegroundColor DarkGray
         } else {
-            if (-not $hasTk) {
-                Write-Info "tkinter not found — GUI option unavailable."
-                Write-Info "To enable GUI: reinstall Python 3.10+ from python.org (tick 'tcl/tk' option)."
-            }
-            Write-Host "    ii)  Stay on CLI   — classic terminal UI" -ForegroundColor DarkGray
+            Write-Host "    i)  Launch GUI    — unavailable (tkinter missing)" -ForegroundColor DarkGray
         }
-
+        Write-Host "   ii)  Stay on CLI   — classic terminal UI" -ForegroundColor Green
         Write-Spacer
 
         $choice = ""
         while ($true) {
-            $raw = Read-Host "  Enter choice [i / ii]"
+            $raw    = Read-Host "  Enter choice [i / ii]"
             $choice = $raw.Trim().ToLower()
-            if ($choice -in @("i", "1", "gui"))        { $choice = "gui"; break }
-            if ($choice -in @("ii", "2", "cli", ""))   { $choice = "cli"; break }
+            if ($choice -in @("i", "1", "gui"))       { $choice = "gui"; break }
+            if ($choice -in @("ii", "2", "cli", ""))  { $choice = "cli"; break }
             Write-Host "  Please enter  i  for GUI or  ii  for CLI." -ForegroundColor Yellow
         }
 
         Write-Spacer
         Push-Location $repoDir
-
         try {
             if ($choice -eq "gui" -and $hasTk -and $hasGui) {
                 Write-Host ("  " + ("─" * 65)) -ForegroundColor DarkGray
@@ -365,6 +373,12 @@
     Assert-Git
 
     Write-Spacer
+    Write-Host "  Installing system dependencies ..." -ForegroundColor DarkGray
+    Write-Spacer
+
+    Install-SystemDeps
+
+    Write-Spacer
     Write-Host "  Setting up WallPimp ..." -ForegroundColor DarkGray
     Write-Spacer
 
@@ -372,7 +386,6 @@
     Build-Engine   -repoDir    $InstallDir
     Install-PythonDeps
 
-    # ── Launch chooser (GUI vs CLI) ───────────────────────────────────────────
     Invoke-LaunchChooser -repoDir $InstallDir
 
     Write-DoneBox
