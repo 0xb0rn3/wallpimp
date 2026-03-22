@@ -122,19 +122,39 @@ class EngineClient:
                 [str(eng), str(self.hash_path), str(self.workers)],
                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
             )
-            sock_path = self._proc.stdout.readline().strip()
-            if not sock_path:
-                return "Engine did not emit socket path."
-            for _ in range(50):
-                try:
-                    s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-                    s.connect(sock_path)
-                    self._sock  = s
-                    self._sockf = s.makefile("r")
-                    return None
-                except (ConnectionRefusedError, FileNotFoundError):
-                    time.sleep(0.05)
-            return f"Timed out connecting to engine socket: {sock_path}"
+            addr_line = self._proc.stdout.readline().strip()
+            if not addr_line:
+                stderr_out = self._proc.stderr.read(2048)
+                return f"Engine did not emit address.\n{stderr_out}"
+
+            # Engine prints either:
+            #   "tcp:<port>"   on Windows (TCP loopback — AF_UNIX not guaranteed)
+            #   "/tmp/..."     on Linux/macOS (Unix socket)
+            if addr_line.startswith("tcp:"):
+                port = int(addr_line.split(":", 1)[1])
+                for _ in range(60):
+                    try:
+                        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                        s.connect(("127.0.0.1", port))
+                        self._sock  = s
+                        self._sockf = s.makefile("r")
+                        return None
+                    except (ConnectionRefusedError, OSError):
+                        time.sleep(0.05)
+                return f"Timed out connecting to engine on 127.0.0.1:{port}"
+            else:
+                # Unix socket path
+                sock_path = addr_line
+                for _ in range(60):
+                    try:
+                        s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+                        s.connect(sock_path)
+                        self._sock  = s
+                        self._sockf = s.makefile("r")
+                        return None
+                    except (ConnectionRefusedError, FileNotFoundError, OSError):
+                        time.sleep(0.05)
+                return f"Timed out connecting to engine socket: {sock_path}"
         except Exception as e:
             return str(e)
 
