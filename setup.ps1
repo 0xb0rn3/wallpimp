@@ -11,12 +11,11 @@
 #    Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
 #    .\setup.ps1
 #
-#  PATCH: Assert-VCRedist rewritten to download directly from Microsoft
-#         instead of using winget — fixes install failure on QEMU/KVM VMs
-#         where winget cannot install Microsoft.VCRedist.2015+.x64.
-#  PATCH: Build-Engine rewritten to use Invoke-Native instead of Start-Process
-#         for go build — fixes "package is not in std" failure on machines
-#         where the username or install path contains spaces.
+#  FIX 1: Build-Engine uses Invoke-Native + GO111MODULE=on to force module mode.
+#          Prevents "go build failed: wallpimp" on machines where GOPATH contains
+#          a conflicting wallpimp directory or the username has spaces.
+#  FIX 2: Assert-VCRedist downloads directly from Microsoft aka.ms instead of
+#          winget — fixes install failure on QEMU/KVM VMs.
 # =============================================================================
 
 & {
@@ -222,8 +221,6 @@
     }
 
     # ── Go — always direct MSI from go.dev, never winget ─────────────────────
-    # winget's GoLang.Go fails silently on VMs, fresh installs, and machines
-    # with stale winget source indexes. Direct MSI is always reliable.
     function Install-GoOfficial {
         $goVer   = "1.22.5"
         $arch    = if ([System.Environment]::Is64BitOperatingSystem) { "amd64" } else { "386" }
@@ -243,7 +240,6 @@
         }
 
         Write-Step "Installing Go $goVer ..."
-        # 0 = success, 3010 = success + reboot pending (safe to ignore)
         $proc = Start-Process -FilePath "msiexec.exe" -Wait -PassThru `
             -ArgumentList @("/i", $tmpPath, "/quiet", "/norestart", "/l*v", $logPath)
         Remove-Item $tmpPath -Force -ErrorAction SilentlyContinue
@@ -252,10 +248,8 @@
             Abort "Go MSI exited $($proc.ExitCode). Log: $logPath"
         }
 
-        # MSI writes Go's bin dir to the Machine PATH — pull into current session.
         Refresh-Path
 
-        # Belt-and-suspenders: inject known default bin dirs if go.exe still invisible.
         foreach ($dir in @("C:\Program Files\Go\bin", "C:\Go\bin")) {
             if (-not (Test-Command "go") -and (Test-Path $dir)) {
                 $env:PATH = "$dir;$env:PATH"
@@ -286,10 +280,7 @@
     }
 
     # ── Git ───────────────────────────────────────────────────────────────────
-    # Downloads the official Git for Windows installer directly — same reason
-    # as Go: winget silently fails on fresh/VM Windows installs.
     function Install-GitOfficial {
-        # Portable EXE installer from the official Git for Windows release.
         $gitVer  = "2.45.2"
         $arch    = if ([System.Environment]::Is64BitOperatingSystem) { "64-bit" } else { "32-bit" }
         $exeName = "Git-$gitVer-$arch.exe"
@@ -304,12 +295,6 @@
         }
 
         Write-Step "Installing Git $gitVer ..."
-        # SILENT install flags for Git for Windows NSIS installer:
-        #   /VERYSILENT   — no UI at all
-        #   /NORESTART    — never reboot
-        #   /NOCANCEL     — no cancel button (not relevant but safe)
-        #   /SP-          — skip the "This will install..." prompt
-        #   /COMPONENTS   — only install core + cmd integration
         $proc = Start-Process -FilePath $tmpPath -Wait -PassThru -ArgumentList @(
             "/VERYSILENT",
             "/NORESTART",
@@ -323,7 +308,6 @@
             Abort "Git installer exited with code $($proc.ExitCode)."
         }
 
-        # Git installs to C:\Program Files\Git\cmd by default.
         Refresh-Path
         if (-not (Test-Command "git")) {
             $gitDefault = "C:\Program Files\Git\cmd"
@@ -346,13 +330,8 @@
     }
 
     # ── Visual C++ Redistributable ────────────────────────────────────────────
-    # PATCHED: Downloads directly from Microsoft aka.ms redirect instead of
-    # using winget, which fails on QEMU/KVM VMs and restricted environments.
-    # Exit codes: 0 = success, 3010 = success + reboot pending (safe to ignore).
     function Install-VCRedistDirect {
-        param(
-            [string]$Arch   # "x64" or "x86"
-        )
+        param([string]$Arch)
 
         $urls = @{
             "x64" = "https://aka.ms/vs/17/release/vc_redist.x64.exe"
@@ -384,7 +363,6 @@
     function Assert-VCRedist {
         Write-Step "Checking Visual C++ Redistributable ..."
 
-        # Check registry for any VC++ 2015+ runtime (version >= 14.0)
         $installed = Get-ItemProperty `
             "HKLM:\SOFTWARE\Microsoft\VisualStudio\*\VC\Runtimes\*" `
             -ErrorAction SilentlyContinue |
@@ -398,7 +376,6 @@
         Write-Step "Installing Visual C++ 2015-2022 Redistributable ..."
         Install-VCRedistDirect -Arch "x64"
 
-        # Also install x86 on 32-bit systems
         if (-not [System.Environment]::Is64BitOperatingSystem) {
             Install-VCRedistDirect -Arch "x86"
         }
@@ -482,17 +459,18 @@
 
     # ── Build Go engine ───────────────────────────────────────────────────────
     #
-    # FIX: Replaced Start-Process for go build with Invoke-Native (scriptblock).
+    # FIX 1 — spaces in path:
+    #   Invoke-Native + call operator correctly quotes paths with spaces.
+    #   Start-Process -ArgumentList array re-splits on whitespace on some
+    #   Windows builds, causing Go to see "wallpimp-engine.exe" as a package
+    #   import path and emit "package ... is not in std".
     #
-    # Root cause of the original failure on machines with spaces in the path:
-    #   Start-Process -ArgumentList @("build", "-o", "C:\Users\John Doe\wallpimp\wallpimp-engine.exe", ".")
-    #   PowerShell passes each array element as a separate argv token, but a known
-    #   PS bug on some Windows builds causes it to re-split on whitespace when
-    #   spawning native processes. Go then sees "wallpimp-engine.exe" as a bare
-    #   package import path and emits "package ... is not in std".
-    #
-    # Invoke-Native runs the command through PowerShell's own pipeline which
-    # handles quoting of paths with spaces correctly via the call operator (&).
+    # FIX 2 — GOPATH module conflict:
+    #   GO111MODULE=on forces Go to use go.mod and ignore GOPATH/src entirely.
+    #   Without this, Go falls back to GOPATH mode when it finds a wallpimp
+    #   directory under GOPATH/src (created by git clone or a previous failed
+    #   build), treats the module name as a package import, and fails with
+    #   "go build failed: wallpimp".
     function Build-Engine {
         param($repoDir)
         $enginePath = Join-Path $repoDir "wallpimp-engine.exe"
@@ -511,7 +489,6 @@
 
         $srcDir = Join-Path $repoDir "src"
 
-        # If no go.mod exists in src, try the repo root
         if (-not (Test-Path (Join-Path $srcDir "go.mod"))) {
             if (Test-Path (Join-Path $repoDir "go.mod")) {
                 $srcDir = $repoDir
@@ -519,11 +496,16 @@
             }
         }
 
+        # Force module mode — prevents fallback to GOPATH resolution
+        $env:GO111MODULE  = "on"
+        $env:GOFLAGS      = "-mod=mod"
+        $env:GONOSUMCHECK = "*"
+
         Push-Location $srcDir
         try {
-            # ── Patch: remove unused "path/filepath" import from main.go only ─
-            # github.go and zipextract.go use filepath legitimately (Ext, Base).
-            # Only main.go imports it without using it — a leftover from a refactor.
+            # Remove unused path/filepath import from main.go.
+            # github.go and zipextract.go use filepath legitimately.
+            # Only main.go has the leftover import from a refactor.
             Write-Step "Patching main.go (removing unused path/filepath import) ..."
             $mainGo = Join-Path $srcDir "main.go"
             if (Test-Path $mainGo) {
@@ -535,7 +517,6 @@
                 }
             }
 
-            # Fetch/tidy modules before building — required on first clone
             Write-Step "Fetching Go module dependencies ..."
             $modOut = Invoke-Native { go mod tidy 2>&1 }
             if ($LASTEXITCODE -ne 0) {
@@ -548,10 +529,6 @@
             }
 
             Write-Step "Compiling Go engine ..."
-
-            # Use Invoke-Native with the call operator so PowerShell handles
-            # quoting of $enginePath (which may contain spaces) correctly.
-            # This avoids the Start-Process argv re-splitting bug entirely.
             $buildOut = Invoke-Native { & go build -v -o $enginePath . 2>&1 }
             if ($LASTEXITCODE -ne 0) {
                 Abort "go build failed:`n$buildOut"
@@ -559,6 +536,10 @@
 
             Write-OK "Engine built: wallpimp-engine.exe"
         } finally {
+            # Restore Go env vars so nothing leaks
+            $env:GO111MODULE  = ""
+            $env:GOFLAGS      = ""
+            $env:GONOSUMCHECK = ""
             Pop-Location
         }
     }
@@ -647,10 +628,10 @@
     Write-Spacer
 
     Assert-Winget
-    Assert-Python        # validates tkinter; full reinstall from python.org if broken
-    Assert-Go            # direct MSI from go.dev — never winget
+    Assert-Python
+    Assert-Go
     Assert-Git
-    Assert-VCRedist      # PATCHED: direct download from aka.ms — never winget
+    Assert-VCRedist
 
     Write-Spacer
     Write-Host "  Setting up Python environment ..." -ForegroundColor DarkGray
