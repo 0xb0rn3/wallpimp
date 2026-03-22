@@ -14,6 +14,9 @@
 #  PATCH: Assert-VCRedist rewritten to download directly from Microsoft
 #         instead of using winget — fixes install failure on QEMU/KVM VMs
 #         where winget cannot install Microsoft.VCRedist.2015+.x64.
+#  PATCH: Build-Engine rewritten to use Invoke-Native instead of Start-Process
+#         for go build — fixes "package is not in std" failure on machines
+#         where the username or install path contains spaces.
 # =============================================================================
 
 & {
@@ -478,6 +481,18 @@
     }
 
     # ── Build Go engine ───────────────────────────────────────────────────────
+    #
+    # FIX: Replaced Start-Process for go build with Invoke-Native (scriptblock).
+    #
+    # Root cause of the original failure on machines with spaces in the path:
+    #   Start-Process -ArgumentList @("build", "-o", "C:\Users\John Doe\wallpimp\wallpimp-engine.exe", ".")
+    #   PowerShell passes each array element as a separate argv token, but a known
+    #   PS bug on some Windows builds causes it to re-split on whitespace when
+    #   spawning native processes. Go then sees "wallpimp-engine.exe" as a bare
+    #   package import path and emits "package ... is not in std".
+    #
+    # Invoke-Native runs the command through PowerShell's own pipeline which
+    # handles quoting of paths with spaces correctly via the call operator (&).
     function Build-Engine {
         param($repoDir)
         $enginePath = Join-Path $repoDir "wallpimp-engine.exe"
@@ -533,22 +548,15 @@
             }
 
             Write-Step "Compiling Go engine ..."
-            # Use a temp log file to capture stderr separately — Invoke-Native
-            # collapses stdout+stderr which can drop error lines.
-            $buildLog = Join-Path $env:TEMP "wallpimp-gobuild.log"
-            $proc = Start-Process -FilePath "go" `
-                -ArgumentList @("build", "-v", "-o", (Join-Path $repoDir "wallpimp-engine.exe"), ".") `
-                -Wait -PassThru -NoNewWindow `
-                -RedirectStandardError $buildLog
 
-            $buildErr = if (Test-Path $buildLog) {
-                Get-Content $buildLog -Raw
-                Remove-Item $buildLog -Force -ErrorAction SilentlyContinue
-            } else { "" }
-
-            if ($proc.ExitCode -ne 0) {
-                Abort "go build failed:`n$buildErr"
+            # Use Invoke-Native with the call operator so PowerShell handles
+            # quoting of $enginePath (which may contain spaces) correctly.
+            # This avoids the Start-Process argv re-splitting bug entirely.
+            $buildOut = Invoke-Native { & go build -v -o $enginePath . 2>&1 }
+            if ($LASTEXITCODE -ne 0) {
+                Abort "go build failed:`n$buildOut"
             }
+
             Write-OK "Engine built: wallpimp-engine.exe"
         } finally {
             Pop-Location
