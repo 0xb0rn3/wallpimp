@@ -12,14 +12,10 @@
 #    .\setup.ps1
 #
 #  FIX 1: Build-Engine uses Invoke-Native + GO111MODULE=on to force module mode.
-#          Prevents "go build failed: wallpimp" on machines where GOPATH contains
-#          a conflicting wallpimp directory or the username has spaces.
-#  FIX 2: Assert-VCRedist downloads directly from Microsoft aka.ms instead of
-#          winget — fixes install failure on QEMU/KVM VMs.
-#  FIX 3: Assert-Go now validates GOROOT integrity after version check.
-#          Catches corrupted Go installs (e.g. from WinUtil tweaks stripping
-#          stdlib internals) that pass version check but fail on build with
-#          "internal/goarch" or "internal/unsafeheader" errors. Auto-reinstalls.
+#  FIX 2: Assert-VCRedist downloads directly from Microsoft aka.ms.
+#  FIX 3: Assert-Go detects GOROOT corruption and prompts user before nuking.
+#          Only triggers cleanup if Go is found but stdlib internals are broken.
+#          User must confirm before any destructive action is taken.
 # =============================================================================
 
 & {
@@ -42,7 +38,13 @@
         Write-Host "   ╚══╝╚══╝ ╚═╝  ╚═╝╚══════╝╚══════╝╚═╝     ╚═╝╚═╝     ╚═╝╚═╝     " -ForegroundColor Cyan
         Write-Host ""
         Write-Host "  Wallpaper Manager  —  Setup & Launcher" -ForegroundColor DarkGray
-        Write-Host "  by 0xb0rn3  |  github.com/0xb0rn3/wallpimp" -ForegroundColor DarkGray
+        Write-Host ""
+        Write-Host ("  " + ("─" * 65)) -ForegroundColor DarkGray
+        Write-Host ""
+        Write-Host "  Author  :  0xb0rn3" -ForegroundColor DarkGray
+        Write-Host "  GitHub  :  github.com/0xb0rn3/wallpimp" -ForegroundColor DarkGray
+        Write-Host "  Web     :  oxborn3.com" -ForegroundColor DarkGray
+        Write-Host "  Email   :  contact@oxborn3.com" -ForegroundColor DarkGray
         Write-Host ""
         Write-Host ("  " + ("─" * 65)) -ForegroundColor DarkGray
         Write-Host ""
@@ -224,7 +226,45 @@
         Write-OK "Python $script:PythonVersion ready with tkinter."
     }
 
-    # ── Go — always direct MSI from go.dev, never winget ─────────────────────
+    # ── Go — install + corruption detection + user-confirmed nuke ─────────────
+    #
+    # Flow:
+    #   1. If Go is not installed → install fresh, done.
+    #   2. If Go is installed and GOROOT is healthy → proceed, done.
+    #   3. If Go is installed but GOROOT is corrupt → show warning prompt.
+    #      User must type YES to proceed with nuke+reinstall, or NO to quit.
+    #      No destructive action happens without explicit user confirmation.
+
+    function Invoke-GoNuke {
+        Write-Step "Removing corrupt Go installation ..."
+
+        Get-WmiObject -Class Win32_Product -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -like "*Go Programming*" } |
+            ForEach-Object { $_.Uninstall() | Out-Null }
+
+        foreach ($dir in @("C:\Program Files\Go", "C:\Go")) {
+            if (-not (Test-Path $dir)) { continue }
+            Write-Info "  Taking ownership of $dir ..."
+            Invoke-Native { takeown /f $dir /r /d y 2>&1 } | Out-Null
+            Invoke-Native { icacls $dir /grant administrators:F /t 2>&1 } | Out-Null
+            Remove-Item -Recurse -Force $dir -ErrorAction SilentlyContinue
+            if (Test-Path $dir) {
+                Get-ChildItem $dir -Recurse -Force -ErrorAction SilentlyContinue |
+                    Sort-Object FullName -Descending |
+                    ForEach-Object { Remove-Item $_.FullName -Force -ErrorAction SilentlyContinue }
+                Remove-Item $dir -Force -ErrorAction SilentlyContinue
+            }
+        }
+
+        Remove-Item -Recurse -Force "$env:USERPROFILE\go" -ErrorAction SilentlyContinue
+        Remove-Item -Recurse -Force "$env:LOCALAPPDATA\go-build" -ErrorAction SilentlyContinue
+
+        $env:PATH = ($env:PATH -split ';' |
+            Where-Object { $_ -notmatch '\\Go\\bin' -and $_ -notmatch '^C:\\Go' }) -join ';'
+
+        Write-OK "Corrupt Go installation removed."
+    }
+
     function Install-GoOfficial {
         $goVer   = "1.22.5"
         $arch    = if ([System.Environment]::Is64BitOperatingSystem) { "amd64" } else { "386" }
@@ -264,41 +304,82 @@
 
     function Assert-Go {
         $minVer = [version]"1.21.0"
+
         if (Test-Command "go") {
             $raw = Invoke-Native { go version 2>&1 }
             $ver = Get-SemVer ($raw -join "")
+
             if ($ver -and $ver -ge $minVer) {
-                # Validate GOROOT integrity — a corrupted install (e.g. from system
-                # tweaking tools like WinUtil) passes the version check but fails
-                # at build time with "internal/goarch" or "internal/unsafeheader".
-                # Check that the stdlib internal packages are actually present.
-                $goroot = (Invoke-Native { go env GOROOT 2>&1 } -join "").Trim()
+                $goroot   = (Invoke-Native { go env GOROOT 2>&1 } -join "").Trim()
                 $gorootOk = $goroot -and
                             (Test-Path (Join-Path $goroot "src\internal\goarch")) -and
                             (Test-Path (Join-Path $goroot "src\internal\unsafeheader"))
+
                 if ($gorootOk) {
                     Write-OK "Go $ver found."
                     return
                 }
-                Write-Info "Go $ver found but GOROOT is corrupt — reinstalling ..."
+
+                # ── Corruption detected — warn user and ask permission ──────
+                Write-Spacer
+                Write-Host "  ╔═══════════════════════════════════════════════════════════════╗" -ForegroundColor Red
+                Write-Host "  ║  ✘  ERROR — CORRUPT GO INSTALLATION DETECTED                 ║" -ForegroundColor Red
+                Write-Host "  ╠═══════════════════════════════════════════════════════════════╣" -ForegroundColor Red
+                Write-Host "  ║                                                               ║" -ForegroundColor Red
+                Write-Host "  ║  There is an error / conflict with an internal package in     ║" -ForegroundColor Red
+                Write-Host "  ║  your Go installation. This error will persist and keep       ║" -ForegroundColor Red
+                Write-Host "  ║  you from running WallPimp.                                   ║" -ForegroundColor Red
+                Write-Host "  ║                                                               ║" -ForegroundColor Red
+                Write-Host "  ║  WallPimp can perform a full cleanup of the broken Go         ║" -ForegroundColor Red
+                Write-Host "  ║  package and reinstall it fresh so setup can proceed.         ║" -ForegroundColor Red
+                Write-Host "  ║                                                               ║" -ForegroundColor Red
+                Write-Host "  ║  This will:                                                   ║" -ForegroundColor DarkYellow
+                Write-Host "  ║    • Remove your current Go installation completely           ║" -ForegroundColor DarkYellow
+                Write-Host "  ║    • Clear Go caches and module data                          ║" -ForegroundColor DarkYellow
+                Write-Host "  ║    • Download and install a fresh copy of Go 1.22.5           ║" -ForegroundColor DarkYellow
+                Write-Host "  ║                                                               ║" -ForegroundColor DarkYellow
+                Write-Host "  ║  Your other applications and files will not be affected.      ║" -ForegroundColor DarkYellow
+                Write-Host "  ║                                                               ║" -ForegroundColor DarkYellow
+                Write-Host "  ║  Need help? Reach out:                                        ║" -ForegroundColor DarkGray
+                Write-Host "  ║    contact@oxborn3.com  |  oxborn3.com                        ║" -ForegroundColor DarkGray
+                Write-Host "  ║                                                               ║" -ForegroundColor DarkGray
+                Write-Host "  ╚═══════════════════════════════════════════════════════════════╝" -ForegroundColor Red
+                Write-Spacer
+
+                $confirmed = $false
+                while ($true) {
+                    Write-Host "  Type  YES  to proceed with cleanup and reinstall." -ForegroundColor Cyan
+                    Write-Host "  Type  NO   to quit setup." -ForegroundColor Cyan
+                    Write-Spacer
+                    $answer = (Read-Host "  Your choice").Trim().ToUpper()
+                    if ($answer -eq "YES") { $confirmed = $true; break }
+                    if ($answer -eq "NO")  { Abort "Setup cancelled by user. Re-run after manually fixing your Go installation." }
+                    Write-Host "  Please type YES or NO." -ForegroundColor Yellow
+                    Write-Spacer
+                }
+
+                if ($confirmed) {
+                    Write-Spacer
+                    Invoke-GoNuke
+                    Install-GoOfficial
+                    Refresh-Path
+                    if (-not (Test-Command "go")) {
+                        Abort "Go not on PATH after reinstall. Open a new PowerShell window and re-run setup."
+                    }
+                    Write-OK "Go reinstalled successfully: $(Invoke-Native { go version })"
+                    return
+                }
             } else {
                 Write-Step "Go $ver is older than 1.21 — reinstalling ..."
+                Install-GoOfficial
+                Refresh-Path
             }
         } else {
             Write-Step "Go not found — installing ..."
+            Install-GoOfficial
+            Refresh-Path
         }
 
-        # Nuke any broken Go installation before reinstalling
-        Write-Step "Removing existing Go installation ..."
-        Get-WmiObject -Class Win32_Product -ErrorAction SilentlyContinue |
-            Where-Object { $_.Name -like "*Go Programming*" } |
-            ForEach-Object { $_.Uninstall() | Out-Null }
-        Remove-Item -Recurse -Force "C:\Program Files\Go" -ErrorAction SilentlyContinue
-        Remove-Item -Recurse -Force "C:\Go" -ErrorAction SilentlyContinue
-        Remove-Item -Recurse -Force "$env:LOCALAPPDATA\go-build" -ErrorAction SilentlyContinue
-
-        Install-GoOfficial
-        Refresh-Path
         if (-not (Test-Command "go")) {
             Abort "Go not on PATH after install. Open a new PowerShell window and re-run setup."
         }
@@ -484,17 +565,6 @@
     }
 
     # ── Build Go engine ───────────────────────────────────────────────────────
-    #
-    # FIX 1 — spaces in path:
-    #   Invoke-Native + call operator correctly quotes paths with spaces.
-    #   Start-Process -ArgumentList array re-splits on whitespace on some
-    #   Windows builds, causing Go to see "wallpimp-engine.exe" as a package
-    #   import path and emit "package ... is not in std".
-    #
-    # FIX 2 — GOPATH module conflict:
-    #   GO111MODULE=on forces Go to use go.mod and ignore GOPATH/src entirely.
-    #   Without this, Go falls back to GOPATH mode when it finds a wallpimp
-    #   directory under GOPATH/src and fails with "go build failed: wallpimp".
     function Build-Engine {
         param($repoDir)
         $enginePath = Join-Path $repoDir "wallpimp-engine.exe"
@@ -520,16 +590,12 @@
             }
         }
 
-        # Force module mode — prevents fallback to GOPATH resolution
         $env:GO111MODULE  = "on"
         $env:GOFLAGS      = "-mod=mod"
         $env:GONOSUMCHECK = "*"
 
         Push-Location $srcDir
         try {
-            # Remove unused path/filepath import from main.go.
-            # github.go and zipextract.go use filepath legitimately.
-            # Only main.go has the leftover import from a refactor.
             Write-Step "Patching main.go (removing unused path/filepath import) ..."
             $mainGo = Join-Path $srcDir "main.go"
             if (Test-Path $mainGo) {
@@ -560,7 +626,6 @@
 
             Write-OK "Engine built: wallpimp-engine.exe"
         } finally {
-            # Restore Go env vars so nothing leaks
             $env:GO111MODULE  = ""
             $env:GOFLAGS      = ""
             $env:GONOSUMCHECK = ""
