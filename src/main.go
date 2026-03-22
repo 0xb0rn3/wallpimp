@@ -51,16 +51,21 @@ type Event struct {
 	Elapsed float64     `json:"elapsed,omitempty"` // seconds since download started
 }
 
-// ── Socket path ───────────────────────────────────────────────────────────────
+// ── Transport selection ───────────────────────────────────────────────────────
+//
+// Windows: use TCP loopback on a random port assigned by the OS.
+//   - AF_UNIX requires Windows 10 build 17063+; older builds lack it entirely.
+//   - TCP works on every Windows version without any prerequisite.
+//   - The engine prints "tcp:<port>" to stdout; Python parses the prefix.
+//
+// Linux / macOS: Unix socket — lower overhead, no port allocation needed.
 
-func socketPath() string {
+func listenAddr() (network, address string) {
 	if runtime.GOOS == "windows" {
-		return filepath.Join(os.TempDir(), "wallpimp-engine.sock")
+		return "tcp", "127.0.0.1:0" // OS picks a free port
 	}
-	return fmt.Sprintf("/tmp/wallpimp-%d.sock", os.Getuid())
+	return "unix", fmt.Sprintf("/tmp/wallpimp-%d.sock", os.Getuid())
 }
-
-func listenNetwork() string { return "unix" }
 
 // ── Built-in repo list ────────────────────────────────────────────────────────
 
@@ -425,18 +430,32 @@ func main() {
 	workers := 16 // bumped from 8
 	fmt.Sscanf(os.Args[2], "%d", &workers)
 
-	sockPath := socketPath()
-	_ = os.Remove(sockPath)
+	network, addr := listenAddr()
 
-	ln, err := net.Listen(listenNetwork(), sockPath)
+	// Clean up stale Unix socket if present.
+	if network == "unix" {
+		_ = os.Remove(addr)
+	}
+
+	ln, err := net.Listen(network, addr)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "listen error:", err)
 		os.Exit(1)
 	}
 	defer ln.Close()
-	defer os.Remove(sockPath)
+	if network == "unix" {
+		defer os.Remove(addr)
+	}
 
-	fmt.Println(sockPath)
+	// Tell Python how to connect.
+	// Unix: print the socket path as-is.
+	// TCP:  print "tcp:<port>" so Python knows to use TCP.
+	if network == "tcp" {
+		port := ln.Addr().(*net.TCPAddr).Port
+		fmt.Printf("tcp:%d\n", port)
+	} else {
+		fmt.Println(addr)
+	}
 	os.Stdout.Sync()
 
 	sigs := make(chan os.Signal, 1)
