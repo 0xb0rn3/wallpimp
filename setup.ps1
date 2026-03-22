@@ -36,7 +36,7 @@
         Write-Host "   ╚══╝╚══╝ ╚═╝  ╚═╝╚══════╝╚══════╝╚═╝     ╚═╝╚═╝     ╚═╝╚═╝     " -ForegroundColor Cyan
         Write-Host ""
         Write-Host "  Wallpaper Manager  —  Setup & Launcher" -ForegroundColor DarkGray
-        Write-Host "  by 0xb0rn3 | oxborn3.com | github.com/0xb0rn3/wallpimp" -ForegroundColor DarkGray
+        Write-Host "  by 0xb0rn3  |  github.com/0xb0rn3/wallpimp" -ForegroundColor DarkGray
         Write-Host ""
         Write-Host ("  " + ("─" * 65)) -ForegroundColor DarkGray
         Write-Host ""
@@ -493,10 +493,48 @@
         } else {
             Write-Step "Building Go engine ..."
         }
-        Push-Location (Join-Path $repoDir "src")
+
+        $srcDir = Join-Path $repoDir "src"
+
+        # If no go.mod exists in src, try the repo root
+        if (-not (Test-Path (Join-Path $srcDir "go.mod"))) {
+            if (Test-Path (Join-Path $repoDir "go.mod")) {
+                $srcDir = $repoDir
+                Write-Info "go.mod found at repo root — building from there."
+            }
+        }
+
+        Push-Location $srcDir
         try {
-            $out = Invoke-Native { go build -o (Join-Path $repoDir "wallpimp-engine.exe") . 2>&1 }
-            if ($LASTEXITCODE -ne 0) { Abort "go build failed:`n$out" }
+            # Fetch/tidy modules before building — required on first clone
+            Write-Step "Fetching Go module dependencies ..."
+            $modOut = Invoke-Native { go mod tidy 2>&1 }
+            if ($LASTEXITCODE -ne 0) {
+                Write-Info "go mod tidy warning (non-fatal): $modOut"
+            }
+
+            $dlOut = Invoke-Native { go mod download 2>&1 }
+            if ($LASTEXITCODE -ne 0) {
+                Write-Info "go mod download warning (non-fatal): $dlOut"
+            }
+
+            Write-Step "Compiling Go engine ..."
+            # Use a temp log file to capture stderr separately — Invoke-Native
+            # collapses stdout+stderr which can drop error lines.
+            $buildLog = Join-Path $env:TEMP "wallpimp-gobuild.log"
+            $proc = Start-Process -FilePath "go" `
+                -ArgumentList @("build", "-v", "-o", (Join-Path $repoDir "wallpimp-engine.exe"), ".") `
+                -Wait -PassThru -NoNewWindow `
+                -RedirectStandardError $buildLog
+
+            $buildErr = if (Test-Path $buildLog) {
+                Get-Content $buildLog -Raw
+                Remove-Item $buildLog -Force -ErrorAction SilentlyContinue
+            } else { "" }
+
+            if ($proc.ExitCode -ne 0) {
+                Abort "go build failed:`n$buildErr"
+            }
             Write-OK "Engine built: wallpimp-engine.exe"
         } finally {
             Pop-Location
