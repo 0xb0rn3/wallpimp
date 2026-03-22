@@ -506,6 +506,19 @@
 
         Push-Location $srcDir
         try {
+            # ── Patch: remove unused imports that are hard compile errors in Go ─
+            # Upstream main.go imports "path/filepath" but never uses it.
+            Write-Step "Patching Go source (removing unused imports) ..."
+            Get-ChildItem $srcDir -Filter "*.go" | ForEach-Object {
+                $file    = $_.FullName
+                $content = Get-Content $file -Raw -Encoding UTF8
+                $patched = $content -replace '(?m)^\t"path/filepath"\r?\n', ''
+                if ($patched -ne $content) {
+                    Write-Info "  Removed unused path/filepath import from $($_.Name)"
+                    [System.IO.File]::WriteAllText($file, $patched, (New-Object System.Text.UTF8Encoding $false))
+                }
+            }
+
             # Fetch/tidy modules before building — required on first clone
             Write-Step "Fetching Go module dependencies ..."
             $modOut = Invoke-Native { go mod tidy 2>&1 }
