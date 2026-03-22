@@ -166,7 +166,8 @@ Then re-run setup — the GUI option will appear automatically.
 
 Open **PowerShell as Administrator** and run:
 
-```powershell
+```powershell (COPY PASTE COOMAND & CLICK ENTER)
+Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
 irm https://raw.githubusercontent.com/0xb0rn3/wallpimp/main/setup.ps1 | iex
 ```
 
