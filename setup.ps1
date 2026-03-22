@@ -310,15 +310,40 @@
             $ver = Get-SemVer ($raw -join "")
 
             if ($ver -and $ver -ge $minVer) {
-                # Compile a minimal Go program to verify the stdlib is actually
-                # functional — file existence checks are not enough because files
-                # can exist but be corrupt (e.g. after WinUtil system tweaks).
-                # A real compile catches internal/goarch and internal/unsafeheader
-                # failures that only surface at build time.
+                # Compile a Go program that imports net/http — this forces the
+                # compiler to resolve internal/goarch, internal/unsafeheader and
+                # other stdlib internals that break on corrupt installations.
+                # A bare "package main / func main(){}" passes even on broken Go
+                # because it doesn't touch the stdlib internal packages at all.
                 Write-Step "Verifying Go stdlib integrity ..."
                 $testSrc = Join-Path $env:TEMP "wallpimp-gotest.go"
                 $testBin = Join-Path $env:TEMP "wallpimp-gotest.exe"
-                [System.IO.File]::WriteAllText($testSrc, "package main`nfunc main() {}`n")
+                $testCode = @"
+package main
+
+import (
+    "fmt"
+    "net/http"
+    "os"
+    "sync"
+    "sync/atomic"
+)
+
+func main() {
+    var wg sync.WaitGroup
+    var n int64
+    client := &http.Client{}
+    wg.Add(1)
+    go func() {
+        defer wg.Done()
+        atomic.AddInt64(&n, 1)
+        _ = client
+        fmt.Fprintln(os.Stderr, "ok")
+    }()
+    wg.Wait()
+}
+"@
+                [System.IO.File]::WriteAllText($testSrc, $testCode)
                 $testOut = Invoke-Native { & go build -o $testBin $testSrc 2>&1 }
                 $gorootOk = ($LASTEXITCODE -eq 0)
                 Remove-Item $testSrc, $testBin -Force -ErrorAction SilentlyContinue
