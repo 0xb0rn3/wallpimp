@@ -16,8 +16,6 @@
     Set-StrictMode -Version Latest
     $ErrorActionPreference = "Stop"
 
-    # PS 7.3+ throws NativeCommandError on non-zero exit codes. Suppress it —
-    # we check $LASTEXITCODE ourselves everywhere it matters.
     if ($PSVersionTable.PSVersion -ge [version]"7.3") {
         $PSNativeCommandErrorActionPreference = "Ignore"
     }
@@ -78,8 +76,6 @@
         return $null
     }
 
-    # Invoke-Native: run a command block, swallow all errors, return output.
-    # Callers always check $LASTEXITCODE themselves.
     function Invoke-Native {
         param([scriptblock]$Block)
         try   { $output = & $Block 2>&1 }
@@ -124,23 +120,7 @@
         Write-OK "$label installed."
     }
 
-    # ── Python — full clean reinstall ─────────────────────────────────────────
-    #
-    # Strategy:
-    #   1. Check if Python 3.10+ exists AND tkinter imports cleanly  → done
-    #   2. Otherwise:
-    #      a. Uninstall every Python found via winget + the Microsoft Store
-    #         variant (Python.Python.3.*) and the legacy store app
-    #      b. Remove any stale python/python3/py shims from PATH
-    #      c. Download the official python.org installer (3.12.x) directly
-    #      d. Run it silently with ALL features including tcl/tk forced on
-    #      e. Verify tkinter imports
-    #
-    # We use the official .exe installer rather than winget because winget's
-    # Python package occasionally omits the tcl/tk optional feature depending
-    # on the machine's existing state. The official installer lets us set
-    # Include_tcltk=1 explicitly, which is guaranteed to include tkinter.
-
+    # ── Python — full clean reinstall with tkinter guaranteed ─────────────────
     $script:PythonCmd     = $null
     $script:PythonVersion = $null
 
@@ -151,7 +131,6 @@
     }
 
     function Find-PythonCmd {
-        # Returns the first python command that is 3.10+ and sets $script:PythonCmd
         foreach ($cmd in @("python", "python3", "py")) {
             if (-not (Test-Command $cmd)) { continue }
             $raw = Invoke-Native { & $cmd --version 2>&1 }
@@ -167,156 +146,114 @@
 
     function Uninstall-AllPython {
         Write-Step "Removing existing Python installations ..."
-
-        # 1. winget uninstall — covers Python.Python.3.x (all minor versions)
-        $wingetIds = @(
-            "Python.Python.3.13", "Python.Python.3.12", "Python.Python.3.11",
-            "Python.Python.3.10", "Python.Python.3.9",  "Python.Python.3.8"
-        )
-        foreach ($id in $wingetIds) {
+        foreach ($id in @(
+            "Python.Python.3.13","Python.Python.3.12","Python.Python.3.11",
+            "Python.Python.3.10","Python.Python.3.9","Python.Python.3.8"
+        )) {
             Invoke-Native {
                 winget uninstall --id $id --silent --accept-source-agreements 2>&1
             } | Out-Null
-            # exit code 0 = uninstalled, non-zero = wasn't installed — both fine
         }
-
-        # 2. Microsoft Store Python (shows up as a different package family)
         $storePkg = Get-AppxPackage -Name "PythonSoftwareFoundation.Python*" -ErrorAction SilentlyContinue
         if ($storePkg) {
             Write-Step "Removing Microsoft Store Python ..."
             $storePkg | Remove-AppxPackage -ErrorAction SilentlyContinue
         }
-
-        # 3. Kill any stale shims sitting in PATH (Python Launcher py.exe etc.)
-        #    These live in %LOCALAPPDATA%\Programs\Python or similar.
-        #    We'll let the fresh installer overwrite them — no manual removal needed.
-
-        # 4. Refresh PATH so old python.exe is no longer visible
         Refresh-Path
-
         Write-OK "Existing Python removed (or was not present)."
     }
 
     function Install-PythonOfficial {
-        # Download the official CPython 3.12.x installer from python.org
-        # and run it with every feature enabled including tcl/tk.
-        $pyVer      = "3.12.9"
-        $arch       = if ([System.Environment]::Is64BitOperatingSystem) { "amd64" } else { "win32" }
+        $pyVer         = "3.12.9"
+        $arch          = if ([System.Environment]::Is64BitOperatingSystem) { "amd64" } else { "win32" }
         $installerName = "python-$pyVer-$arch.exe"
-        $url        = "https://www.python.org/ftp/python/$pyVer/$installerName"
-        $tmpPath    = Join-Path $env:TEMP $installerName
+        $url           = "https://www.python.org/ftp/python/$pyVer/$installerName"
+        $tmpPath       = Join-Path $env:TEMP $installerName
 
         Write-Step "Downloading Python $pyVer ($arch) from python.org ..."
         try {
-            Invoke-WebRequest -Uri $url -OutFile $tmpPath -UseBasicParsing
+            Invoke-WebRequest -Uri $url -OutFile $tmpPath -UseBasicParsing -TimeoutSec 180
         } catch {
             Abort "Failed to download Python installer: $_"
         }
 
         Write-Step "Installing Python $pyVer (all features, including tcl/tk) ..."
-        # Install flags:
-        #   /quiet               — no UI
-        #   InstallAllUsers=0    — per-user install, no UAC needed
-        #   PrependPath=1        — add to PATH automatically
-        #   Include_tcltk=1      — force tcl/tk (tkinter) inclusion
-        #   Include_pip=1        — include pip
-        #   Include_launcher=1   — include py.exe launcher
-        #   Include_symbols=0    — skip debug symbols (saves ~50MB)
-        #   Include_debug=0      — skip debug binaries
         $proc = Start-Process -FilePath $tmpPath -Wait -PassThru -ArgumentList @(
-            "/quiet",
-            "InstallAllUsers=0",
-            "PrependPath=1",
-            "Include_tcltk=1",
-            "Include_pip=1",
-            "Include_launcher=1",
-            "Include_symbols=0",
-            "Include_debug=0"
+            "/quiet", "InstallAllUsers=0", "PrependPath=1",
+            "Include_tcltk=1", "Include_pip=1", "Include_launcher=1",
+            "Include_symbols=0", "Include_debug=0"
         )
-
         Remove-Item $tmpPath -Force -ErrorAction SilentlyContinue
 
         if ($proc.ExitCode -ne 0) {
             Abort "Python installer exited with code $($proc.ExitCode)."
         }
-
         Refresh-Path
         Write-OK "Python $pyVer installed."
     }
 
     function Assert-Python {
         Write-Step "Checking Python 3.10+ with tkinter ..."
-
-        # Fast path: existing Python is good AND tkinter works
         if (Find-PythonCmd) {
             if (Test-Tkinter) {
                 Write-OK "Python $script:PythonVersion found with tkinter. No reinstall needed."
                 return
             }
-            Write-Info "Python $script:PythonVersion found but tkinter is broken or missing."
-            Write-Info "Performing a clean reinstall to fix it ..."
+            Write-Info "Python $script:PythonVersion found but tkinter is broken — reinstalling ..."
         } else {
             Write-Info "Python 3.10+ not found. Installing ..."
         }
-
-        # Slow path: remove everything, install fresh from python.org
         Uninstall-AllPython
         Install-PythonOfficial
-
-        # Re-discover the new python command
         if (-not (Find-PythonCmd)) {
             Abort "Python not found on PATH after install. Open a new terminal and re-run."
         }
-
-        # Final tkinter verification
         if (-not (Test-Tkinter)) {
-            Abort "tkinter still not importable after fresh Python install. Check Windows Event Log."
+            Abort "tkinter still not importable after fresh Python install."
         }
-
         Write-OK "Python $script:PythonVersion ready with tkinter."
     }
 
-    # ── Go ────────────────────────────────────────────────────────────────────
-    # Downloads the official Go MSI from go.dev/dl — bypasses winget entirely.
-    # winget's GoLang.Go package frequently fails on fresh Windows installs
-    # because the source index is stale or the package requires a UAC prompt
-    # that winget can't handle silently inside a remoted PS session.
+    # ── Go — always direct MSI from go.dev, never winget ─────────────────────
+    # winget's GoLang.Go fails silently on VMs, fresh installs, and machines
+    # with stale winget source indexes. Direct MSI is always reliable.
     function Install-GoOfficial {
-        $goVer  = "1.22.4"
-        $arch   = if ([System.Environment]::Is64BitOperatingSystem) { "amd64" } else { "386" }
+        $goVer   = "1.22.5"
+        $arch    = if ([System.Environment]::Is64BitOperatingSystem) { "amd64" } else { "386" }
         $msiName = "go$goVer.windows-$arch.msi"
-        $url    = "https://go.dev/dl/$msiName"
+        $url     = "https://go.dev/dl/$msiName"
         $tmpPath = Join-Path $env:TEMP $msiName
+        $logPath = Join-Path $env:TEMP "wallpimp-go-install.log"
 
         Write-Step "Downloading Go $goVer ($arch) from go.dev ..."
         try {
-            Invoke-WebRequest -Uri $url -OutFile $tmpPath -UseBasicParsing
+            Invoke-WebRequest -Uri $url -OutFile $tmpPath -UseBasicParsing -TimeoutSec 180
         } catch {
             Abort "Failed to download Go installer: $_"
         }
+        if (-not (Test-Path $tmpPath) -or (Get-Item $tmpPath).Length -lt 1MB) {
+            Abort "Go installer download appears incomplete. Check your connection and re-run."
+        }
 
         Write-Step "Installing Go $goVer ..."
-        # MSI silent install — INSTALLDIR defaults to C:\Program Files\Go
-        $proc = Start-Process -FilePath "msiexec.exe" `
-            -ArgumentList @("/i", $tmpPath, "/quiet", "/norestart") `
-            -Wait -PassThru
+        # 0 = success, 3010 = success + reboot pending (safe to ignore)
+        $proc = Start-Process -FilePath "msiexec.exe" -Wait -PassThru `
+            -ArgumentList @("/i", $tmpPath, "/quiet", "/norestart", "/l*v", $logPath)
         Remove-Item $tmpPath -Force -ErrorAction SilentlyContinue
 
-        if ($proc.ExitCode -ne 0) {
-            Abort "Go MSI installer exited with code $($proc.ExitCode)."
+        if ($proc.ExitCode -notin @(0, 3010)) {
+            Abort "Go MSI exited $($proc.ExitCode). Log: $logPath"
         }
 
-        # The MSI adds Go to the Machine PATH — refresh current session.
+        # MSI writes Go's bin dir to the Machine PATH — pull into current session.
         Refresh-Path
 
-        # Fallback: if go.exe still not found, add the default install dir manually.
-        if (-not (Test-Command "go")) {
-            $goDefault = "C:\Program Files\Goin"
-            if (Test-Path $goDefault) {
-                $env:PATH = "$goDefault;$env:PATH"
+        # Belt-and-suspenders: inject known default bin dirs if go.exe still invisible.
+        foreach ($dir in @("C:\Program Files\Go\bin", "C:\Go\bin")) {
+            if (-not (Test-Command "go") -and (Test-Path $dir)) {
+                $env:PATH = "$dir;$env:PATH"
             }
         }
-
         Write-OK "Go $goVer installed."
     }
 
@@ -329,35 +266,80 @@
                 Write-OK "Go $ver found."
                 return
             }
-            Write-Step "Go $ver is older than 1.21 — upgrading ..."
+            Write-Step "Go $ver is older than 1.21 — reinstalling ..."
         } else {
             Write-Step "Go not found — installing ..."
         }
-
         Install-GoOfficial
-
+        Refresh-Path
         if (-not (Test-Command "go")) {
-            Abort "Go not found on PATH after install. Open a new terminal and re-run."
+            Abort "Go not on PATH after install. Open a new PowerShell window and re-run setup."
         }
-        Write-OK "Go is ready."
+        Write-OK "Go ready: $(Invoke-Native { go version })"
     }
 
     # ── Git ───────────────────────────────────────────────────────────────────
+    # Downloads the official Git for Windows installer directly — same reason
+    # as Go: winget silently fails on fresh/VM Windows installs.
+    function Install-GitOfficial {
+        # Portable EXE installer from the official Git for Windows release.
+        $gitVer  = "2.45.2"
+        $arch    = if ([System.Environment]::Is64BitOperatingSystem) { "64-bit" } else { "32-bit" }
+        $exeName = "Git-$gitVer-$arch.exe"
+        $url     = "https://github.com/git-for-windows/git/releases/download/v$gitVer.windows.1/$exeName"
+        $tmpPath = Join-Path $env:TEMP $exeName
+
+        Write-Step "Downloading Git $gitVer ($arch) from github.com/git-for-windows ..."
+        try {
+            Invoke-WebRequest -Uri $url -OutFile $tmpPath -UseBasicParsing
+        } catch {
+            Abort "Failed to download Git installer: $_"
+        }
+
+        Write-Step "Installing Git $gitVer ..."
+        # SILENT install flags for Git for Windows NSIS installer:
+        #   /VERYSILENT   — no UI at all
+        #   /NORESTART    — never reboot
+        #   /NOCANCEL     — no cancel button (not relevant but safe)
+        #   /SP-          — skip the "This will install..." prompt
+        #   /COMPONENTS   — only install core + cmd integration
+        $proc = Start-Process -FilePath $tmpPath -Wait -PassThru -ArgumentList @(
+            "/VERYSILENT",
+            "/NORESTART",
+            "/NOCANCEL",
+            "/SP-",
+            "/COMPONENTS=icons,ext
+eg\shellhere,assoc,assoc_sh"
+        )
+        Remove-Item $tmpPath -Force -ErrorAction SilentlyContinue
+
+        if ($proc.ExitCode -ne 0) {
+            Abort "Git installer exited with code $($proc.ExitCode)."
+        }
+
+        # Git installs to C:\Program Files\Git\cmd by default.
+        Refresh-Path
+        if (-not (Test-Command "git")) {
+            $gitDefault = "C:\Program Files\Git\cmd"
+            if (Test-Path $gitDefault) {
+                $env:PATH = "$gitDefault;$env:PATH"
+            }
+        }
+
+        Write-OK "Git $gitVer installed."
+    }
+
     function Assert-Git {
         if (Test-Command "git") { Write-OK "Git found."; return }
         Write-Step "Git not found — installing ..."
-        Install-WithWinget "Git.Git" "Git"
-        Refresh-Path
+        Install-GitOfficial
         if (-not (Test-Command "git")) {
-            Abort "Git not on PATH after install. Open a new terminal and re-run."
+            Abort "Git not found on PATH after install. Open a new terminal and re-run."
         }
         Write-OK "Git ready."
     }
 
     # ── Visual C++ Redistributable ────────────────────────────────────────────
-    # Required by compiled Python packages (e.g. Pillow, lxml, cryptography).
-    # The Python installer usually pulls this in, but installing it explicitly
-    # ensures it's present even on stripped-down Windows installs.
     function Assert-VCRedist {
         Write-Step "Checking Visual C++ Redistributable ..."
         $installed = Get-ItemProperty `
@@ -370,18 +352,18 @@
         }
         Write-Step "Installing Visual C++ 2015-2022 Redistributable ..."
         Install-WithWinget "Microsoft.VCRedist.2015+.x64" "VC++ Redistributable x64"
-        if ([System.Environment]::Is64BitOperatingSystem -eq $false) {
+        if (-not [System.Environment]::Is64BitOperatingSystem) {
             Install-WithWinget "Microsoft.VCRedist.2015+.x86" "VC++ Redistributable x86"
         }
     }
 
-    # ── pip + Python packages ─────────────────────────────────────────────────
+    # ── pip ───────────────────────────────────────────────────────────────────
     function Assert-Pip {
         Write-Step "Checking pip ..."
         Invoke-Native { & $script:PythonCmd -m pip --version 2>&1 } | Out-Null
         if ($LASTEXITCODE -eq 0) { Write-OK "pip found."; return }
 
-        Write-Step "pip not found — running ensurepip via Start-Process ..."
+        Write-Step "pip not found — running ensurepip ..."
         $epProc = Start-Process `
             -FilePath $script:PythonCmd `
             -ArgumentList @("-m", "ensurepip", "--upgrade") `
@@ -393,10 +375,8 @@
         Write-OK "pip installed."
     }
 
+    # Run pip via Start-Process to avoid RemoteException when running as Administrator.
     function Invoke-Pip {
-        # Run a pip command robustly, bypassing PowerShell remoting exceptions.
-        # Uses Start-Process so the child process runs in its own context —
-        # avoids system.Management.Automation.RemoteException when elevated.
         param([string[]]$PipArgs)
         $logFile = Join-Path $env:TEMP "wallpimp-pip.log"
         $proc = Start-Process `
@@ -405,16 +385,14 @@
             -Wait -PassThru -NoNewWindow `
             -RedirectStandardOutput $logFile `
             -RedirectStandardError  "$logFile.err"
-        $exitCode = $proc.ExitCode
         Remove-Item $logFile, "$logFile.err" -ErrorAction SilentlyContinue
-        return $exitCode
+        return $proc.ExitCode
     }
 
     function Install-PythonDeps {
         Write-Step "Checking Python packages (requests, tqdm) ..."
         $missing = @()
         foreach ($pkg in @("requests", "tqdm")) {
-            # Use Invoke-Native for show — it's read-only and safe inline
             Invoke-Native { & $script:PythonCmd -m pip show $pkg 2>&1 } | Out-Null
             if ($LASTEXITCODE -ne 0) { $missing += $pkg }
         }
@@ -423,12 +401,10 @@
             return
         }
         Write-Step "Installing: $($missing -join ', ') ..."
-        # Use Invoke-Pip (Start-Process) to avoid RemoteException when running
-        # as Administrator — inline & calls can throw through PS remoting layer.
         $pipArgs = @("install", "--quiet", "--upgrade", "--no-warn-script-location") + $missing
         $code = Invoke-Pip $pipArgs
         if ($code -ne 0) {
-            Abort "pip install failed (exit $code).`nRun manually:  pip install $($missing -join ' ')"
+            Abort "pip install failed (exit $code). Run manually: pip install $($missing -join ' ')"
         }
         Write-OK "Python packages installed."
     }
@@ -564,19 +540,16 @@
     Write-Info "Install location: $InstallDir"
     Write-Spacer
 
-    # ── Step 1: prerequisites ─────────────────────────────────────────────────
     Write-Host "  Checking prerequisites ..." -ForegroundColor DarkGray
     Write-Spacer
 
     Assert-Winget
-    Assert-Python        # always validates tkinter; reinstalls if broken
-    Assert-Go
+    Assert-Python        # validates tkinter; full reinstall from python.org if broken
+    Assert-Go            # direct MSI from go.dev — never winget
     Assert-Git
     Assert-VCRedist
 
     Write-Spacer
-
-    # ── Step 2: Python runtime deps ───────────────────────────────────────────
     Write-Host "  Setting up Python environment ..." -ForegroundColor DarkGray
     Write-Spacer
 
@@ -584,15 +557,12 @@
     Install-PythonDeps
 
     Write-Spacer
-
-    # ── Step 3: WallPimp ──────────────────────────────────────────────────────
     Write-Host "  Setting up WallPimp ..." -ForegroundColor DarkGray
     Write-Spacer
 
     Get-WallPimp  -installDir $InstallDir
     Build-Engine  -repoDir    $InstallDir
 
-    # ── Step 4: Launch ────────────────────────────────────────────────────────
     Invoke-LaunchChooser -repoDir $InstallDir
 
     Write-DoneBox
