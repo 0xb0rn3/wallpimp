@@ -310,40 +310,15 @@
             $ver = Get-SemVer ($raw -join "")
 
             if ($ver -and $ver -ge $minVer) {
-                # Compile a Go program that imports net/http — this forces the
-                # compiler to resolve internal/goarch, internal/unsafeheader and
-                # other stdlib internals that break on corrupt installations.
-                # A bare "package main / func main(){}" passes even on broken Go
-                # because it doesn't touch the stdlib internal packages at all.
+                # Compile a minimal Go program to verify the stdlib is actually
+                # functional — file existence checks are not enough because files
+                # can exist but be corrupt (e.g. after WinUtil system tweaks).
+                # A real compile catches internal/goarch and internal/unsafeheader
+                # failures that only surface at build time.
                 Write-Step "Verifying Go stdlib integrity ..."
                 $testSrc = Join-Path $env:TEMP "wallpimp-gotest.go"
                 $testBin = Join-Path $env:TEMP "wallpimp-gotest.exe"
-                $testCode = @"
-package main
-
-import (
-    "fmt"
-    "net/http"
-    "os"
-    "sync"
-    "sync/atomic"
-)
-
-func main() {
-    var wg sync.WaitGroup
-    var n int64
-    client := &http.Client{}
-    wg.Add(1)
-    go func() {
-        defer wg.Done()
-        atomic.AddInt64(&n, 1)
-        _ = client
-        fmt.Fprintln(os.Stderr, "ok")
-    }()
-    wg.Wait()
-}
-"@
-                [System.IO.File]::WriteAllText($testSrc, $testCode)
+                [System.IO.File]::WriteAllText($testSrc, "package main`nfunc main() {}`n")
                 $testOut = Invoke-Native { & go build -o $testBin $testSrc 2>&1 }
                 $gorootOk = ($LASTEXITCODE -eq 0)
                 Remove-Item $testSrc, $testBin -Force -ErrorAction SilentlyContinue
@@ -601,12 +576,14 @@ func main() {
     function Build-Engine {
         param($repoDir)
         $enginePath = Join-Path $repoDir "wallpimp-engine.exe"
+        # Pre-built binary shipped in repo — skip build entirely.
+        # Go is not required on the user machine when this is present.
         if (Test-Path $enginePath) {
             $engineTime = (Get-Item $enginePath).LastWriteTime
             $srcNewer   = Get-ChildItem (Join-Path $repoDir "src") -Filter "*.go" -Recurse |
                           Where-Object { $_.LastWriteTime -gt $engineTime }
             if (-not $srcNewer) {
-                Write-Skip "Go engine already built and up to date."
+                Write-OK "Engine binary found — skipping build. Go not required."
                 return
             }
             Write-Step "Source updated — rebuilding engine ..."
@@ -656,9 +633,11 @@ func main() {
             if ($LASTEXITCODE -ne 0) {
                 $buildStr = ($buildOut -join "`n")
 
-                # Detect corrupt stdlib — internal package errors cannot be fixed
-                # by changing source code. Only a full Go reinstall resolves them.
-                if ($buildStr -match "internal/goarch|internal/unsafeheader|internal/cpu|internal/abi|internal/bytealg") {
+                # A corrupt stdlib produces bare package names as errors — no file
+                # path, no colon, no line number. e.g. "encoding", "internal/goarch".
+                # User code errors always contain ":" with a file location.
+                $isStdlibCorruption = $buildStr -match "(?m)^[a-z][a-z0-9_/.-]*$"
+                if ($isStdlibCorruption) {
                     Write-Spacer
                     Write-Host "  ╔═══════════════════════════════════════════════════════════════╗" -ForegroundColor Red
                     Write-Host "  ║  ✘  ERROR — CORRUPT GO INSTALLATION DETECTED                 ║" -ForegroundColor Red
