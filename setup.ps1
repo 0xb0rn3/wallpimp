@@ -16,6 +16,10 @@
 #          a conflicting wallpimp directory or the username has spaces.
 #  FIX 2: Assert-VCRedist downloads directly from Microsoft aka.ms instead of
 #          winget — fixes install failure on QEMU/KVM VMs.
+#  FIX 3: Assert-Go now validates GOROOT integrity after version check.
+#          Catches corrupted Go installs (e.g. from WinUtil tweaks stripping
+#          stdlib internals) that pass version check but fail on build with
+#          "internal/goarch" or "internal/unsafeheader" errors. Auto-reinstalls.
 # =============================================================================
 
 & {
@@ -264,13 +268,35 @@
             $raw = Invoke-Native { go version 2>&1 }
             $ver = Get-SemVer ($raw -join "")
             if ($ver -and $ver -ge $minVer) {
-                Write-OK "Go $ver found."
-                return
+                # Validate GOROOT integrity — a corrupted install (e.g. from system
+                # tweaking tools like WinUtil) passes the version check but fails
+                # at build time with "internal/goarch" or "internal/unsafeheader".
+                # Check that the stdlib internal packages are actually present.
+                $goroot = (Invoke-Native { go env GOROOT 2>&1 } -join "").Trim()
+                $gorootOk = $goroot -and
+                            (Test-Path (Join-Path $goroot "src\internal\goarch")) -and
+                            (Test-Path (Join-Path $goroot "src\internal\unsafeheader"))
+                if ($gorootOk) {
+                    Write-OK "Go $ver found."
+                    return
+                }
+                Write-Info "Go $ver found but GOROOT is corrupt — reinstalling ..."
+            } else {
+                Write-Step "Go $ver is older than 1.21 — reinstalling ..."
             }
-            Write-Step "Go $ver is older than 1.21 — reinstalling ..."
         } else {
             Write-Step "Go not found — installing ..."
         }
+
+        # Nuke any broken Go installation before reinstalling
+        Write-Step "Removing existing Go installation ..."
+        Get-WmiObject -Class Win32_Product -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -like "*Go Programming*" } |
+            ForEach-Object { $_.Uninstall() | Out-Null }
+        Remove-Item -Recurse -Force "C:\Program Files\Go" -ErrorAction SilentlyContinue
+        Remove-Item -Recurse -Force "C:\Go" -ErrorAction SilentlyContinue
+        Remove-Item -Recurse -Force "$env:LOCALAPPDATA\go-build" -ErrorAction SilentlyContinue
+
         Install-GoOfficial
         Refresh-Path
         if (-not (Test-Command "go")) {
@@ -468,9 +494,7 @@
     # FIX 2 — GOPATH module conflict:
     #   GO111MODULE=on forces Go to use go.mod and ignore GOPATH/src entirely.
     #   Without this, Go falls back to GOPATH mode when it finds a wallpimp
-    #   directory under GOPATH/src (created by git clone or a previous failed
-    #   build), treats the module name as a package import, and fails with
-    #   "go build failed: wallpimp".
+    #   directory under GOPATH/src and fails with "go build failed: wallpimp".
     function Build-Engine {
         param($repoDir)
         $enginePath = Join-Path $repoDir "wallpimp-engine.exe"
