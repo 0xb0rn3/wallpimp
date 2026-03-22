@@ -310,10 +310,18 @@
             $ver = Get-SemVer ($raw -join "")
 
             if ($ver -and $ver -ge $minVer) {
-                $goroot   = (Invoke-Native { go env GOROOT 2>&1 } -join "").Trim()
-                $gorootOk = $goroot -and
-                            (Test-Path (Join-Path $goroot "src\internal\goarch")) -and
-                            (Test-Path (Join-Path $goroot "src\internal\unsafeheader"))
+                # Compile a minimal Go program to verify the stdlib is actually
+                # functional — file existence checks are not enough because files
+                # can exist but be corrupt (e.g. after WinUtil system tweaks).
+                # A real compile catches internal/goarch and internal/unsafeheader
+                # failures that only surface at build time.
+                Write-Step "Verifying Go stdlib integrity ..."
+                $testSrc = Join-Path $env:TEMP "wallpimp-gotest.go"
+                $testBin = Join-Path $env:TEMP "wallpimp-gotest.exe"
+                [System.IO.File]::WriteAllText($testSrc, "package main`nfunc main() {}`n")
+                $testOut = Invoke-Native { & go build -o $testBin $testSrc 2>&1 }
+                $gorootOk = ($LASTEXITCODE -eq 0)
+                Remove-Item $testSrc, $testBin -Force -ErrorAction SilentlyContinue
 
                 if ($gorootOk) {
                     Write-OK "Go $ver found."
