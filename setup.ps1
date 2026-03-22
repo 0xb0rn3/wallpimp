@@ -506,16 +506,17 @@
 
         Push-Location $srcDir
         try {
-            # ── Patch: remove unused imports that are hard compile errors in Go ─
-            # Upstream main.go imports "path/filepath" but never uses it.
-            Write-Step "Patching Go source (removing unused imports) ..."
-            Get-ChildItem $srcDir -Filter "*.go" | ForEach-Object {
-                $file    = $_.FullName
-                $content = Get-Content $file -Raw -Encoding UTF8
-                $patched = $content -replace '(?m)^\t"path/filepath"\r?\n', ''
-                if ($patched -ne $content) {
-                    Write-Info "  Removed unused path/filepath import from $($_.Name)"
-                    [System.IO.File]::WriteAllText($file, $patched, (New-Object System.Text.UTF8Encoding $false))
+            # ── Patch: remove unused "path/filepath" import from main.go only ─
+            # github.go and zipextract.go use filepath legitimately (Ext, Base).
+            # Only main.go imports it without using it — a leftover from a refactor.
+            Write-Step "Patching main.go (removing unused path/filepath import) ..."
+            $mainGo = Join-Path $srcDir "main.go"
+            if (Test-Path $mainGo) {
+                $src     = Get-Content $mainGo -Raw -Encoding UTF8
+                $patched = $src -replace '(?m)^\t"path/filepath"\r?\n', ''
+                if ($patched -ne $src) {
+                    Write-Info "  Removed unused path/filepath import from main.go"
+                    [System.IO.File]::WriteAllText($mainGo, $patched, (New-Object System.Text.UTF8Encoding $false))
                 }
             }
 
