@@ -66,7 +66,7 @@ PYTHON_CMD=""      # set by assert_python()
 
 # ── OS / arch detection ───────────────────────────────────────────────────────
 OS="$(uname -s)"   # Linux | Darwin
-ARCH="$(uname -m)" # x86_64 | aarch64 | arm64
+ARCH="$(uname -m)" # x86_64 | aarch64 | arm64 | armv6l | armv7l
 
 # ── Argument parsing ──────────────────────────────────────────────────────────
 FORCE_GUI=0
@@ -163,6 +163,8 @@ assert_python() {
   abort "Python not found on PATH after install."
 }
 
+# assert_go is only called when a source build is required (inside build_engine).
+# Users on pre-compiled platforms skip Go installation entirely.
 assert_go() {
   local GOMIN="1.21"
   if command -v go &>/dev/null; then
@@ -176,7 +178,7 @@ assert_go() {
     fi
     step "Go ${ver} < ${GOMIN} — upgrading ..."
   else
-    step "Go not found — installing ..."
+    step "Go not found — installing for source build ..."
   fi
 
   if [[ "$OS" == "Darwin" ]]; then
@@ -232,13 +234,13 @@ assert_git() {
 #   pip           — needed to install Python packages
 #
 # Package names by distro:
-#   apt     dnf               pacman          zypper
-#   ───────────────────────────────────────────────────
-#   python3-tk   python3-tkinter   tk              python3-tk
-#   x11-xserver-utils  xorg-x11-utils  xorg-xrandr     xrandr
-#   x11-utils    xorg-x11-utils  xorg-xdpyinfo   xdpyinfo
-#   dbus-x11     dbus-x11        dbus            dbus-1-x11
-#   python3-pip  python3-pip     python-pip      python3-pip
+#   apt                dnf               pacman          zypper
+#   ─────────────────────────────────────────────────────────────
+#   python3-tk         python3-tkinter   tk              python3-tk
+#   x11-xserver-utils  xorg-x11-utils    xorg-xrandr     xrandr
+#   x11-utils          xorg-x11-utils    xorg-xdpyinfo   xdpyinfo
+#   dbus-x11           dbus-x11          dbus            dbus-1-x11
+#   python3-pip        python3-pip       python-pip      python3-pip
 
 install_system_deps() {
   if [[ "$OS" == "Darwin" ]]; then
@@ -332,30 +334,87 @@ get_wallpimp() {
   fi
 }
 
-# ── Build Go engine ───────────────────────────────────────────────────────────
+# ── Build / select Go engine ──────────────────────────────────────────────────
+#
+#  Pre-compiled binary map (shipped in the repo):
+#    wallpimp-engine          → Linux  x86_64  (amd64)
+#    wallpimp-engine-arm64    → Linux  aarch64 / arm64 / armv6l / armv7l
+#                               (covers Raspberry Pi 3/4/5 and all ARM boards)
+#
+#  Decision tree:
+#    Linux  x86_64            → use wallpimp-engine           (skip Go install)
+#    Linux  arm*/aarch64      → use wallpimp-engine-arm64     (skip Go install)
+#    macOS  (any arch)        → source build  (Go required)
+#    Linux  unknown arch      → source build  (Go required)
+#    any    missing binary    → source build  (Go required)
+#
 build_engine() {
   local ENGINE="${INSTALL_DIR}/wallpimp-engine"
   local SRC_DIR="${INSTALL_DIR}/src"
 
-  if [[ -x "$ENGINE" ]]; then
-    local REBUILD=0
-    while IFS= read -r -d '' f; do
-      [[ "$f" -nt "$ENGINE" ]] && { REBUILD=1; break; }
-    done < <(find "$SRC_DIR" -name "*.go" -print0 2>/dev/null)
-    if [[ "$REBUILD" -eq 0 ]]; then
-      skip "Go engine already built and up to date."
+  # ── Identify the candidate pre-compiled binary for this platform ──────────
+  local PREBUILT=""        # absolute path to the repo's pre-compiled binary
+  local PREBUILT_LABEL=""  # label for log messages
+
+  if [[ "$OS" == "Linux" ]]; then
+    case "$ARCH" in
+      x86_64)
+        PREBUILT="${INSTALL_DIR}/wallpimp-engine"
+        PREBUILT_LABEL="Linux amd64 (x86_64)"
+        ;;
+      aarch64|arm64|armv6l|armv7l)
+        PREBUILT="${INSTALL_DIR}/wallpimp-engine-arm64"
+        PREBUILT_LABEL="Linux ARM (${ARCH})"
+        ;;
+      *)
+        info "Unrecognised Linux arch '${ARCH}' — falling back to source build."
+        ;;
+    esac
+  fi
+  # macOS: PREBUILT stays empty → always builds from source.
+
+  # ── Attempt to use the pre-compiled binary ────────────────────────────────
+  if [[ -n "$PREBUILT" && -f "$PREBUILT" ]]; then
+
+    if [[ "$PREBUILT" == "$ENGINE" ]]; then
+      # Linux amd64: the pre-compiled binary IS the canonical engine path.
+      # Only skip if no .go source is newer (handles --update rebuilds).
+      local NEEDS_REBUILD=0
+      while IFS= read -r -d '' f; do
+        [[ "$f" -nt "$ENGINE" ]] && { NEEDS_REBUILD=1; break; }
+      done < <(find "$SRC_DIR" -name "*.go" -print0 2>/dev/null)
+
+      if [[ "$NEEDS_REBUILD" -eq 0 ]]; then
+        chmod +x "$ENGINE"
+        skip "Engine already up to date — using pre-compiled binary  [${PREBUILT_LABEL}]."
+        return
+      fi
+      info "Source files updated since last build — rebuilding ..."
+      # Fall through to source build.
+
+    else
+      # Linux ARM: copy arm64 binary into the canonical wallpimp-engine slot.
+      step "Deploying pre-compiled binary  [${PREBUILT_LABEL}] ..."
+      cp "$PREBUILT" "$ENGINE"
+      chmod +x "$ENGINE"
+      ok "Engine ready: wallpimp-engine  [${PREBUILT_LABEL}]"
       return
     fi
-    step "Source updated — rebuilding engine ..."
-  else
-    step "Building Go engine ..."
+
+  elif [[ -n "$PREBUILT" && ! -f "$PREBUILT" ]]; then
+    info "Pre-compiled binary not present for ${PREBUILT_LABEL} — falling back to source build."
   fi
 
+  # ── Source build path (macOS / unknown arch / missing binary / stale amd64) ─
+  # Go is only required here — install it on-demand so ARM/amd64 users skip it.
+  assert_go
+
+  step "Building Go engine from source  [${OS}/${ARCH}] ..."
   pushd "$SRC_DIR" >/dev/null
   go build -o "$ENGINE" . || abort "go build failed. Check Go installation."
   popd >/dev/null
   chmod +x "$ENGINE"
-  ok "Engine built: wallpimp-engine"
+  ok "Engine built: wallpimp-engine  [${OS}/${ARCH}]"
 }
 
 # ── GUI checks ────────────────────────────────────────────────────────────────
@@ -451,6 +510,7 @@ print_done() {
 
 print_banner
 info "Install location: ${INSTALL_DIR}"
+info "Detected platform: ${OS}/${ARCH}"
 spacer
 
 echo "  Checking requirements ..."
@@ -458,8 +518,10 @@ spacer
 
 assert_curl
 assert_python
-assert_go
 assert_git
+# NOTE: assert_go is intentionally NOT called here.
+# It is called on-demand inside build_engine() only when a source build
+# is actually needed — so Linux amd64 and ARM users never install Go.
 
 spacer
 echo "  Installing system dependencies ..."
