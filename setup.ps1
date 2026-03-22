@@ -36,7 +36,7 @@
         Write-Host "   ╚══╝╚══╝ ╚═╝  ╚═╝╚══════╝╚══════╝╚═╝     ╚═╝╚═╝     ╚═╝╚═╝     " -ForegroundColor Cyan
         Write-Host ""
         Write-Host "  Wallpaper Manager  —  Setup & Launcher" -ForegroundColor DarkGray
-        Write-Host "  by 0xb0rn3  |  github.com/0xb0rn3/wallpimp" -ForegroundColor DarkGray
+        Write-Host "  by 0xb0rn3 | oxborn3.com | github.com/0xb0rn3/wallpimp" -ForegroundColor DarkGray
         Write-Host ""
         Write-Host ("  " + ("─" * 65)) -ForegroundColor DarkGray
         Write-Host ""
