@@ -654,7 +654,65 @@ func main() {
             Write-Step "Compiling Go engine ..."
             $buildOut = Invoke-Native { & go build -v -o $enginePath . 2>&1 }
             if ($LASTEXITCODE -ne 0) {
-                Abort "go build failed:`n$buildOut"
+                $buildStr = ($buildOut -join "`n")
+
+                # Detect corrupt stdlib — internal package errors cannot be fixed
+                # by changing source code. Only a full Go reinstall resolves them.
+                if ($buildStr -match "internal/goarch|internal/unsafeheader|internal/cpu|internal/abi|internal/bytealg") {
+                    Write-Spacer
+                    Write-Host "  ╔═══════════════════════════════════════════════════════════════╗" -ForegroundColor Red
+                    Write-Host "  ║  ✘  ERROR — CORRUPT GO INSTALLATION DETECTED                 ║" -ForegroundColor Red
+                    Write-Host "  ╠═══════════════════════════════════════════════════════════════╣" -ForegroundColor Red
+                    Write-Host "  ║                                                               ║" -ForegroundColor Red
+                    Write-Host "  ║  There is an error / conflict with an internal package in     ║" -ForegroundColor Red
+                    Write-Host "  ║  your Go installation. This error will persist and keep       ║" -ForegroundColor Red
+                    Write-Host "  ║  you from running WallPimp.                                   ║" -ForegroundColor Red
+                    Write-Host "  ║                                                               ║" -ForegroundColor Red
+                    Write-Host "  ║  WallPimp can perform a full cleanup of the broken Go         ║" -ForegroundColor Red
+                    Write-Host "  ║  package and reinstall it fresh so setup can proceed.         ║" -ForegroundColor Red
+                    Write-Host "  ║                                                               ║" -ForegroundColor Red
+                    Write-Host "  ║  This will:                                                   ║" -ForegroundColor DarkYellow
+                    Write-Host "  ║    • Remove your current Go installation completely           ║" -ForegroundColor DarkYellow
+                    Write-Host "  ║    • Clear Go caches and module data                          ║" -ForegroundColor DarkYellow
+                    Write-Host "  ║    • Download and install a fresh copy of Go 1.22.5           ║" -ForegroundColor DarkYellow
+                    Write-Host "  ║                                                               ║" -ForegroundColor DarkYellow
+                    Write-Host "  ║  Your other applications and files will not be affected.      ║" -ForegroundColor DarkYellow
+                    Write-Host "  ║                                                               ║" -ForegroundColor DarkYellow
+                    Write-Host "  ║  Need help? Reach out:                                        ║" -ForegroundColor DarkGray
+                    Write-Host "  ║    contact@oxborn3.com  |  oxborn3.com                        ║" -ForegroundColor DarkGray
+                    Write-Host "  ║                                                               ║" -ForegroundColor DarkGray
+                    Write-Host "  ╚═══════════════════════════════════════════════════════════════╝" -ForegroundColor Red
+                    Write-Spacer
+
+                    while ($true) {
+                        Write-Host "  Type  YES  to proceed with cleanup and reinstall." -ForegroundColor Cyan
+                        Write-Host "  Type  NO   to quit setup." -ForegroundColor Cyan
+                        Write-Spacer
+                        $answer = (Read-Host "  Your choice").Trim().ToUpper()
+                        if ($answer -eq "YES") { break }
+                        if ($answer -eq "NO")  { Abort "Setup cancelled by user." }
+                        Write-Host "  Please type YES or NO." -ForegroundColor Yellow
+                        Write-Spacer
+                    }
+
+                    Write-Spacer
+                    Invoke-GoNuke
+                    Install-GoOfficial
+                    Refresh-Path
+
+                    Write-Step "Retrying build after Go reinstall ..."
+                    $env:GO111MODULE  = "on"
+                    $env:GOFLAGS      = "-mod=mod"
+                    $env:GONOSUMCHECK = "*"
+                    $buildOut2 = Invoke-Native { & go build -v -o $enginePath . 2>&1 }
+                    if ($LASTEXITCODE -ne 0) {
+                        Abort "go build failed after Go reinstall:`n$($buildOut2 -join "`n")"
+                    }
+                    Write-OK "Engine built: wallpimp-engine.exe"
+                    return
+                }
+
+                Abort "go build failed:`n$buildStr"
             }
 
             Write-OK "Engine built: wallpimp-engine.exe"
