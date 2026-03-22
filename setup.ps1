@@ -10,6 +10,10 @@
 #
 #    Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
 #    .\setup.ps1
+#
+#  PATCH: Assert-VCRedist rewritten to download directly from Microsoft
+#         instead of using winget — fixes install failure on QEMU/KVM VMs
+#         where winget cannot install Microsoft.VCRedist.2015+.x64.
 # =============================================================================
 
 & {
@@ -308,8 +312,7 @@
             "/NORESTART",
             "/NOCANCEL",
             "/SP-",
-            "/COMPONENTS=icons,ext
-eg\shellhere,assoc,assoc_sh"
+            "/COMPONENTS=icons,ext`neg\shellhere,assoc,assoc_sh"
         )
         Remove-Item $tmpPath -Force -ErrorAction SilentlyContinue
 
@@ -340,20 +343,61 @@ eg\shellhere,assoc,assoc_sh"
     }
 
     # ── Visual C++ Redistributable ────────────────────────────────────────────
+    # PATCHED: Downloads directly from Microsoft aka.ms redirect instead of
+    # using winget, which fails on QEMU/KVM VMs and restricted environments.
+    # Exit codes: 0 = success, 3010 = success + reboot pending (safe to ignore).
+    function Install-VCRedistDirect {
+        param(
+            [string]$Arch   # "x64" or "x86"
+        )
+
+        $urls = @{
+            "x64" = "https://aka.ms/vs/17/release/vc_redist.x64.exe"
+            "x86" = "https://aka.ms/vs/17/release/vc_redist.x86.exe"
+        }
+
+        $url     = $urls[$Arch]
+        $tmpPath = Join-Path $env:TEMP "vc_redist.$Arch.exe"
+
+        Write-Step "Downloading VC++ Redistributable ($Arch) from Microsoft ..."
+        try {
+            Invoke-WebRequest -Uri $url -OutFile $tmpPath -UseBasicParsing -TimeoutSec 120
+        } catch {
+            Abort "Failed to download VC++ Redistributable ($Arch): $_"
+        }
+
+        Write-Step "Installing VC++ Redistributable ($Arch) ..."
+        $proc = Start-Process -FilePath $tmpPath -Wait -PassThru -ArgumentList @(
+            "/install", "/quiet", "/norestart"
+        )
+        Remove-Item $tmpPath -Force -ErrorAction SilentlyContinue
+
+        if ($proc.ExitCode -notin @(0, 3010)) {
+            Abort "VC++ Redistributable ($Arch) installer exited with code $($proc.ExitCode)."
+        }
+        Write-OK "VC++ Redistributable ($Arch) installed."
+    }
+
     function Assert-VCRedist {
         Write-Step "Checking Visual C++ Redistributable ..."
+
+        # Check registry for any VC++ 2015+ runtime (version >= 14.0)
         $installed = Get-ItemProperty `
             "HKLM:\SOFTWARE\Microsoft\VisualStudio\*\VC\Runtimes\*" `
             -ErrorAction SilentlyContinue |
             Where-Object { $_.Version -ge "14.0" }
+
         if ($installed) {
             Write-OK "Visual C++ Redistributable already installed."
             return
         }
+
         Write-Step "Installing Visual C++ 2015-2022 Redistributable ..."
-        Install-WithWinget "Microsoft.VCRedist.2015+.x64" "VC++ Redistributable x64"
+        Install-VCRedistDirect -Arch "x64"
+
+        # Also install x86 on 32-bit systems
         if (-not [System.Environment]::Is64BitOperatingSystem) {
-            Install-WithWinget "Microsoft.VCRedist.2015+.x86" "VC++ Redistributable x86"
+            Install-VCRedistDirect -Arch "x86"
         }
     }
 
@@ -375,7 +419,6 @@ eg\shellhere,assoc,assoc_sh"
         Write-OK "pip installed."
     }
 
-    # Run pip via Start-Process to avoid RemoteException when running as Administrator.
     function Invoke-Pip {
         param([string[]]$PipArgs)
         $logFile = Join-Path $env:TEMP "wallpimp-pip.log"
@@ -547,7 +590,7 @@ eg\shellhere,assoc,assoc_sh"
     Assert-Python        # validates tkinter; full reinstall from python.org if broken
     Assert-Go            # direct MSI from go.dev — never winget
     Assert-Git
-    Assert-VCRedist
+    Assert-VCRedist      # PATCHED: direct download from aka.ms — never winget
 
     Write-Spacer
     Write-Host "  Setting up Python environment ..." -ForegroundColor DarkGray
