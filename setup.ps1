@@ -337,19 +337,40 @@
         Invoke-Native { & $script:PythonCmd -m pip --version 2>&1 } | Out-Null
         if ($LASTEXITCODE -eq 0) { Write-OK "pip found."; return }
 
-        Write-Step "pip not found — running ensurepip ..."
-        Invoke-Native { & $script:PythonCmd -m ensurepip --upgrade 2>&1 } | Out-Null
+        Write-Step "pip not found — running ensurepip via Start-Process ..."
+        $epProc = Start-Process `
+            -FilePath $script:PythonCmd `
+            -ArgumentList @("-m", "ensurepip", "--upgrade") `
+            -Wait -PassThru -NoNewWindow
         Invoke-Native { & $script:PythonCmd -m pip --version 2>&1 } | Out-Null
         if ($LASTEXITCODE -ne 0) {
-            Abort "pip could not be installed. The Python install may be corrupted — re-run setup."
+            Abort "pip could not be installed (ensurepip exit $($epProc.ExitCode)). Re-run setup."
         }
         Write-OK "pip installed."
+    }
+
+    function Invoke-Pip {
+        # Run a pip command robustly, bypassing PowerShell remoting exceptions.
+        # Uses Start-Process so the child process runs in its own context —
+        # avoids system.Management.Automation.RemoteException when elevated.
+        param([string[]]$PipArgs)
+        $logFile = Join-Path $env:TEMP "wallpimp-pip.log"
+        $proc = Start-Process `
+            -FilePath $script:PythonCmd `
+            -ArgumentList (@("-m", "pip") + $PipArgs) `
+            -Wait -PassThru -NoNewWindow `
+            -RedirectStandardOutput $logFile `
+            -RedirectStandardError  "$logFile.err"
+        $exitCode = $proc.ExitCode
+        Remove-Item $logFile, "$logFile.err" -ErrorAction SilentlyContinue
+        return $exitCode
     }
 
     function Install-PythonDeps {
         Write-Step "Checking Python packages (requests, tqdm) ..."
         $missing = @()
         foreach ($pkg in @("requests", "tqdm")) {
+            # Use Invoke-Native for show — it's read-only and safe inline
             Invoke-Native { & $script:PythonCmd -m pip show $pkg 2>&1 } | Out-Null
             if ($LASTEXITCODE -ne 0) { $missing += $pkg }
         }
@@ -358,11 +379,12 @@
             return
         }
         Write-Step "Installing: $($missing -join ', ') ..."
-        $out = Invoke-Native {
-            & $script:PythonCmd -m pip install --quiet --upgrade $missing 2>&1
-        }
-        if ($LASTEXITCODE -ne 0) {
-            Abort "pip install failed:`n$out`n`nRun manually:  pip install $($missing -join ' ')"
+        # Use Invoke-Pip (Start-Process) to avoid RemoteException when running
+        # as Administrator — inline & calls can throw through PS remoting layer.
+        $pipArgs = @("install", "--quiet", "--upgrade", "--no-warn-script-location") + $missing
+        $code = Invoke-Pip $pipArgs
+        if ($code -ne 0) {
+            Abort "pip install failed (exit $code).`nRun manually:  pip install $($missing -join ' ')"
         }
         Write-OK "Python packages installed."
     }
