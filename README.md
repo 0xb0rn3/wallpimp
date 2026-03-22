@@ -1,16 +1,18 @@
-# WallPimp - Wallpaper Manager
+# WallPimp — Wallpaper Manager
 
 Cross-platform wallpaper manager for Linux, macOS, and Windows.  
 Python handles the interactive terminal UI. A compiled Go engine handles all
 downloads — GitHub archives and Unsplash — using native goroutines and a
 persistent socket connection for maximum throughput with zero per-operation overhead.
 
+---
+
 ## Architecture
 
 ```
 wallpimp (Python)          wallpimp-engine (Go binary)
   Terminal UI  ──────────── newline-delimited JSON ────  Goroutine pool
-  GUI (tkinter)        Unix socket / named pipe           GitHub downloader
+  GUI (tkinter)        Unix socket / TCP (Windows)        GitHub downloader
   Menus & settings                                        Unsplash client
   Slideshow control                                       Hash database
   Wallpaper setter                                        Rate limiter
@@ -22,6 +24,8 @@ Go — no Python threads involved in the hot path.
 
 The optional tkinter GUI (`wallpimp_gui.py`) communicates with the same engine
 over the same socket — no separate backend needed.
+
+---
 
 ## Features
 
@@ -39,26 +43,31 @@ over the same socket — no separate backend needed.
 - Slideshow: systemd (Linux) · launchd (macOS) · Task Scheduler (Windows)
 - Shuffle-queue slideshow — every wallpaper shown once before any repeats
 - Configurable parallel download workers
+- **Pre-built Windows engine binary shipped in repo — Go not required on user machines**
+
+---
 
 ## Requirements
 
 | Component | Requirement |
 |-----------|-------------|
-| Python | 3.10+ (for `\|` union type hints) |
-| Go | 1.21+ (to build the engine) |
+| Python | 3.10+ |
+| Go | 1.21+ (Linux/macOS builds only — Windows uses pre-built binary) |
 | GUI (optional) | Python `tkinter` — ships with standard Python installs |
 | Linux slideshow | GNOME or XFCE4 + systemd |
 | macOS | 10.13+ High Sierra or later |
 | Windows | Windows 10 or later |
+
+---
 
 ## Project Structure
 
 ```
 wallpimp                  # Python script (CLI — UI + wallpaper setters + slideshow)
 wallpimp_gui.py           # Python script (GUI — tkinter front-end, same engine)
-wallpimp_launch.py        # Launcher — prompts GUI / CLI choice (Linux/macOS)
-setup                  # Bash — one-line installer for Linux / macOS
-setup.ps1                 # One-line installer for Windows
+wallpimp-engine.exe       # Pre-built Windows Go engine (no Go install required)
+setup                     # Bash — one-line installer for Linux / macOS
+setup.ps1                 # PowerShell — one-line installer for Windows
 src/
   go.mod                  # Go module
   main.go                 # Socket server + command dispatcher
@@ -66,35 +75,56 @@ src/
   unsplash.go             # Unsplash client + rate limiter + image fetcher
   hash.go                 # Thread-safe MD5 hash database
   screen.go               # Screen resolution detection (all platforms)
+  http.go                 # Shared HTTP transport + retry logic
   creds.go                # Obfuscated credential resolution (XOR + base64)
+  zipextract.go           # Zip fallback extractor for large repos
 ```
-
-## Build
-
-```bash
-cd src
-go build -o ../wallpimp-engine .
-```
-
-Cross-compile for other platforms:
-
-```bash
-# Windows (from Linux/macOS)
-GOOS=windows GOARCH=amd64 go build -o ../wallpimp-engine.exe .
-
-# macOS Apple Silicon
-GOOS=darwin GOARCH=arm64 go build -o ../wallpimp-engine-arm64 .
-
-# Linux ARM (e.g. Raspberry Pi)
-GOOS=linux GOARCH=arm64 go build -o ../wallpimp-engine-arm64 .
-```
-
-The binary lands at the repo root alongside the `wallpimp` script.
-The engine is auto-located and started on first use — no configuration needed.
 
 ---
 
 ## Installation
+
+### Windows — one-line setup (recommended)
+
+Open **PowerShell as Administrator** and run:
+
+```powershell
+irm https://raw.githubusercontent.com/0xb0rn3/wallpimp/main/setup.ps1 | iex
+```
+
+`setup.ps1` automatically:
+- Checks and installs Python 3.12, Git, and Visual C++ Redistributable if missing
+- Clones the repository to `%USERPROFILE%\wallpimp`
+- Uses the pre-built `wallpimp-engine.exe` from the repo — **no Go required**
+- Detects and auto-repairs corrupt Go installations if one exists on the machine
+- Installs Python dependencies (`requests`, `tqdm`)
+- Prompts you to choose **GUI** or **CLI** at launch
+
+> **Do not close the window** while setup is running.
+
+#### Corrupt Go detection
+
+If a pre-existing Go installation on the machine is corrupt (e.g. from system
+tweaking tools), setup detects it at build time and shows a recovery prompt:
+
+```
+  ╔═══════════════════════════════════════════════════════════════╗
+  ║  ✘  ERROR — CORRUPT GO INSTALLATION DETECTED                 ║
+  ╠═══════════════════════════════════════════════════════════════╣
+  ║  There is an error / conflict with an internal package in     ║
+  ║  your Go installation...                                      ║
+  ╚═══════════════════════════════════════════════════════════════╝
+
+  Type  YES  to proceed with cleanup and reinstall.
+  Type  NO   to quit setup.
+```
+
+Typing `YES` performs a full nuke and reinstall automatically. No manual
+intervention required.
+
+To re-run setup or update an existing installation, run the same command again.
+
+---
 
 ### Linux / macOS — one-line setup (recommended)
 
@@ -123,7 +153,7 @@ After the prompt:
   Enter choice [i / ii]:
 ```
 
-To re-run setup or update an existing installation:
+To re-run setup or update:
 
 ```bash
 bash <(curl -fsSL https://raw.githubusercontent.com/0xb0rn3/wallpimp/main/setup)
@@ -135,20 +165,12 @@ then show the launch prompt again.
 #### Flags (skip the prompt)
 
 ```bash
-# Force GUI launch
-bash <(curl -fsSL .../setup) --gui
-
-# Force CLI launch
-bash <(curl -fsSL .../setup) --cli
-
-# Pull + rebuild only, no launch
-bash <(curl -fsSL .../setup) --update
+bash <(curl -fsSL .../setup) --gui     # Force GUI launch
+bash <(curl -fsSL .../setup) --cli     # Force CLI launch
+bash <(curl -fsSL .../setup) --update  # Pull + rebuild only, no launch
 ```
 
 #### tkinter (GUI prerequisite)
-
-`tkinter` ships with the standard Python installer on most platforms. If the
-GUI option shows as unavailable, install it with:
 
 ```bash
 sudo apt-get install python3-tk   # Debian / Ubuntu / Kali
@@ -162,73 +184,68 @@ Then re-run setup — the GUI option will appear automatically.
 
 ---
 
-### Windows — one-line setup (recommended)
-
-Open **PowerShell as Administrator** and run:
-
-```powershell (COPY PASTE COOMAND & CLICK ENTER)
-Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
-irm https://raw.githubusercontent.com/0xb0rn3/wallpimp/main/setup.ps1 | iex
-```
-
-`setup.ps1` automatically:
-- Checks and installs Python 3.10+, Go 1.21+, and Git via winget if missing
-- Clones the repository to `%USERPROFILE%\wallpimp`
-- Builds the Go engine (`wallpimp-engine.exe`)
-- Installs Python dependencies
-- Prompts you to choose **GUI** or **CLI** at launch (same prompt as Linux)
-
-> **Do not close the window** while setup is running.
-
-To re-run setup or update an existing installation, run the same command again —
-it will pull the latest repo, rebuild the engine only if source has changed, and
-show the launch prompt again.
-
-If you prefer to run the script locally:
-
-```powershell
-Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
-.\setup.ps1
-```
-
----
-
 ### Manual install (all platforms)
 
 ```bash
 git clone --depth 1 https://github.com/0xb0rn3/wallpimp.git ~/wallpimp
 cd ~/wallpimp/src && go build -o ../wallpimp-engine . && cd ..
-chmod +x wallpimp wallpimp_launch.py
+chmod +x wallpimp
 pip install requests tqdm
 ```
 
-Then launch via the prompt:
+Windows manual (if not using setup.ps1):
 
-```bash
-python3 wallpimp_launch.py        # shows GUI / CLI choice
-python3 wallpimp_launch.py --gui  # force GUI
-python3 wallpimp_launch.py --cli  # force CLI
+```powershell
+git clone --depth 1 https://github.com/0xb0rn3/wallpimp.git $env:USERPROFILE\wallpimp
+# wallpimp-engine.exe is already included — no build needed
+cd $env:USERPROFILE\wallpimp
+pip install requests tqdm
+python wallpimp
 ```
 
-Or directly:
+---
+
+## Build
 
 ```bash
-python3 wallpimp_gui.py   # GUI
-python3 wallpimp          # CLI
+cd src
+go build -o ../wallpimp-engine .
 ```
+
+Cross-compile for other platforms:
+
+```bash
+# Windows (from Linux/macOS)
+GOOS=windows GOARCH=amd64 GO111MODULE=on go build -o ../wallpimp-engine.exe .
+
+# macOS Apple Silicon
+GOOS=darwin GOARCH=arm64 go build -o ../wallpimp-engine-arm64 .
+
+# Linux ARM (e.g. Raspberry Pi)
+GOOS=linux GOARCH=arm64 go build -o ../wallpimp-engine-arm64 .
+```
+
+The binary lands at the repo root alongside the `wallpimp` script.
+The engine is auto-located and started on first use — no configuration needed.
 
 ---
 
 ## Launching after setup
 
-Once installed, you can launch WallPimp any time with the same launcher:
-
 ```bash
-# Linux / macOS — from the install directory
-cd ~/wallpimp && python3 wallpimp_launch.py
+# Linux / macOS
+cd ~/wallpimp && python3 wallpimp
 
-# Or re-run setup (bash) — it skips all already-done steps and goes straight to the prompt
+# Or re-run setup — skips all already-done steps and goes straight to the prompt
 bash <(curl -fsSL https://raw.githubusercontent.com/0xb0rn3/wallpimp/main/setup)
+```
+
+```powershell
+# Windows
+cd $env:USERPROFILE\wallpimp
+python wallpimp
+# or
+python wallpimp_gui.py
 ```
 
 ---
@@ -278,93 +295,17 @@ Main menu:
 |---|--------|
 | 1 | Download wallpapers |
 | 2 | Unsplash |
-| 3 | Settings |
+| 3 | Set wallpaper |
 | 4 | Slideshow control |
-| 5 | Set random wallpaper |
+| 5 | Settings |
 | 6 | Exit |
 
 ---
 
-## Download Wallpapers
+## Resolution Detection
 
-```
-wallpimp → 1. Download wallpapers
-```
-
-| Option | Description |
-|--------|-------------|
-| 1. Download full library | Scans all sources then downloads everything |
-| 2. Download custom amount | Scans total available, prompts for count |
-| c. Change save directory | Change where wallpapers are saved |
-
-### How it works
-
-The Go engine scans all 19 GitHub repos via the tree API and Unsplash topic totals —
-no images downloaded during scan. It then shows:
-
-```
-  Available : 14,823 wallpapers
-```
-
-Downloads stream behind a live progress bar rendered by Python off engine events:
-
-```
-  DOWNLOADING  ████████████░░░░░░░░  6,241/14,823
-```
-
-Sources are processed in order: GitHub repos first, then Unsplash topics, then
-Unsplash random fill to hit a custom target.
-
-### Engine Protocol
-
-Python sends newline-delimited JSON commands to the Go engine over a Unix socket.
-The engine streams `progress` events in real time and sends a final `done` event:
-
-```json
-→ {"cmd":"download","wdir":"/home/user/Pictures/Wallpapers","target":500}
-← {"event":"progress","new":47,"dupes":3,"errors":0}
-← {"event":"progress","new":89,"dupes":5,"errors":0}
-← ...
-← {"event":"done","new":500,"dupes":62,"errors":1}
-```
-
-Both the CLI and GUI use this same protocol — the engine is unaware of which
-front-end is connected.
-
----
-
-## Unsplash
-
-```
-wallpimp → 2. Unsplash
-```
-
-| # | Option |
-|---|--------|
-| 1 | Search by keyword |
-| 2 | Browse topics |
-| 3 | Browse curated collections |
-| 4 | Random wallpapers |
-| 5 | Change save directory |
-
-Every option shows the current save path and offers to change it before starting.
-
-### Rate Limiting
-
-The Go engine enforces 45 requests/hour (free tier cap is 50 — 5 held in reserve)
-using a sliding-window token bucket. If the limit is hit during bulk download,
-the engine blocks internally and Python receives a `wait` event:
-
-```
-  Rate limit buffer reached. Pausing 312s …
-```
-
-No user action needed — the engine resumes automatically.
-
-### Auto Resolution
-
-| Platform | Detection method |
-|----------|-----------------|
+| Platform | Method |
+|----------|---------|
 | Linux | `xrandr`, `/sys/class/graphics/fb0/virtual_size`, `xdpyinfo` |
 | macOS | `system_profiler SPDisplaysDataType`, AppleScript Finder bounds |
 | Windows | PowerShell `System.Windows.Forms.Screen` |
@@ -407,8 +348,6 @@ journalctl --user -u wallpimp-slideshow.service -f
 WallPimp writes a plist to `~/Library/LaunchAgents/com.wallpimp.slideshow.plist`
 and loads it immediately. Autostart on login is automatic.
 
-Logs: `~/Library/Logs/wallpimp-slideshow.log`
-
 ```bash
 launchctl load   ~/Library/LaunchAgents/com.wallpimp.slideshow.plist
 launchctl unload ~/Library/LaunchAgents/com.wallpimp.slideshow.plist
@@ -417,7 +356,6 @@ launchctl unload ~/Library/LaunchAgents/com.wallpimp.slideshow.plist
 ### Windows (Task Scheduler)
 
 WallPimp registers a `WallPimp Slideshow` task set to run at logon.
-Run as Administrator if it fails.
 
 ```powershell
 schtasks /run    /tn "WallPimp Slideshow"
@@ -427,8 +365,8 @@ schtasks /delete /tn "WallPimp Slideshow" /f
 ### Direct daemon mode (all platforms)
 
 ```bash
-wallpimp --daemon        # Linux / macOS
-python wallpimp --daemon # Windows
+python3 wallpimp --daemon   # Linux / macOS
+python wallpimp --daemon    # Windows
 ```
 
 ---
@@ -468,27 +406,13 @@ python wallpimp --daemon # Windows
   └── unsplash/
       ├── search/<query>/
       ├── topics/<slug>/
-      ├── collections/<name>/
+      ├── collections/<n>/
       └── random/
 ```
 
 ---
 
-## Permissions
-
-### Linux / macOS
-Directories requiring root trigger a native `sudo mkdir` prompt, followed by
-`chown` so future writes don't need elevation again.
-
-### Windows
-If a directory requires elevated access, WallPimp instructs you to either run as
-Administrator or choose a user-owned path.
-
----
-
 ## Go Engine — Concurrency Model
-
-Each download operation maps to a bounded goroutine pool:
 
 ```
 command arrives
@@ -533,12 +457,10 @@ Go engine not found
   Then place it next to this script.
 ```
 
-Build the engine and ensure it sits in the same directory as `wallpimp`, or
-anywhere on your `PATH`.
+On Windows, `wallpimp-engine.exe` is shipped in the repo — ensure the clone
+completed successfully. On Linux/macOS, build it from source.
 
 ### GUI option not appearing (Linux)
-
-The GUI requires `tkinter`. Install it for your distro:
 
 ```bash
 sudo apt-get install python3-tk   # Debian / Ubuntu / Kali / Mint
@@ -564,9 +486,6 @@ launchctl list com.wallpimp.slideshow
 cat ~/Library/Logs/wallpimp-slideshow.log
 ```
 
-Also check System Preferences → Security & Privacy → Accessibility / Automation
-and grant Terminal (or Python) permission.
-
 ### Slideshow not working (Windows)
 
 Run wallpimp as Administrator and use `Start slideshow` again:
@@ -585,20 +504,25 @@ brew install git       # macOS
 winget install Git.Git # Windows
 ```
 
+### go build fails with internal package error (Windows)
+
+This is caused by a corrupt Go installation, often from system tweaking tools
+like WinUtil. Run setup again — it detects the corruption automatically and
+prompts you to nuke and reinstall Go cleanly.
+
+If you're not using `setup.ps1`, run this in an admin PowerShell to fix manually:
+
+```powershell
+takeown /f "C:\Program Files\Go" /r /d y
+icacls "C:\Program Files\Go" /grant administrators:F /t
+Remove-Item -Recurse -Force "C:\Program Files\Go"
+# Then reinstall Go from https://go.dev/dl/
+```
+
 ### Python deps not installing
 
 ```bash
 pip install requests tqdm
-```
-
-### Go not found after setup (Linux)
-
-`setup` (bash) installs Go to `/usr/local/go` and appends to `~/.profile`,
-`~/.bashrc`, and `~/.zshrc`. If `go` is still not found, source your profile:
-
-```bash
-source ~/.profile
-# or open a new terminal
 ```
 
 ---
@@ -607,10 +531,10 @@ source ~/.profile
 
 | Metric | Notes |
 |--------|-------|
-| Engine latency | Sub-millisecond per command (Unix socket, no spawn overhead) |
+| Engine latency | Sub-millisecond per command (Unix socket / TCP loopback) |
 | Download workers | 8 default, configurable 1–32 via `download_workers` |
 | Hash lookup | O(1) — `sync.RWMutex` map |
-| Archive extraction | Streamed in 64KB chunks, images only |
+| Archive extraction | Streamed, images only |
 | Image format | JPEG 85%, resolution matched to screen |
 | Memory | ~50MB during large downloads |
 
@@ -631,13 +555,18 @@ source ~/.profile
 ## Developer
 
 - **Developer**: 0xb0rn3
-- **Email**: oxbv1@proton.me
-- **GitHub**: https://github.com/0xb0rn3/wallpimp
+- **Website**: [oxborn3.com](https://oxborn3.com)
+- **Email**: contact@oxborn3.com
+- **GitHub**: [github.com/0xb0rn3/wallpimp](https://github.com/0xb0rn3/wallpimp)
+
+---
 
 ## License
 
-Open source — Cybersecurity research and educational purposes
+Open source — Cybersecurity research and educational purposes.
+
+---
 
 ## Contributing
 
-Bug reports and feature requests welcome via GitHub issues.
+Bug reports and feature requests welcome via [GitHub Issues](https://github.com/0xb0rn3/wallpimp/issues).
