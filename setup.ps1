@@ -277,6 +277,49 @@
     }
 
     # ── Go ────────────────────────────────────────────────────────────────────
+    # Downloads the official Go MSI from go.dev/dl — bypasses winget entirely.
+    # winget's GoLang.Go package frequently fails on fresh Windows installs
+    # because the source index is stale or the package requires a UAC prompt
+    # that winget can't handle silently inside a remoted PS session.
+    function Install-GoOfficial {
+        $goVer  = "1.22.4"
+        $arch   = if ([System.Environment]::Is64BitOperatingSystem) { "amd64" } else { "386" }
+        $msiName = "go$goVer.windows-$arch.msi"
+        $url    = "https://go.dev/dl/$msiName"
+        $tmpPath = Join-Path $env:TEMP $msiName
+
+        Write-Step "Downloading Go $goVer ($arch) from go.dev ..."
+        try {
+            Invoke-WebRequest -Uri $url -OutFile $tmpPath -UseBasicParsing
+        } catch {
+            Abort "Failed to download Go installer: $_"
+        }
+
+        Write-Step "Installing Go $goVer ..."
+        # MSI silent install — INSTALLDIR defaults to C:\Program Files\Go
+        $proc = Start-Process -FilePath "msiexec.exe" `
+            -ArgumentList @("/i", $tmpPath, "/quiet", "/norestart") `
+            -Wait -PassThru
+        Remove-Item $tmpPath -Force -ErrorAction SilentlyContinue
+
+        if ($proc.ExitCode -ne 0) {
+            Abort "Go MSI installer exited with code $($proc.ExitCode)."
+        }
+
+        # The MSI adds Go to the Machine PATH — refresh current session.
+        Refresh-Path
+
+        # Fallback: if go.exe still not found, add the default install dir manually.
+        if (-not (Test-Command "go")) {
+            $goDefault = "C:\Program Files\Goin"
+            if (Test-Path $goDefault) {
+                $env:PATH = "$goDefault;$env:PATH"
+            }
+        }
+
+        Write-OK "Go $goVer installed."
+    }
+
     function Assert-Go {
         $minVer = [version]"1.21.0"
         if (Test-Command "go") {
@@ -290,10 +333,11 @@
         } else {
             Write-Step "Go not found — installing ..."
         }
-        Install-WithWinget "GoLang.Go" "Go 1.21+"
-        Refresh-Path
+
+        Install-GoOfficial
+
         if (-not (Test-Command "go")) {
-            Abort "Go not on PATH after install. Open a new terminal and re-run."
+            Abort "Go not found on PATH after install. Open a new terminal and re-run."
         }
         Write-OK "Go is ready."
     }
